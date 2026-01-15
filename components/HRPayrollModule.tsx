@@ -434,7 +434,7 @@ const HRPayrollModule: React.FC<HRPayrollModuleProps> = ({ currentUser }) => {
         // Labels
         doc.setFontSize(7);
         doc.setFont('helvetica', 'bold');
-        doc.text('CÓDIGO', 15, 39);
+        doc.text('CÓD.', 15, 39);
         doc.text('NOME DO FUNCIONÁRIO', 40, 39);
         doc.text('CBO', 140, 39); 
         doc.text('FUNÇÃO', 160, 39);
@@ -788,7 +788,7 @@ const HRPayrollModule: React.FC<HRPayrollModuleProps> = ({ currentUser }) => {
                               <span className="text-xs">{calculationData.deductions.toFixed(2)}</span>
                            </div>
                            <div className="flex-1 flex items-center justify-between px-2 bg-slate-200">
-                              <span className="text-[10px] font-bold">LÍQUIDO A RECEBER -></span>
+                              <span className="text-[10px] font-bold">LÍQUIDO A RECEBER &rarr;</span>
                               <span className="text-sm font-bold">R$ {calculationData.net.toFixed(2)}</span>
                            </div>
                         </div>
