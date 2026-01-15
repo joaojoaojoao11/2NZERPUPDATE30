@@ -1,0 +1,95 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>NZERP - Gestão de Rotinas</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+    
+    <style type="text/tailwindcss">
+      @layer base {
+        :root {
+          --primary: #0f172a;
+          --accent: #2563eb;
+          --bg-main: #f8fafc;
+        }
+
+        body { 
+          font-family: 'Inter', sans-serif; 
+          background-color: var(--bg-main);
+          color: #1e293b;
+          margin: 0;
+          min-height: 100vh;
+        }
+      }
+      
+      #root { min-height: 100vh; display: flex; flex-direction: column; }
+
+      @layer components {
+        /* Container de Tabela Profissional */
+        .table-container {
+          @apply w-full bg-white border border-slate-200 rounded-[2rem] shadow-sm overflow-hidden;
+          max-height: calc(100vh - 280px);
+          overflow-y: auto;
+        }
+
+        table { @apply w-full border-collapse; min-width: 1100px; }
+
+        /* Cabeçalho Industrial Dark */
+        thead th {
+          @apply sticky top-0 z-20 bg-[#0F172A] text-slate-400 font-black uppercase text-[10px] tracking-[0.2em] px-6 py-5 text-left border-b border-slate-800 transition-colors;
+        }
+
+        /* Células de Dados */
+        td {
+          @apply px-6 py-4 border-b border-slate-50 align-middle text-[12px] font-medium text-slate-600 transition-all;
+        }
+        
+        tr:nth-child(even) td { @apply bg-slate-50/40; }
+        tr:hover td { @apply bg-blue-50/50; }
+
+        /* Badges LPN Técnicos */
+        .lpn-badge-industrial {
+          font-family: 'JetBrains Mono', monospace;
+          @apply inline-flex items-center px-2 py-0.5 bg-blue-50 text-blue-700 rounded-md font-bold text-[9px] tracking-tight border border-blue-100 uppercase italic shadow-sm;
+        }
+
+        /* Localização Badge */
+        .loc-badge {
+          font-family: 'JetBrains Mono', monospace;
+          @apply inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 rounded font-black text-[10px] uppercase border border-slate-200;
+        }
+      }
+
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 20px; }
+    </style>
+    
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "recharts": "https://esm.sh/recharts@^3.6.0",
+    "jspdf": "https://esm.sh/jspdf@^4.0.0",
+    "qrcode": "https://esm.sh/qrcode@^1.5.4",
+    "html2canvas": "https://esm.sh/html2canvas@^1.4.1",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "xlsx": "https://esm.sh/xlsx@^0.18.5",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.90.0"
+  }
+}
+</script>
+</head>
+  <body class="antialiased">
+    <div id="root"></div>
+    <script type="module">
+      import "/index.tsx";
+    </script>
+  </body>
+</html>

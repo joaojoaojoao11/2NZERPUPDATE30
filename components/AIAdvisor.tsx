@@ -1,0 +1,1 @@
+/* Este arquivo foi removido conforme a solicitação do usuário para desativar a funcionalidade de BI & Analytics. */
