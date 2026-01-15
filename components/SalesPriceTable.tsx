@@ -257,7 +257,7 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
               <th className="px-8 py-6 text-left sticky left-0 z-40 bg-slate-900">Produto / SKU</th>
               <th className="px-4 py-6 text-center">Largura</th>
               <th className="px-4 py-6 text-center">Metragem</th>
-              <th className="px-4 py-6 text-center">Status</th>
+              <th className="px-4 py-6 text-center">Disponibilidade</th>
               <th className="px-6 py-6 text-center bg-indigo-900/20 text-indigo-400">Rolo (Mínimo)</th>
               <th className="px-6 py-6 text-center bg-indigo-900/30 text-indigo-200">Rolo (Ideal)</th>
               <th className="px-6 py-6 text-center bg-emerald-900/20 text-emerald-400">Frac. (Mínimo)</th>
