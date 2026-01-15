@@ -139,8 +139,8 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
         await fetchData();
       }
     } catch (e: any) {
-        // Exibe a mensagem real do erro vinda do DataService (ex: "Coluna active não existe")
-        setToast({ msg: e.message || 'Falha ao alterar status.', type: 'error' });
+        const errorMsg = e instanceof Error ? e.message : (typeof e === 'string' ? e : 'Falha desconhecida ao alterar status.');
+        setToast({ msg: errorMsg, type: 'error' });
     }
   };
 

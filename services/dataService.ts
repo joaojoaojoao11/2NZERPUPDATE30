@@ -128,7 +128,8 @@ export class DataService {
     
     if (error) {
         // Tratamento de Schema Desatualizado (42703 = Undefined Column, PGRST204 = No Content/Mismatch)
-        if (error.code === 'PGRST204' || error.code === '42703') {
+        // Adicionado check por string 'column' para capturar variações de erro
+        if (error.code === 'PGRST204' || error.code === '42703' || (error.message && error.message.includes('column'))) {
             console.warn("Database Schema Mismatch: Coluna possivelmente inexistente. Tentando salvamento resiliente...");
             
             const basicPayload = {
@@ -154,7 +155,7 @@ export class DataService {
             
             // Se o usuário tentou especificamente pausar/ativar, mas a coluna não existe, avisa.
             if (product.active !== undefined) {
-               throw new Error("AVISO: Status não salvo. Coluna 'active' não existe no banco.");
+               throw new Error("Aviso de Schema: O status não foi salvo pois a coluna 'active' não existe no banco de dados.");
             }
             
             return true;
