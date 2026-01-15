@@ -1,3 +1,4 @@
+
 import { supabaseClient as supabase } from './core';
 import { InventoryService } from './inventoryService';
 import { FinanceService } from './financeService';
@@ -126,8 +127,9 @@ export class DataService {
       .eq('sku', oldSku);
     
     if (error) {
-        if (error.code === 'PGRST204') {
-            console.warn("Database Schema Mismatch: Algumas colunas não existem. Tentando salvamento resiliente...");
+        // Tratamento de Schema Desatualizado (42703 = Undefined Column, PGRST204 = No Content/Mismatch)
+        if (error.code === 'PGRST204' || error.code === '42703') {
+            console.warn("Database Schema Mismatch: Coluna possivelmente inexistente. Tentando salvamento resiliente...");
             
             const basicPayload = {
                 sku: product.sku,
@@ -140,6 +142,7 @@ export class DataService {
                 estoque_minimo: Number(product.estoqueMinimo || 0),
                 custo_unitario: Number(product.custoUnitario || 0),
                 preco_venda: Number(product.precoVenda || 0)
+                // Excluímos 'active' e outros campos novos no fallback
             };
 
             const { error: retryError } = await supabase
@@ -148,9 +151,15 @@ export class DataService {
                 .eq('sku', oldSku);
 
             if (retryError) throw new Error(`Falha crítica de persistência: ${retryError.message}`);
-            throw new Error("SCHEMA_INCOMPLETE");
+            
+            // Se o usuário tentou especificamente pausar/ativar, mas a coluna não existe, avisa.
+            if (product.active !== undefined) {
+               throw new Error("AVISO: Status não salvo. Coluna 'active' não existe no banco.");
+            }
+            
+            return true;
         }
-        throw new Error(`Falha na Sincronização: ${error.message}`);
+        throw new Error(`Falha no Banco de Dados: ${error.message}`);
     }
     
     await this.addLog(user, 'EDICAO_MASTER_COMERCIAL', product.sku, '', 0, `Atualização de parâmetros comerciais. Ativo: ${product.active}`);

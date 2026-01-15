@@ -139,7 +139,8 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
         await fetchData();
       }
     } catch (e: any) {
-        setToast({ msg: 'Falha ao alterar status. Verifique o schema SQL.', type: 'error' });
+        // Exibe a mensagem real do erro vinda do DataService (ex: "Coluna active não existe")
+        setToast({ msg: e.message || 'Falha ao alterar status.', type: 'error' });
     }
   };
 
