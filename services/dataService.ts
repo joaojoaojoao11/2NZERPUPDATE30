@@ -153,9 +153,9 @@ export class DataService {
 
             if (retryError) throw new Error(`Falha crítica de persistência: ${retryError.message}`);
             
-            // Se o usuário tentou especificamente pausar/ativar, mas a coluna não existe, avisa.
+            // Se o usuário tentou especificamente pausar/ativar, mas a coluna não existe, avisa e sugere correção.
             if (product.active !== undefined) {
-               throw new Error("Aviso de Schema: O status não foi salvo pois a coluna 'active' não existe no banco de dados.");
+               throw new Error("Aviso: Status não salvo (Coluna 'active' inexistente). Vá em 'Configurações > Banco de Dados' para corrigir.");
             }
             
             return true;

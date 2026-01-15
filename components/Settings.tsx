@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { DataService } from '../services/dataService';
 import { CompanySettings, User, ViewType } from '../types';
@@ -7,7 +8,7 @@ import Toast from './Toast';
 interface SettingsProps {
   admin: User;
   onUpdate: (settings: CompanySettings) => void;
-  onNavigate: (view: ViewType) => void; // Nova prop de navegação
+  onNavigate: (view: ViewType) => void;
 }
 
 const Settings: React.FC<SettingsProps> = ({ admin, onUpdate, onNavigate }) => {
@@ -15,6 +16,9 @@ const Settings: React.FC<SettingsProps> = ({ admin, onUpdate, onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
+  
+  // Estado para mostrar script SQL
+  const [showSql, setShowSql] = useState(false);
 
   useEffect(() => {
     DataService.getCompanySettings().then(data => {
@@ -53,12 +57,27 @@ const Settings: React.FC<SettingsProps> = ({ admin, onUpdate, onNavigate }) => {
     }
   };
 
+  const copySqlToClipboard = () => {
+    const sql = `
+-- Script de Correção de Schema NZERP
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_min NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_ideal NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_min NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_ideal NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_tax_percent NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;
+    `.trim();
+    navigator.clipboard.writeText(sql);
+    setToast({ msg: 'Script SQL copiado!', type: 'success' });
+  };
+
   const hasUserManagementAccess = admin.role === 'DIRETORIA' || admin.permissions?.includes('GESTAO_USUARIOS');
 
   if (loading) return <div className="py-24 text-center text-slate-500 font-black uppercase text-xs animate-pulse">Carregando Configurações...</div>;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       
       <div className="flex items-center space-x-5 mb-10">
@@ -96,7 +115,6 @@ const Settings: React.FC<SettingsProps> = ({ admin, onUpdate, onNavigate }) => {
             </div>
           </div>
           
-          {/* Nova seção para Gerenciamento de Usuários */}
           {hasUserManagementAccess && (
             <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-200">
               <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest mb-8 border-b border-slate-50 pb-4 italic">Administração de Usuários</h3>
@@ -109,6 +127,48 @@ const Settings: React.FC<SettingsProps> = ({ admin, onUpdate, onNavigate }) => {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 20h-4v-2c0-2.209-1.791-4-4-4s-4 1.791-4 4v2H3c-1.104 0-2 .896-2 2v2c0 1.104.896 2 2 2h18c1.104 0 2-.896 2-2v-2c0-1.104-.896-2-2-2zM12 8c0-2.209 1.791-4 4-4s4 1.791 4 4-1.791 4-4 4-4-1.791-4-4zM6 8c0-2.209 1.791-4 4-4s4 1.791 4 4-1.791 4-4 4-4-1.791-4-4z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 <span>Gerenciar Usuários</span>
               </button>
+            </div>
+          )}
+
+          {/* Seção de Manutenção de Banco de Dados */}
+          {hasUserManagementAccess && (
+            <div className="bg-slate-900 p-10 rounded-[3rem] shadow-2xl border border-slate-800 text-white">
+                <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
+                    <h3 className="text-sm font-black uppercase tracking-widest italic text-amber-400">Manutenção de Banco de Dados</h3>
+                    <button 
+                        type="button"
+                        onClick={() => setShowSql(!showSql)}
+                        className="text-[9px] font-bold uppercase tracking-widest text-slate-400 hover:text-white transition-colors"
+                    >
+                        {showSql ? 'Ocultar Script' : 'Ver Script de Correção'}
+                    </button>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed font-medium mb-6">
+                    Se você encontrar erros como "Coluna não existe" ou "Schema inválido" ao salvar produtos ou preços, execute este script SQL no painel do Supabase.
+                </p>
+                
+                {showSql && (
+                    <div className="bg-black/30 rounded-2xl p-4 border border-white/10 relative group">
+                        <pre className="text-[10px] font-mono text-emerald-400 whitespace-pre-wrap break-all">
+{`-- Script de Correção de Schema NZERP
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_min NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_ideal NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_min NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_ideal NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_tax_percent NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;`}
+                        </pre>
+                        <button 
+                            type="button"
+                            onClick={copySqlToClipboard}
+                            className="absolute top-2 right-2 bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                            title="Copiar SQL"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                        </button>
+                    </div>
+                )}
             </div>
           )}
 
