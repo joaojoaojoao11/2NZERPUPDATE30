@@ -201,7 +201,7 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
 
             if (jsonData.length < 2) throw new Error("Planilha vazia ou sem dados.");
 
-            // Normalização robusta de cabeçalhos: remove acentos para garantir que "Situação" vire "situacao"
+            // Normalização robusta de cabeçalhos
             const headers = (jsonData[0] as string[]).map(h => 
                 String(h).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()
             );
@@ -209,11 +209,15 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
             const rows = jsonData.slice(1);
             
             const parsedItems: AccountsReceivable[] = rows.map((row: any) => {
-                const getVal = (keyPart: string) => {
-                    const idx = headers.findIndex(h => h.includes(keyPart));
+                // Helpers de Extração
+                const getVal = (possibleKeys: string[]) => {
+                    const idx = headers.findIndex(h => possibleKeys.some(k => h === k || h.startsWith(k)));
                     return idx !== -1 ? row[idx] : undefined;
                 };
 
+                // ID: Busca estrita para evitar confusão com 'pedido'
+                const rawId = getVal(['id', 'codigo', 'código', 'identificador']);
+                
                 const parseDate = (val: any) => {
                     if (!val) return '';
                     if (val instanceof Date) return val.toISOString().split('T')[0];
@@ -230,32 +234,40 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
                     return parseFloat(String(val).replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
                 };
 
-                // Lógica de Situação aprimorada para preservar CANCELADOS
-                // Busca por 'situacao' ou 'status' (agora sem acentos graças à normalização do header)
-                let valSituacao = getVal('situacao') || getVal('status');
-                
-                // Se valSituacao existir, usa ele. Se não, assume 'EM ABERTO'.
+                // Lógica de Situação aprimorada
+                let valSituacao = getVal(['situacao', 'status', 'estado']);
                 let rawSituacao = String(valSituacao || 'EM ABERTO').toUpperCase().trim();
                 
-                if (rawSituacao === 'ABERTO') rawSituacao = 'EM ABERTO';
+                // Normalização de Termos de Pagamento
+                if (['PAGO', 'LIQUIDADO', 'RECEBIDO', 'QUITADO', 'BAIXADO', 'CONFIRMADO'].some(s => rawSituacao.includes(s))) {
+                    rawSituacao = 'PAGO';
+                } else if (rawSituacao.includes('CANCEL')) {
+                    rawSituacao = 'CANCELADO';
+                } else if (rawSituacao === 'ABERTO') {
+                    rawSituacao = 'EM ABERTO';
+                }
+
+                let saldo = parseNum(getVal(['saldo']));
                 
-                // Se contiver CANCEL (ex: "Cancelado", "Cancelada"), força o status para CANCELADO
-                if (rawSituacao.includes('CANCEL')) rawSituacao = 'CANCELADO';
+                // Se o status for PAGO, forçamos o saldo a zero para consistência se não vier na planilha
+                if (rawSituacao === 'PAGO') {
+                    saldo = 0; 
+                }
 
                 return {
-                    id: String(getVal('id') || `IMP-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`),
-                    cliente: String(getVal('cliente') || '').toUpperCase(),
-                    data_emissao: parseDate(getVal('emissao')),
-                    data_vencimento: parseDate(getVal('vencimento')),
-                    valor_documento: parseNum(getVal('valor_doc') || getVal('valor')),
-                    saldo: parseNum(getVal('saldo')),
+                    id: String(rawId || `IMP-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`),
+                    cliente: String(getVal(['cliente', 'sacado', 'nome']) || '').toUpperCase(),
+                    data_emissao: parseDate(getVal(['emissao', 'data emissao'])),
+                    data_vencimento: parseDate(getVal(['vencimento', 'data vencimento'])),
+                    valor_documento: parseNum(getVal(['valor', 'valor documento', 'valor titulo'])),
+                    saldo: saldo,
                     situacao: rawSituacao,
-                    numero_documento: String(getVal('numero') || getVal('doc') || ''),
-                    categoria: String(getVal('categoria') || '').toUpperCase(),
-                    historico: String(getVal('historico') || ''),
-                    competencia: String(getVal('competencia') || ''),
-                    forma_pagamento: String(getVal('forma') || '').toUpperCase(),
-                    valor_recebido: parseNum(getVal('recebido')),
+                    numero_documento: String(getVal(['numero', 'doc', 'documento']) || ''),
+                    categoria: String(getVal(['categoria', 'classificacao']) || '').toUpperCase(),
+                    historico: String(getVal(['historico', 'descricao']) || ''),
+                    competencia: String(getVal(['competencia']) || ''),
+                    forma_pagamento: String(getVal(['forma', 'metodo']) || '').toUpperCase(),
+                    valor_recebido: parseNum(getVal(['recebido', 'valor recebido'])),
                     origem: 'OLIST',
                     taxas: 0,
                     meio_recebimento: 'IMPORTADO',

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { DataService } from '../services/dataService';
 import { FinanceService } from '../services/financeService';
@@ -80,24 +81,23 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
       const clientHistoryData = await FinanceService.getCollectionHistoryByClient(cliente);
       const today = new Date().toISOString().split('T')[0];
       
-      // Filtro Rigoroso: Apenas BOLETOS VENCIDOS em aberto (Em Aberto ou Cartório)
-      // Exclui explicitamente CANCELADOS, PAGOS e NEGOCIADOS
+      // Filtro Unificado: Alinhado com o Resumo (getDebtorsSummary)
+      // Exclui apenas o que já está resolvido (Pago/Cancelado/Negociado)
+      // Removemos restrição de 'BOLETO' para garantir que todo valor somado no resumo apareça aqui.
       const filtered = allAR.filter(t => {
         const situacao = (t.situacao || '').toUpperCase().trim();
-        const formaPagamento = (t.forma_pagamento || '').toUpperCase();
-        const isBoleto = formaPagamento.includes('BOLETO');
         const isOverdue = t.data_vencimento && t.data_vencimento < today;
         
-        // Situações que representam dívida ativa e não resolvida
-        const situacoesPermitidas = ['ABERTO', 'EM ABERTO', 'CARTORIO', 'EM CARTORIO'];
+        // Blacklist: Tudo que NÃO é finalizado é considerado cobrável
+        // Isso garante que status como 'VENCIDO', 'EM ABERTO', 'COBRANDO', 'CARTORIO', vazios, etc. apareçam
+        const isSituacaoCobravel = !['CANCELADO', 'PAGO', 'LIQUIDADO', 'NEGOCIADO'].includes(situacao);
         
         return (
           t.cliente === cliente && 
           t.saldo > 0.01 && 
           !t.id_acordo && 
-          isBoleto && 
           isOverdue &&
-          situacoesPermitidas.includes(situacao)
+          isSituacaoCobravel
         );
       });
       
