@@ -121,6 +121,16 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
     return finalCost * (1 + (markupPercent / 100));
   };
 
+  // Helper para Status de Atualização de Preço
+  const getPriceUpdateStatus = (dateStr?: string): 'fresh' | 'stale' => {
+    if (!dateStr) return 'stale'; // Sem data = antigo
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+    return diffDays > 30 ? 'stale' : 'fresh';
+  };
+
   // --- AÇÕES INDIVIDUAIS ---
 
   const handleSavePrice = async () => {
@@ -380,10 +390,10 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
               <th className="px-4 py-6 text-center">Largura</th>
               <th className="px-4 py-6 text-center">Metragem</th>
               <th className="px-4 py-6 text-center">Disponibilidade</th>
-              <th className="px-6 py-6 text-center bg-indigo-900/20 text-indigo-400">Rolo (Mínimo)</th>
-              <th className="px-6 py-6 text-center bg-indigo-900/30 text-indigo-200">Rolo (Ideal)</th>
-              <th className="px-6 py-6 text-center bg-emerald-900/20 text-emerald-400">Frac. (Mínimo)</th>
-              <th className="px-6 py-6 text-center bg-emerald-900/30 text-emerald-200">Frac. (Ideal)</th>
+              <th className="px-2 py-6 text-center bg-indigo-900/20 text-indigo-400 whitespace-nowrap w-24">Rolo (Mínimo)</th>
+              <th className="px-2 py-6 text-center bg-indigo-900/30 text-indigo-200 whitespace-nowrap w-24">Rolo (Ideal)</th>
+              <th className="px-2 py-6 text-center bg-emerald-900/20 text-emerald-400 whitespace-nowrap w-24">Frac. (Mínimo)</th>
+              <th className="px-2 py-6 text-center bg-emerald-900/30 text-emerald-200 whitespace-nowrap w-24">Frac. (Ideal)</th>
               <th className="px-6 py-6 text-right">Ação</th>
             </tr>
           </thead>
@@ -391,6 +401,7 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
             {filteredProducts.map(p => {
               const hasStock = (stockMap[p.sku] || 0) > 0.01;
               const isInactive = p.active === false;
+              const priceStatus = getPriceUpdateStatus(p.updatedAt);
 
               return (
                 <tr key={p.sku} className={`group hover:bg-indigo-50/20 transition-all ${isInactive ? 'opacity-40 grayscale' : ''}`}>
@@ -400,7 +411,14 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
                           <span className="bg-slate-100 text-slate-500 text-[8px] font-black px-1.5 py-0.5 rounded w-fit">{p.sku}</span>
                           {isInactive && <span className="bg-red-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shadow-sm">PAUSADO</span>}
                        </div>
-                       <span className="font-black text-slate-900 text-[12px] uppercase italic tracking-tight">{p.nome}</span>
+                       <div className="flex items-center gap-2">
+                          {priceStatus === 'fresh' ? (
+                             <div title="Preço atualizado recentemente" className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse"></div>
+                          ) : (
+                             <div title="Preço sem atualização há mais de 30 dias (Revisar)" className="w-2 h-2 rounded-full bg-orange-500 shrink-0"></div>
+                          )}
+                          <span className="font-black text-slate-900 text-[12px] uppercase italic tracking-tight">{p.nome}</span>
+                       </div>
                        <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">{p.marca || 'GENÉRICO'}</span>
                     </div>
                   </td>
@@ -416,10 +434,18 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
                       <div className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 border border-amber-100 rounded-lg font-black text-[8px] uppercase italic">DROP</div>
                     )}
                   </td>
-                  <td className="px-6 py-6 text-center bg-indigo-50/10"><p className="text-xs font-black text-slate-900 italic">R$ {(p.priceRoloMin || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p></td>
-                  <td className="px-6 py-6 text-center bg-indigo-50/20"><p className="text-sm font-black text-indigo-700 italic">R$ {(p.priceRoloIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p></td>
-                  <td className="px-6 py-6 text-center bg-emerald-50/10"><p className="text-xs font-black text-slate-900 italic">R$ {(p.priceFracMin || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p></td>
-                  <td className="px-6 py-6 text-center bg-emerald-50/20"><p className="text-sm font-black text-emerald-700 italic">R$ {(p.priceFracIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p></td>
+                  <td className="px-2 py-6 text-center bg-indigo-50/10">
+                    <p className="text-[11px] font-black text-slate-900 italic whitespace-nowrap">R$ {(p.priceRoloMin || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </td>
+                  <td className="px-2 py-6 text-center bg-indigo-50/20">
+                    <p className="text-xs font-black text-indigo-700 italic whitespace-nowrap">R$ {(p.priceRoloIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </td>
+                  <td className="px-2 py-6 text-center bg-emerald-50/10">
+                    <p className="text-[11px] font-black text-slate-900 italic whitespace-nowrap">R$ {(p.priceFracMin || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </td>
+                  <td className="px-2 py-6 text-center bg-emerald-50/20">
+                    <p className="text-xs font-black text-emerald-700 italic whitespace-nowrap">R$ {(p.priceFracIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  </td>
                   <td className="px-6 py-6 text-right">
                     {isDiretoria ? (
                       <div className="flex items-center justify-end gap-2">
@@ -552,7 +578,7 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
                                <div className="relative">
                                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-300">R$</span>
                                   <input type="number" step="0.01" value={editingItem.custoUnitario || ''} onChange={e => setEditingItem({...editingItem, custoUnitario: parseFloat(e.target.value)})} className="w-full pl-8 pr-4 py-3 bg-white border-2 border-transparent focus:border-indigo-400 rounded-xl text-xs font-black text-slate-700 outline-none italic" placeholder="0.00" />
-                               </div>
+                                </div>
                             </div>
                             <div className="space-y-1">
                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Imposto (%)</label>

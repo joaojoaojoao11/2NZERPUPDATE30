@@ -92,7 +92,8 @@ export class DataService {
       priceRoloIdeal: Number(p.price_rolo_ideal ?? 0),
       priceFracMin: Number(p.price_frac_min ?? 0),
       priceFracIdeal: Number(p.price_frac_ideal ?? 0),
-      active: p.active ?? true
+      active: p.active ?? true,
+      updatedAt: p.updated_at || p.created_at // Mapeamento da data de atualização
     }));
   }
 
@@ -118,7 +119,8 @@ export class DataService {
       price_rolo_ideal: Number(product.priceRoloIdeal || 0),
       price_frac_min: Number(product.priceFracMin || 0),
       price_frac_ideal: Number(product.priceFracIdeal || 0),
-      active: product.active ?? true
+      active: product.active ?? true,
+      updated_at: new Date().toISOString() // Força atualização da data
     };
 
     const { error } = await supabase

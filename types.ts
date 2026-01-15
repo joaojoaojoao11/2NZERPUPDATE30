@@ -111,6 +111,7 @@ export interface MasterProduct {
   priceFracMin?: number;
   priceFracIdeal?: number;
   active?: boolean; // Status de ativação comercial
+  updatedAt?: string; // Data da última atualização
 }
 
 export interface CompanySettings {
