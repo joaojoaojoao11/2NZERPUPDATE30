@@ -1,9 +1,10 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { DataService } from '../services/dataService';
 import { MasterProduct, StockItem, User } from '../types';
 import { ICONS } from '../constants';
 import Toast from './Toast';
+import * as XLSX from 'xlsx';
 
 const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
   const [products, setProducts] = useState<MasterProduct[]>([]);
@@ -14,9 +15,14 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
   const [filterStatus, setFilterStatus] = useState<'TODOS' | 'ATIVOS' | 'INATIVOS'>('ATIVOS');
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
 
-  // Estados para Edição
+  // Estados para Edição Individual
   const [editingItem, setEditingItem] = useState<MasterProduct | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Estados para Importação em Lote
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isDiretoria = user.role === 'DIRETORIA';
 
@@ -48,17 +54,17 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
     fetchData();
   }, []);
 
-  // Quando abrir o modal, inicializa as strings de markup baseadas nos preços atuais
+  // Quando abrir o modal de edição individual, inicializa as strings de markup
   useEffect(() => {
     if (editingItem) {
       setMarkupStrings({
-        roloMin: calculateMarkupDisplay(editingItem.priceRoloMin),
-        roloIdeal: calculateMarkupDisplay(editingItem.priceRoloIdeal),
-        fracMin: calculateMarkupDisplay(editingItem.priceFracMin),
-        fracIdeal: calculateMarkupDisplay(editingItem.priceFracIdeal)
+        roloMin: calculateMarkupDisplay(editingItem.priceRoloMin, editingItem),
+        roloIdeal: calculateMarkupDisplay(editingItem.priceRoloIdeal, editingItem),
+        fracMin: calculateMarkupDisplay(editingItem.priceFracMin, editingItem),
+        fracIdeal: calculateMarkupDisplay(editingItem.priceFracIdeal, editingItem)
       });
     }
-  }, [editingItem?.sku]); // Apenas quando mudar o produto selecionado
+  }, [editingItem?.sku]);
 
   const stockMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -90,11 +96,37 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
     });
   }, [products, searchTerm, filterCategory, filterStatus]);
 
+  // --- LÓGICA DE CÁLCULO ---
+
+  // Helper para cálculo de custo final composto
+  const calculateFinalCost = (p: Partial<MasterProduct>) => {
+    const base = Number(p.custoUnitario || 0);
+    const extra = Number(p.costExtraValue || 0);
+    const tax = Number(p.costTaxPercent || 0);
+    return (base + extra) * (1 + (tax / 100));
+  };
+
+  // Função para calcular markup a partir do preço
+  const calculateMarkupDisplay = (price: number | undefined, item: Partial<MasterProduct>) => {
+    if (!price || price <= 0) return '';
+    const finalCost = calculateFinalCost(item);
+    if (finalCost <= 0) return '';
+    const m = ((price / finalCost) - 1) * 100;
+    return m.toFixed(1);
+  };
+
+  // Função inversa: Dado um markup, qual o preço?
+  const calculatePriceFromMarkup = (markupPercent: number, item: Partial<MasterProduct>) => {
+    const finalCost = calculateFinalCost(item);
+    return finalCost * (1 + (markupPercent / 100));
+  };
+
+  // --- AÇÕES INDIVIDUAIS ---
+
   const handleSavePrice = async () => {
     if (!editingItem || !isDiretoria) return;
     setIsSaving(true);
     
-    // Sanitização rigorosa antes do commit
     const sanitizedItem = {
         ...editingItem,
         priceRoloMin: Number(editingItem.priceRoloMin) || 0,
@@ -127,7 +159,7 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
 
   const handleToggleActive = async (product: MasterProduct) => {
     if (!isDiretoria) return;
-    const newState = product.active === false; // Se false vira true, se undefined/true vira false
+    const newState = product.active === false; 
     const msg = newState ? `Reativar o produto ${product.sku}?` : `Deseja pausar/inativar o produto ${product.sku}? Ele deixará de aparecer na lista padrão de ativos.`;
     
     if (!window.confirm(msg)) return;
@@ -144,52 +176,131 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
     }
   };
 
-  // Helper para cálculo de custo final composto
-  const calculateFinalCost = (p: MasterProduct) => {
-    const base = Number(p.custoUnitario || 0);
-    const extra = Number(p.costExtraValue || 0);
-    const tax = Number(p.costTaxPercent || 0);
-    return (base + extra) * (1 + (tax / 100));
-  };
-
-  // Função para calcular markup a partir do preço (usada apenas na inicialização ou quando o preço muda)
-  const calculateMarkupDisplay = (price: number | undefined) => {
-    if (!editingItem || !price || price <= 0) return '';
-    const finalCost = calculateFinalCost(editingItem);
-    if (finalCost <= 0) return '';
-    const m = ((price / finalCost) - 1) * 100;
-    return m.toFixed(1);
-  };
-
-  // Handler para quando o usuário digita no campo de Preço
   const onPriceChange = (field: keyof MasterProduct, val: string, markupKey: keyof typeof markupStrings) => {
     if (!editingItem) return;
     const numPrice = parseFloat(val);
     const newItem = { ...editingItem, [field]: isNaN(numPrice) ? 0 : numPrice };
     setEditingItem(newItem);
-    
-    // Recalcula a string de markup para acompanhar o preço
-    const newMarkup = calculateMarkupDisplay(newItem[field] as number);
+    const newMarkup = calculateMarkupDisplay(newItem[field] as number, newItem);
     setMarkupStrings(prev => ({ ...prev, [markupKey]: newMarkup }));
   };
 
-  // Handler para quando o usuário digita no campo de Markup
   const onMarkupChange = (markupKey: keyof typeof markupStrings, priceField: keyof MasterProduct, input: string) => {
     if (!editingItem) return;
-    
-    // Permite digitar livremente (virgula virando ponto)
     const sanitizedInput = input.replace(',', '.');
     setMarkupStrings(prev => ({ ...prev, [markupKey]: sanitizedInput }));
 
     const markupPercent = parseFloat(sanitizedInput);
-    const finalCost = calculateFinalCost(editingItem);
-
     if (isNaN(markupPercent)) {
       setEditingItem({ ...editingItem, [priceField]: 0 });
     } else {
-      const calculatedPrice = finalCost * (1 + (markupPercent / 100));
+      const calculatedPrice = calculatePriceFromMarkup(markupPercent, editingItem);
       setEditingItem({ ...editingItem, [priceField]: Number(calculatedPrice.toFixed(2)) });
     }
+  };
+
+  // --- IMPORTAÇÃO EM LOTE ---
+
+  const downloadBatchTemplate = () => {
+    // Gera planilha com os produtos ATUAIS para facilitar a edição
+    const data = products.map(p => ({
+        SKU: p.sku,
+        PRODUTO: p.nome,
+        CATEGORIA: p.categoria,
+        CUSTO_BASE: p.custoUnitario || 0,
+        IMPOSTO_PERCENT: p.costTaxPercent || 0,
+        CUSTO_EXTRA: p.costExtraValue || 0,
+        MARKUP_ROLO_MIN: calculateMarkupDisplay(p.priceRoloMin, p) || '0',
+        MARKUP_ROLO_IDEAL: calculateMarkupDisplay(p.priceRoloIdeal, p) || '0',
+        MARKUP_FRAC_MIN: calculateMarkupDisplay(p.priceFracMin, p) || '0',
+        MARKUP_FRAC_IDEAL: calculateMarkupDisplay(p.priceFracIdeal, p) || '0',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Alteracao_Precos");
+    
+    // Ajuste de largura das colunas
+    const wscols = [
+        {wch: 15}, {wch: 40}, {wch: 25}, {wch: 12}, {wch: 12}, {wch: 12}, 
+        {wch: 15}, {wch: 15}, {wch: 15}, {wch: 15}
+    ];
+    ws['!cols'] = wscols;
+
+    XLSX.writeFile(wb, "Modelo_Alteracao_Precos_NZ.xlsx");
+    setToast({ msg: 'Planilha modelo gerada com os dados atuais!', type: 'success' });
+  };
+
+  const handleBatchUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingBatch(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+        try {
+            const dataArray = new Uint8Array(event.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(dataArray, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+            if (jsonData.length === 0) throw new Error("Planilha vazia.");
+
+            let updatedCount = 0;
+
+            // Processamento Linha a Linha (Para garantir o cálculo correto)
+            for (const row of jsonData as any[]) {
+                const sku = row['SKU']?.toString().toUpperCase().trim();
+                if (!sku) continue;
+
+                const existingProduct = products.find(p => p.sku === sku);
+                if (!existingProduct) continue; // Ignora SKUs que não existem (segurança)
+
+                // Lê valores da planilha (com fallback para o atual se vazio)
+                const custoBase = row['CUSTO_BASE'] !== undefined ? Number(row['CUSTO_BASE']) : existingProduct.custoUnitario || 0;
+                const imposto = row['IMPOSTO_PERCENT'] !== undefined ? Number(row['IMPOSTO_PERCENT']) : existingProduct.costTaxPercent || 0;
+                const extra = row['CUSTO_EXTRA'] !== undefined ? Number(row['CUSTO_EXTRA']) : existingProduct.costExtraValue || 0;
+
+                // Objeto temporário para cálculo do custo final
+                const tempProduct = {
+                    ...existingProduct,
+                    custoUnitario: custoBase,
+                    costTaxPercent: imposto,
+                    costExtraValue: extra
+                };
+
+                // Lê Markups e Calcula Preços
+                const mRoloMin = parseFloat(String(row['MARKUP_ROLO_MIN']).replace(',', '.')) || 0;
+                const mRoloIdeal = parseFloat(String(row['MARKUP_ROLO_IDEAL']).replace(',', '.')) || 0;
+                const mFracMin = parseFloat(String(row['MARKUP_FRAC_MIN']).replace(',', '.')) || 0;
+                const mFracIdeal = parseFloat(String(row['MARKUP_FRAC_IDEAL']).replace(',', '.')) || 0;
+
+                const updatedProduct: MasterProduct = {
+                    ...tempProduct,
+                    priceRoloMin: calculatePriceFromMarkup(mRoloMin, tempProduct),
+                    priceRoloIdeal: calculatePriceFromMarkup(mRoloIdeal, tempProduct),
+                    priceFracMin: calculatePriceFromMarkup(mFracMin, tempProduct),
+                    priceFracIdeal: calculatePriceFromMarkup(mFracIdeal, tempProduct),
+                };
+
+                // Envia atualização
+                await DataService.updateMasterProduct(updatedProduct, user, sku);
+                updatedCount++;
+            }
+
+            setToast({ msg: `${updatedCount} produtos atualizados com sucesso!`, type: 'success' });
+            setShowImportModal(false);
+            await fetchData();
+
+        } catch (err: any) {
+            setToast({ msg: `Erro na importação: ${err.message}`, type: 'error' });
+        } finally {
+            setIsProcessingBatch(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   if (loading) return (
@@ -210,6 +321,16 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
         </div>
         
         <div className="flex gap-4">
+           {isDiretoria && (
+             <button 
+               onClick={() => setShowImportModal(true)}
+               className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center gap-2 italic"
+             >
+                <ICONS.Upload className="w-3.5 h-3.5" />
+                <span>Importar / Alterar em Lote</span>
+             </button>
+           )}
+
            <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex items-center">
               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest px-3 border-r border-slate-100 italic">Status</span>
               <select 
@@ -255,6 +376,7 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
           <thead className="sticky top-0 z-30">
             <tr className="bg-slate-900 text-slate-400 text-[9px] font-black uppercase tracking-widest">
               <th className="px-8 py-6 text-left sticky left-0 z-40 bg-slate-900">Produto / SKU</th>
+              <th className="px-4 py-6 text-center">Categoria</th>
               <th className="px-4 py-6 text-center">Largura</th>
               <th className="px-4 py-6 text-center">Metragem</th>
               <th className="px-4 py-6 text-center">Disponibilidade</th>
@@ -279,8 +401,11 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
                           {isInactive && <span className="bg-red-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shadow-sm">PAUSADO</span>}
                        </div>
                        <span className="font-black text-slate-900 text-[12px] uppercase italic tracking-tight">{p.nome}</span>
-                       <span className="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">{p.categoria}</span>
+                       <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">{p.marca || 'GENÉRICO'}</span>
                     </div>
+                  </td>
+                  <td className="px-4 py-6 text-center">
+                    <span className="px-2 py-1 bg-slate-100 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-wide">{p.categoria}</span>
                   </td>
                   <td className="px-4 py-6 text-center"><span className="text-[11px] font-bold text-slate-500">{p.larguraL?.toFixed(2) || '1.52'}m</span></td>
                   <td className="px-4 py-6 text-center"><span className="text-[11px] font-bold text-slate-500">{p.metragemPadrao || '15'}m</span></td>
@@ -326,7 +451,59 @@ const SalesPriceTable: React.FC<{ user: User }> = ({ user }) => {
         )}
       </div>
 
-      {/* MODAL DE EDIÇÃO COMERCIAL */}
+      {/* MODAL DE IMPORTAÇÃO EM LOTE */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[200] flex items-center justify-center p-6 animate-in zoom-in-95">
+           <div className="bg-white max-w-2xl w-full rounded-[3rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100">
+              <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+                 <div>
+                    <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter">Alteração em Lote</h3>
+                    <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-1">Atualização massiva de Custos e Markups</p>
+                 </div>
+                 <button onClick={() => setShowImportModal(false)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-red-500 transition-all"><ICONS.Add className="w-6 h-6 rotate-45" /></button>
+              </div>
+
+              <div className="p-10 space-y-8">
+                 <div className="p-6 bg-blue-50/50 rounded-3xl border border-blue-100/50 space-y-4">
+                    <div className="flex gap-4">
+                       <div className="p-3 bg-white rounded-2xl text-blue-600 h-fit shadow-sm"><ICONS.Upload className="w-6 h-6" /></div>
+                       <div>
+                          <h4 className="text-[11px] font-black text-blue-700 uppercase mb-2">Instruções de Uso</h4>
+                          <ul className="text-[10px] text-slate-500 space-y-1 font-medium list-disc list-inside">
+                             <li>Baixe o modelo preenchido com os dados atuais.</li>
+                             <li>Altere os valores de <b>Custo, Imposto ou Markup</b>.</li>
+                             <li>O sistema recalculará o <b>Preço Final (R$)</b> automaticamente.</li>
+                             <li>Colunas numéricas aceitam ponto ou vírgula.</li>
+                          </ul>
+                       </div>
+                    </div>
+                 </div>
+
+                 <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={downloadBatchTemplate}
+                      className="p-6 bg-slate-50 border border-slate-200 rounded-[2rem] text-left hover:border-emerald-400 hover:bg-emerald-50/30 transition-all group"
+                    >
+                       <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 block group-hover:text-emerald-500">Passo 1</span>
+                       <p className="text-sm font-black text-slate-700 uppercase italic group-hover:text-emerald-800">Baixar Planilha Atual</p>
+                    </button>
+
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isProcessingBatch}
+                      className="p-6 bg-slate-900 border border-slate-900 rounded-[2rem] text-left hover:bg-blue-600 hover:border-blue-600 transition-all group shadow-xl"
+                    >
+                       <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 block group-hover:text-blue-200">Passo 2</span>
+                       <p className="text-sm font-black text-white uppercase italic">{isProcessingBatch ? 'Processando...' : 'Importar Alterações'}</p>
+                    </button>
+                    <input type="file" ref={fileInputRef} onChange={handleBatchUpload} accept=".xlsx,.xls" className="hidden" />
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO INDIVIDUAL (Mantido) */}
       {editingItem && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300">
            <div className="bg-white max-w-5xl w-full rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100 animate-in zoom-in-95">
