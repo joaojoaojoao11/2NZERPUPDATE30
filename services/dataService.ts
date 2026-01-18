@@ -425,20 +425,31 @@ export class DataService {
     }
   
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0); // Define para meia-noite do dia atual (local)
     const debtorsMap: Record<string, DebtorInfo> = {};
   
     ar.forEach(t => {
       const situacao = (t.situacao || '').toUpperCase().trim();
+      const formaPgto = (t.forma_pagamento || '').toUpperCase().trim();
+      
+      let dueDate: Date | null = null;
+      if (t.data_vencimento) {
+        // Constrói a data a partir do string YYYY-MM-DD para evitar problemas de fuso horário.
+        // Isso cria a data na meia-noite do fuso horário local.
+        const parts = t.data_vencimento.split('-').map(Number);
+        if (parts.length === 3) {
+            dueDate = new Date(parts[0], parts[1] - 1, parts[2]);
+        }
+      }
+
       const isDebtActiveAndOverdue = 
-          !['CANCELADO', 'PAGO', 'LIQUIDADO', 'NEGOCIADO'].includes(situacao) &&
+          situacao === 'EM ABERTO' &&
+          formaPgto === 'BOLETO' &&
           t.saldo > 0.01 &&
           !t.id_acordo &&
-          t.data_vencimento && new Date(t.data_vencimento) < today;
+          dueDate && dueDate < today; // Comparação de objetos Date, agora ambos no fuso local.
   
-      if (!isDebtActiveAndOverdue) return;
-  
-      const dueDate = new Date(t.data_vencimento!);
+      if (!isDebtActiveAndOverdue || !dueDate) return;
   
       if (!debtorsMap[t.cliente]) {
         debtorsMap[t.cliente] = {

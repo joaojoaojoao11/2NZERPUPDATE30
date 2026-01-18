@@ -1,4 +1,5 @@
 
+
 export type UserRole = 'DIRETORIA' | 'ADM' | 'ESTOQUISTA';
 export type ModuleContext = 'ESTOQUE' | 'FINANCEIRO' | 'RH' | 'COMERCIAL' | null;
 
@@ -418,4 +419,5 @@ export interface SalesHistoryItem {
   recipientState?: string;
   recipientPhone?: string;
   importedAt?: string;
+  totalAmount?: number;
 }

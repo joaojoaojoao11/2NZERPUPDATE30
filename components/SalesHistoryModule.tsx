@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { DataService } from '../services/dataService';
@@ -542,6 +543,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
           if (existing.trackingCode !== item.trackingCode) diff.push('Rastreio');
           
           const totalExisting = (existing.unitPrice || 0) * (existing.quantity || 0);
+          // Fix: Calculate totalNew from unitPrice and quantity instead of relying on a non-existent totalAmount property on the imported item.
           const totalNew = (item.unitPrice || 0) * (item.quantity || 0);
           if (Math.abs(totalExisting - totalNew) > 0.01) diff.push('Valor Total');
 
@@ -946,9 +948,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
                     </h3>
                     <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1 italic">Sincronização por ID do Pedido</p>
                  </div>
-                 <button onClick={() => { setShowImportModal(false); setStagingData([]); }} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-red-500 transition-all">
-                    <ICONS.Add className="w-6 h-6 rotate-45" />
-                 </button>
+                 <button onClick={() => { setShowImportModal(false); setStagingData([]); }} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-red-500 transition-all"><ICONS.Add className="w-6 h-6 rotate-45" /></button>
               </div>
 
               <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/30">

@@ -85,23 +85,18 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
       const clientHistoryData = await FinanceService.getCollectionHistoryByClient(cliente);
       const today = new Date().toISOString().split('T')[0];
       
-      // Filtro Unificado: Alinhado com o Resumo (getDebtorsSummary)
-      // Exclui apenas o que já está resolvido (Pago/Cancelado/Negociado)
-      // Removemos restrição de 'BOLETO' para garantir que todo valor somado no resumo apareça aqui.
       const filtered = allAR.filter(t => {
         const situacao = (t.situacao || '').toUpperCase().trim();
+        const formaPgto = (t.forma_pagamento || '').toUpperCase().trim();
         const isOverdue = t.data_vencimento && t.data_vencimento < today;
-        
-        // Blacklist: Tudo que NÃO é finalizado é considerado cobrável
-        // Isso garante que status como 'VENCIDO', 'EM ABERTO', 'COBRANDO', 'CARTORIO', vazios, etc. apareçam
-        const isSituacaoCobravel = !['CANCELADO', 'PAGO', 'LIQUIDADO', 'NEGOCIADO'].includes(situacao);
         
         return (
           t.cliente === cliente && 
+          situacao === 'EM ABERTO' &&
+          formaPgto === 'BOLETO' &&
           t.saldo > 0.01 && 
           !t.id_acordo && 
-          isOverdue &&
-          isSituacaoCobravel
+          isOverdue
         );
       });
       
