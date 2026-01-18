@@ -15,7 +15,7 @@ const ModuleSelection: React.FC<ModuleSelectionProps> = ({ onSelect, userName, u
   const hasLogisticsAccess = isDirectory || ['INVENTARIO', 'SAIDA', 'ENTRADA', 'MAPA_FISICO', 'HISTORICO_HUB'].some(p => userPermissions.includes(p));
   const hasFinanceAccess = isDirectory || ['LANCAMENTO_RECEBER', 'FINANCEIRO', 'CONTAS_PAGAR'].some(p => userPermissions.includes(p));
   const hasRhAccess = isDirectory || userPermissions.includes('RH_COLLABORATORS');
-  const hasComercialAccess = isDirectory || ['SALES_PRICETABLE', 'SALES_HISTORY'].some(p => userPermissions.includes(p));
+  const hasComercialAccess = isDirectory || ['SALES_PRICETABLE', 'SALES_HISTORY', 'SALES_BI'].some(p => userPermissions.includes(p));
   
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center px-4 py-8 animate-in fade-in zoom-in-95 duration-700">

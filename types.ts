@@ -1,6 +1,5 @@
 
-
-export type UserRole = 'DIRETORIA' | 'ADM' | 'ESTOQUISTA';
+export type UserRole = 'DIRETORIA' | 'ADM' | 'ESTOQUISTA' | 'VENDEDOR';
 export type ModuleContext = 'ESTOQUE' | 'FINANCEIRO' | 'RH' | 'COMERCIAL' | null;
 
 export type ViewType = 
@@ -21,8 +20,9 @@ export type ViewType =
   | 'RH_COLLABORATORS'
   | 'RH_PAYROLL'
   | 'RH_SERVICE_ORDERS'
-  | 'SALES_PRICETABLE' // Tabela de Preços
-  | 'SALES_HISTORY'   // Histórico/Relatórios de Vendas
+  | 'SALES_PRICETABLE' 
+  | 'SALES_HISTORY'   
+  | 'SALES_BI'        // Nova View
   | 'CONFIGURACOES'
   | 'MOVEMENTS_LIST';
 
@@ -99,20 +99,19 @@ export interface MasterProduct {
   metragemPadrao?: number;
   estoqueMinimo: number;
   custoUnitario?: number;
-  costTaxPercent?: number;  // Imposto sobre custo
-  costExtraValue?: number;   // Custos extras logísticos
-  precoVenda?: number; // Preço Geral
+  costTaxPercent?: number;
+  costExtraValue?: number;
+  precoVenda?: number;
   ncmCode?: string;
   taxOrigin?: number;
   supplierState?: string;
   costUnit?: string;
-  // Novos campos de precificação comercial dedicada
   priceRoloMin?: number;
   priceRoloIdeal?: number;
   priceFracMin?: number;
   priceFracIdeal?: number;
-  active?: boolean; // Status de ativação comercial
-  updatedAt?: string; // Data da última atualização
+  active?: boolean;
+  updatedAt?: string;
 }
 
 export interface CompanySettings {
@@ -236,38 +235,7 @@ export interface DebtorInfo {
   statusCobranca: string;
   protocoloAtual: string;
   enviadoCartorio: boolean;
-  nextActionDate?: string; // Data da próxima ação agendada (se houver)
-}
-
-export interface PaymentGroup {
-  bank: string;
-  method: string;
-  count: number;
-  totalValue: number;
-  totalFees: number;
-}
-
-export interface MonthlySummary {
-  monthYear: string; 
-  totalValue: number;
-  groups: PaymentGroup[]; 
-}
-
-export interface ImportSummary {
-  processedAt: string;
-  fileName: string;
-  user: string;
-  totalGlobal: number;
-  totalFeesGlobal: number;
-  monthlyBreakdown: MonthlySummary[];
-}
-
-export interface FinancialImportRecord {
-  id: string;
-  timestamp: string;
-  usuario: string;
-  resumo: ImportSummary;
-  nome_arquivo?: string;
+  nextActionDate?: string;
 }
 
 export interface ApprovalCase {
@@ -321,7 +289,7 @@ export interface Employee {
   phone: string;
   pixKey: string;
   notes: string;
-  transportDailyValue?: number; // Novo campo para cálculo de VT (Ida + Volta)
+  transportDailyValue?: number;
 }
 
 export interface HRDocument {
@@ -338,15 +306,15 @@ export interface PayrollItem {
   description: string;
   type: 'EARNING' | 'DEDUCTION';
   amount: number;
-  referenceValue?: string; // Ex: '100%', '220hs'
+  referenceValue?: string;
 }
 
 export interface PayrollRun {
   id?: string;
   employeeId: string;
-  employeeName?: string; // Para exibição
-  employeeRole?: string; // Para exibição
-  referenceDate: string; // YYYY-MM-DD
+  employeeName?: string;
+  employeeRole?: string;
+  referenceDate: string;
   baseSalary: number;
   totalEarnings: number;
   totalDeductions: number;
@@ -360,19 +328,19 @@ export interface PayrollRun {
 export interface LeaveRecord {
   id?: string;
   employeeId: string;
-  type: 'FERIAS' | 'ATESTADO' | 'MATERNIDADE' | 'OUTROS';
+  type: 'FERIAS' | 'ATESTADO' | 'MATERNIDADE' | 'OUTROS' | 'FALTA';
   startDate: string;
   endDate: string;
   durationDays: number;
-  vestingStart?: string; // Data Inicio Periodo Aquisitivo (apenas Férias)
-  vestingEnd?: string;   // Data Fim Periodo Aquisitivo (apenas Férias)
+  vestingStart?: string;
+  vestingEnd?: string;
   status: 'AGENDADO' | 'EM_ANDAMENTO' | 'CONCLUIDO';
   notes?: string;
 }
 
 export interface SalesHistoryItem {
-  id?: string; // UUID Database (Auto)
-  externalId?: string; // ID Original do Excel
+  id?: string;
+  externalId?: string;
   orderNumber?: string;
   saleDate?: string;
   expectedDate?: string;

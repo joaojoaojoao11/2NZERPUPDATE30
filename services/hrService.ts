@@ -1,4 +1,5 @@
 
+
 import { supabaseClient as supabase } from './core';
 import { Employee, HRDocument, PayrollRun, PayrollItem, LeaveRecord } from '../types';
 
@@ -415,6 +416,7 @@ export class HRService {
       return {
         id: run.id,
         employeeId: run.employee_id,
+        // FIX: Use optional chaining to prevent crash if hr_employees join is null
         employeeName: run.hr_employees?.full_name, // Join via Supabase
         employeeRole: run.hr_employees?.job_title,
         referenceDate: run.reference_date,

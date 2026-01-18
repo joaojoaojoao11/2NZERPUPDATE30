@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { DataService } from '../services/dataService';
 import { ApprovalCase, User } from '../types';
@@ -16,12 +17,18 @@ const ExchangeManagement: React.FC<{ admin: User }> = ({ admin }) => {
 
   // Fix: Made handleAction asynchronous and awaiting processCase/getApprovalCases
   const handleAction = async (id: string, action: 'APROVAR' | 'RECUSAR') => {
-    const success = await DataService.processCase(id, action, admin, `Ação ${action} executada via painel de trocas.`);
-    if (success) {
-      setToast({ msg: `Troca ${action === 'APROVAR' ? 'aprovada e estoque baixado' : 'recusada'}.`, type: 'success' });
-      setCases(await DataService.getApprovalCases());
-    } else {
-      setToast({ msg: 'Erro ao processar. Verifique o saldo em estoque.', type: 'error' });
+    // FIX: Added try-catch to handle errors thrown by `processCase` and prevent app crash.
+    try {
+      const res = await DataService.processCase(id, action, admin, `Ação ${action} executada via painel de trocas.`);
+      // FIX: Changed check to `res.success` to correctly evaluate the response object.
+      if (res.success) {
+        setToast({ msg: `Troca ${action === 'APROVAR' ? 'aprovada e estoque baixado' : 'recusada'}.`, type: 'success' });
+        setCases(await DataService.getApprovalCases());
+      } else {
+        setToast({ msg: res.message || 'Erro ao processar. Verifique o saldo em estoque.', type: 'error' });
+      }
+    } catch (e: any) {
+      setToast({ msg: e.message || 'Erro ao processar. Verifique o saldo em estoque.', type: 'error' });
     }
   };
 

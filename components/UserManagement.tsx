@@ -28,6 +28,7 @@ const SYSTEM_FEATURES = [
 
 const DEFAULT_PERMISSIONS: Record<UserRole, string[]> = {
   'ESTOQUISTA': ['INVENTARIO', 'CONFERENCIA_INVENTARIO', 'SAIDA', 'ENTRADA', 'CATALOGO_MESTRE'],
+  'VENDEDOR': ['INVENTARIO', 'SALES_PRICETABLE'],
   'ADM': ['INVENTARIO', 'CONFERENCIA_INVENTARIO', 'SAIDA', 'ENTRADA', 'CATALOGO_MESTRE', 'HISTORICO_HUB', 'LANCAMENTO_RECEBER', 'INADIMPLENCIA', 'CONTAS_PAGAR', 'BI_CAIXA', 'BI_DESPESAS', 'GESTAO_USUARIOS', 'CAN_EDIT', 'RH_COLLABORATORS', 'RH_PAYROLL', 'RH_SERVICE_ORDERS', 'SALES_PRICETABLE'],
   'DIRETORIA': SYSTEM_FEATURES.map(f => f.id)
 };
@@ -178,7 +179,8 @@ const UserManagement: React.FC<{ admin: User, onSelfUpdate?: () => void }> = ({ 
               <div className="flex justify-between items-center mb-6">
                 <span className={`px-3 py-1 rounded-xl text-[9px] font-black uppercase border ${
                   u.role === 'DIRETORIA' ? 'bg-indigo-600 text-white border-indigo-700' : 
-                  u.role === 'ADM' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-slate-50 text-slate-500 border-slate-100'
+                  u.role === 'ADM' ? 'bg-blue-50 text-blue-600 border-blue-100' : 
+                  u.role === 'VENDEDOR' ? 'bg-teal-50 text-teal-600 border-teal-100' : 'bg-slate-50 text-slate-500 border-slate-100'
                 }`}>
                   {u.role}
                 </span>
@@ -239,6 +241,7 @@ const UserManagement: React.FC<{ admin: User, onSelfUpdate?: () => void }> = ({ 
                                 className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl font-black italic uppercase outline-none shadow-inner cursor-pointer"
                               >
                                  <option value="ESTOQUISTA">Estoquista</option>
+                                 <option value="VENDEDOR">Vendedor</option>
                                  <option value="ADM">Administrador</option>
                                  <option value="DIRETORIA">Diretoria</option>
                               </select>

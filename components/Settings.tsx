@@ -67,6 +67,10 @@ ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_min NUMERIC DEFAU
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_ideal NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_tax_percent NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;
+
+-- Correção de níveis hierárquicos (Users Role Constraint)
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('DIRETORIA', 'ADM', 'ESTOQUISTA', 'VENDEDOR'));
     `.trim();
     navigator.clipboard.writeText(sql);
     setToast({ msg: 'Script SQL copiado!', type: 'success' });
@@ -124,7 +128,7 @@ ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEF
                 onClick={() => onNavigate('GESTAO_USUARIOS')}
                 className="px-10 py-5 bg-blue-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all flex items-center space-x-3 italic"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 20h-4v-2c0-2.209-1.791-4-4-4s-4 1.791-4 4v2H3c-1.104 0-2 .896-2 2v2c0 1.104.896 2 2 2h18c1.104 0 2-.896 2-2v-2c0-1.104-.896-2-2-2zM12 8c0-2.209 1.791-4 4-4s4 1.791 4 4-1.791 4-4 4-4-1.791-4-4zM6 8c0-2.209 1.791-4 4-4s4 1.791 4 4-1.791 4-4 4-4-1.791-4-4z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 20h-4v-2c0-2.209-1.791-4-4-4s-4 1.791-4 4v2H3c-1.104 0-2 .896-2 2v2c0 1.104.896 2 2 2h18c1.104 0 2-.896 2-2v-2c0-1.104-.896-2-2-2zM12 8c0-2.209 1.791-4 4-4s4 1.791 4 4-1.791 4-4 4-4-1.791-4-4zM6 8c0-2.209 1.791-4 4-4s4 1.791 4 4-1.791-4-4 4 4-4-1.791-4-4z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 <span>Gerenciar Usuários</span>
               </button>
             </div>
@@ -144,7 +148,7 @@ ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEF
                     </button>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed font-medium mb-6">
-                    Se você encontrar erros como "Coluna não existe" ou "Schema inválido" ao salvar produtos ou preços, execute este script SQL no painel do Supabase.
+                    Se você encontrar erros como "new row for relation violates check constraint" ou "Schema inválido", execute este script SQL no painel do Supabase.
                 </p>
                 
                 {showSql && (
@@ -157,7 +161,11 @@ ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_ideal NUMERIC DEF
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_min NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_ideal NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_tax_percent NUMERIC DEFAULT 0;
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;`}
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;
+
+-- Correção de níveis hierárquicos (Users Role Check)
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('DIRETORIA', 'ADM', 'ESTOQUISTA', 'VENDEDOR'));`}
                         </pre>
                         <button 
                             type="button"

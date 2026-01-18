@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { DataService } from '../services/dataService';
 import { FinanceService } from '../services/financeService';
@@ -925,7 +926,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                  <td className="px-6 py-4 text-[11px] font-black text-slate-800 uppercase italic">{s.cliente}</td>
                                  <td className="px-6 py-4 text-right font-black text-slate-900 text-xs">R$ {s.valorAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
                                  <td className="px-6 py-4 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${s.status === 'CANCELADO' ? 'bg-red-50 text-red-500 border-red-100' : s.status === 'LIQUIDADO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-100'}`}>{s.status}</span>
+                                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${s.status === 'CANCELADO' ? 'bg-red-50 text-red-500 border-red-100' : s.status === 'LIQUIDADO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-100'}`}>{s.status}</span>
                                  </td>
                                  <td className="px-6 py-4 text-right">
                                     <button onClick={() => handleViewSettlement(s)} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Visualizar</button>

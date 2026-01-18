@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { ViewType } from './types'; // Importar ViewType para tipagem correta
+import { ViewType } from './types';
 
 export const CATEGORIES = ['PPF', 'PPF FUME', 'ENVELOPAMENTO', 'SPEED WRAPPING', 'VINYLFROG'];
 export const REASONS = ['Venda', 'Troca', 'Defeito', 'Ajuste'];
@@ -8,7 +8,7 @@ export const INBOUND_REASONS = ['Compra', 'Devolução de Cliente', 'Ajuste de I
 
 export const SYSTEM_FEATURES: { id: ViewType | string; label: string; group: string }[] = [
   { id: 'INVENTARIO', label: 'Estoque / Pátio', group: 'LOGÍSTICA' },
-  { id: 'BI_ESTOQUE', label: 'BI Estoque', group: 'LOGÍSTICA' }, // Novo Item
+  { id: 'BI_ESTOQUE', label: 'BI Estoque', group: 'LOGÍSTICA' },
   { id: 'CONFERENCIA_INVENTARIO', label: 'Executar Auditoria', group: 'LOGÍSTICA' },
   { id: 'MOVEMENTS_LIST', label: 'Histórico Movimentos', group: 'LOGÍSTICA' }, 
   { id: 'SAIDA', label: 'Registrar Saídas', group: 'LOGÍSTICA' },
@@ -20,6 +20,9 @@ export const SYSTEM_FEATURES: { id: ViewType | string; label: string; group: str
   { id: 'CONTAS_PAGAR', label: 'Contas a Pagar', group: 'FINANCEIRO' },
   { id: 'BI_CAIXA', label: 'Fluxo de Caixa Diário', group: 'FINANCEIRO' },
   { id: 'BI_DESPESAS', label: 'BI Despesas', group: 'FINANCEIRO' }, 
+  { id: 'SALES_PRICETABLE', label: 'Tabela de Preços', group: 'COMERCIAL' },
+  { id: 'SALES_BI', label: 'BI Vendas', group: 'COMERCIAL' }, // Novo Item
+  { id: 'SALES_HISTORY', label: 'Histórico de Vendas', group: 'COMERCIAL' },
   { id: 'GESTAO_USUARIOS', label: 'Administrar Usuários', group: 'SISTEMA' },
   { id: 'CONFIGURACOES', label: 'Parâmetros Globais', group: 'SISTEMA' },
   { id: 'CAN_EDIT', label: 'Permitir Edição Cadastral', group: 'AÇÕES' },

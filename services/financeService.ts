@@ -2,7 +2,7 @@
 import { supabaseClient as supabase } from './core';
 import { 
   AccountsReceivable, AccountsPayable, Settlement, ARStagingItem, 
-  APStagingItem, User, AuditLog, FinancialImportRecord, ImportSummary, CollectionHistory
+  APStagingItem, User, AuditLog, CollectionHistory
 } from '../types';
 
 export class FinanceService {
@@ -282,7 +282,7 @@ export class FinanceService {
 
       const originals = relatedItems.filter(i => idsOriginais.includes(i.ID) || i.status_cobranca === 'BLOQUEADO_ACORDO' || i.status_cobranca === 'BLOQUEADO_CARTORIO');
       const originalIds = originals.map(i => i.ID);
-      const installments = relatedItems.filter(i => !originalIds.includes(i.ID));
+      const installments = relatedItems.filter(i => !originalIds.includes(i.id));
 
       if (installments.length > 0) {
         const instIds = installments.map(i => i.ID);
@@ -519,7 +519,7 @@ export class FinanceService {
         .update({ status_cobranca: 'COBRAVEL', "Situação": 'VENCIDO' })
         .in('ID', titleIds);
       if (error) throw error;
-// Fix: The original code returned `success: false` on a successful operation and had an undefined variable 'e'. This corrects the return value to `true` and adds the proper error handling block.
+
       return { success: true };
     } catch (e: any) {
       return { success: false, message: e.message };

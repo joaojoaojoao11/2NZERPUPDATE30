@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { DataService } from '../services/dataService';
@@ -286,8 +285,8 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     doc.setFillColor(230, 230, 230);
     doc.rect(15, y, pageWidth - 30, 8, 'F');
     doc.setFontSize(7);
-    doc.setTextColor(80, 80, 80);
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(80, 80, 80);
     
     doc.text('DATA', 18, y + 5);
     doc.text('PEDIDO', 40, y + 5);
@@ -531,27 +530,24 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
           const existing = item.externalId ? existingMap.get(item.externalId) : undefined;
           
           if (existing) {
-              item.id = existing.id;
+              item.id = existing.id; // Carry over DB ID
           }
 
           if (!existing) {
              return { data: item, status: 'NEW' };
           }
 
+          // User requirement: Only 'status' changes should flag the item as CHANGED.
           const diff: string[] = [];
-          if (existing.status !== item.status) diff.push(`Situação: ${existing.status} -> ${item.status}`);
-          if (existing.trackingCode !== item.trackingCode) diff.push('Rastreio');
-          
-          const totalExisting = (existing.unitPrice || 0) * (existing.quantity || 0);
-          // Fix: Calculate totalNew from unitPrice and quantity instead of relying on a non-existent totalAmount property on the imported item.
-          const totalNew = (item.unitPrice || 0) * (item.quantity || 0);
-          if (Math.abs(totalExisting - totalNew) > 0.01) diff.push('Valor Total');
-
-          if (diff.length > 0) {
-             return { data: item, status: 'CHANGED', diff };
+          if ((existing.status || '').trim() !== (item.status || '').trim()) {
+            diff.push(`Situação: ${existing.status || 'N/A'} -> ${item.status || 'N/A'}`);
           }
+          
+          // For UI purposes, we only flag as 'CHANGED' if the status column is different.
+          // The data payload always contains the new spreadsheet data to ensure overwrites.
+          const stagingStatus = diff.length > 0 ? 'CHANGED' : 'UNCHANGED';
 
-          return { data: item, status: 'UNCHANGED' };
+          return { data: item, status: stagingStatus, diff };
         });
 
         setStagingData(staging);
@@ -571,12 +567,12 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
   const handleConfirmImport = async () => {
     setIsProcessing(true);
     try {
-      const itemsToSave = stagingData
-        .filter(s => s.status !== 'UNCHANGED')
-        .map(s => s.data);
+      // User requirement: overwrite all data, even for UNCHANGED items.
+      // So, we send all staged items to the backend for upsert.
+      const itemsToSave = stagingData.map(s => s.data);
 
       if (itemsToSave.length === 0) {
-        setToast({ msg: 'Nenhuma alteração para salvar.', type: 'error' });
+        setToast({ msg: 'Nenhum item para importar.', type: 'error' });
         setShowImportModal(false);
         return;
       }
@@ -587,6 +583,8 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
         setStagingData([]);
         setShowImportModal(false);
         fetchData();
+      } else {
+        throw new Error('Falha no salvamento em lote.');
       }
     } catch (e: any) {
       setToast({ msg: `Erro ao salvar: ${e.message}`, type: 'error' });
@@ -628,7 +626,8 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
   const stagingStats = useMemo(() => ({
     new: stagingData.filter(s => s.status === 'NEW').length,
     changed: stagingData.filter(s => s.status === 'CHANGED').length,
-    total: stagingData.filter(s => s.status !== 'UNCHANGED').length
+    unchanged: stagingData.filter(s => s.status === 'UNCHANGED').length,
+    totalToSave: stagingData.filter(s => s.status !== 'UNCHANGED').length
   }), [stagingData]);
 
   const clearFilters = () => {
@@ -996,9 +995,9 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
                              <p className="text-[8px] font-black text-blue-600 uppercase tracking-widest">Alterados</p>
                              <p className="text-2xl font-black text-blue-700">{stagingStats.changed}</p>
                           </div>
-                          <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center opacity-60">
-                             <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Total Impactado</p>
-                             <p className="text-2xl font-black text-slate-700">{stagingStats.total}</p>
+                          <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center">
+                             <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Sem Mudança</p>
+                             <p className="text-2xl font-black text-slate-700">{stagingStats.unchanged}</p>
                           </div>
                        </div>
 
@@ -1017,14 +1016,19 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
                                 </tr>
                              </thead>
                              <tbody>
-                                {sortedStaging.filter(s => s.status !== 'UNCHANGED').map((item, idx) => (
-                                   <tr key={idx} className={`group hover:shadow-md transition-all ${item.status === 'NEW' ? 'bg-emerald-50/30' : 'bg-blue-50/30'}`}>
+                                {sortedStaging.map((item, idx) => (
+                                   <tr key={idx} className={`group hover:shadow-md transition-all ${
+                                       item.status === 'NEW' ? 'bg-emerald-50/30' : 
+                                       item.status === 'CHANGED' ? 'bg-blue-50/30' : 
+                                       'bg-white/50 opacity-50'
+                                    }`}>
                                       <td className="px-4 py-3 first:rounded-l-xl">
                                          <span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${
                                             item.status === 'NEW' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
-                                            'bg-blue-100 text-blue-700 border-blue-200'
+                                            item.status === 'CHANGED' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                                            'bg-slate-100 text-slate-500 border-slate-200'
                                          }`}>
-                                            {item.status === 'NEW' ? 'NOVO' : 'ALTERADO'}
+                                            {item.status}
                                          </span>
                                       </td>
                                       <td className="px-4 py-3 font-mono text-[9px] font-bold text-slate-500">{item.data.externalId}</td>
@@ -1046,21 +1050,18 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
                                 ))}
                              </tbody>
                           </table>
-                          {sortedStaging.filter(s => s.status !== 'UNCHANGED').length === 0 && (
-                             <div className="py-20 text-center opacity-40 font-black uppercase text-xs">Nenhuma alteração detectada.</div>
-                          )}
                        </div>
 
                        <div className="p-8 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-4 shrink-0">
                           <button onClick={() => setStagingData([])} className="px-8 py-4 bg-white border border-slate-200 text-slate-500 font-black rounded-2xl text-[10px] uppercase tracking-widest hover:text-red-500 transition-all">
-                             Descartar e Voltar
+                             Descartar
                           </button>
                           <button 
                             onClick={handleConfirmImport}
-                            disabled={isProcessing || sortedStaging.filter(s => s.status !== 'UNCHANGED').length === 0}
+                            disabled={isProcessing}
                             className="px-12 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-emerald-600 disabled:opacity-30 disabled:hover:bg-slate-900 transition-all flex items-center gap-2"
                           >
-                             {isProcessing ? 'Gravando...' : 'Confirmar Importação'}
+                             {isProcessing ? 'Gravando...' : 'Confirmar e Gravar Dados'}
                           </button>
                        </div>
                     </div>

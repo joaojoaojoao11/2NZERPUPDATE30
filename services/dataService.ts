@@ -299,80 +299,116 @@ export class DataService {
   }
 
   static async importSalesHistoryBatch(items: SalesHistoryItem[], user: User): Promise<{ success: boolean, count: number }> {
-    const buildPayload = (includeUser: boolean) => items.map(i => {
+    const buildPayload = (item: SalesHistoryItem, includeUser: boolean) => {
         const payload: any = {
-            external_id: i.externalId,
-            order_number: i.orderNumber,
-            sale_date: i.saleDate ? i.saleDate : null,
-            expected_date: i.expectedDate ? i.expectedDate : null,
-            status: i.status,
-            notes: i.notes,
-            contact_id: i.contactId,
-            contact_name: i.contactName,
-            person_type: i.personType,
-            cpf_cnpj: i.cpfCnpj,
-            rg_ie: i.rgIe,
-            email: i.email,
-            phone: i.phone,
-            mobile: i.mobile,
-            zip_code: i.zipCode,
-            address: i.address,
-            address_number: i.addressNumber,
-            complement: i.complement,
-            neighborhood: i.neighborhood,
-            city: i.city,
-            state: i.state,
-            product_id_external: i.productIdExternal,
-            sku: i.sku,
-            description: i.description,
-            quantity: i.quantity,
-            unit_price: i.unitPrice,
-            item_discount: i.itemDiscount,
-            order_discount: i.orderDiscount,
-            order_freight: i.orderFreight,
-            order_expenses: i.orderExpenses,
-            prorated_discount: i.proratedDiscount,
-            prorated_freight: i.proratedFreight,
-            prorated_expenses: i.proratedExpenses,
-            tracking_code: i.trackingCode,
-            sales_rep: i.salesRep,
-            purchase_order_number: i.purchaseOrderNumber,
-            recipient_name: i.recipientName,
-            recipient_cpf_cnpj: i.recipientCpfCnpj,
-            recipient_zip_code: i.recipientZipCode,
-            recipient_address: i.recipientAddress,
-            recipient_address_number: i.recipientAddressNumber,
-            recipient_complement: i.recipientComplement,
-            recipient_neighborhood: i.recipientNeighborhood,
-            recipient_city: i.recipientCity,
-            recipient_state: i.recipientState,
-            recipient_phone: i.recipientPhone,
+            external_id: item.externalId,
+            order_number: item.orderNumber,
+            sale_date: item.saleDate ? item.saleDate : null,
+            expected_date: item.expectedDate ? item.expectedDate : null,
+            status: item.status,
+            notes: item.notes,
+            contact_id: item.contactId,
+            contact_name: item.contactName,
+            person_type: item.personType,
+            cpf_cnpj: item.cpfCnpj,
+            rg_ie: item.rgIe,
+            email: item.email,
+            phone: item.phone,
+            mobile: item.mobile,
+            zip_code: item.zipCode,
+            address: item.address,
+            address_number: item.addressNumber,
+            complement: item.complement,
+            neighborhood: item.neighborhood,
+            city: item.city,
+            state: item.state,
+            product_id_external: item.productIdExternal,
+            sku: item.sku,
+            description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            item_discount: item.itemDiscount,
+            order_discount: item.orderDiscount,
+            order_freight: item.orderFreight,
+            order_expenses: item.orderExpenses,
+            prorated_discount: item.proratedDiscount,
+            prorated_freight: item.proratedFreight,
+            prorated_expenses: item.proratedExpenses,
+            tracking_code: item.trackingCode,
+            sales_rep: item.salesRep,
+            purchase_order_number: item.purchaseOrderNumber,
+            recipient_name: item.recipientName,
+            recipient_cpf_cnpj: item.recipientCpfCnpj,
+            recipient_zip_code: item.recipientZipCode,
+            recipient_address: item.recipientAddress,
+            recipient_address_number: item.recipientAddressNumber,
+            recipient_complement: item.recipientComplement,
+            recipient_neighborhood: item.recipientNeighborhood,
+            recipient_city: item.recipientCity,
+            recipient_state: item.recipientState,
+            recipient_phone: item.recipientPhone,
             imported_at: new Date().toISOString()
         };
 
         if (includeUser) payload.imported_by = user.id;
-        if (i.id) payload.id = i.id;
-
+        // O ID só é adicionado se existir no objeto de entrada.
+        if (item.id) payload.id = item.id;
+        
         return payload;
-    });
+    };
 
-    let dbItems = buildPayload(true);
+    const itemsToUpdate = items.filter(i => !!i.id);
+    const itemsToInsert = items.filter(i => !i.id);
     
-    // UPSERT baseado no ID (UUID interno). Se i.id existir, atualiza; se não, insere.
-    let { error } = await supabase
-        .from('sales_history')
-        .upsert(dbItems, { onConflict: 'id' });
-
-    if (error && error.code === '23503') { 
-         console.warn("NZERP Warning: Violação de chave estrangeira em imported_by. Tentando importar sem atribuição de usuário.");
-         dbItems = buildPayload(false);
-         const retry = await supabase
-            .from('sales_history')
-            .upsert(dbItems, { onConflict: 'id' });
-         error = retry.error;
+    // Processa Updates
+    if (itemsToUpdate.length > 0) {
+        // De-duplicate items based on 'id' to prevent "affect row twice" error.
+        const uniqueItemsToUpdate = Array.from(new Map(itemsToUpdate.map(item => [item.id, item])).values());
+        let updatePayloads = uniqueItemsToUpdate.map(i => buildPayload(i, true));
+        
+        let { error: updateError } = await supabase.from('sales_history').upsert(updatePayloads, { onConflict: 'id' });
+        
+        if (updateError && (updateError.code === '23503' || updateError.message.includes('imported_by'))) {
+            console.warn("NZERP Warning (UPDATE): Foreign key violation on imported_by. Retrying without user.");
+            updatePayloads = uniqueItemsToUpdate.map(i => buildPayload(i, false));
+            const { error: retryError } = await supabase.from('sales_history').upsert(updatePayloads, { onConflict: 'id' });
+            if (retryError) throw retryError;
+        } else if (updateError) {
+            throw updateError;
+        }
     }
 
-    if (error) throw error;
+    // Processa Inserts
+    if (itemsToInsert.length > 0) {
+        // De-duplicate based on externalId to avoid inserting duplicates from a messy source file.
+        const uniqueItemsToInsert = Array.from(new Map(itemsToInsert.map(item => [item.externalId, item])).values());
+        
+        const insertPayloads = uniqueItemsToInsert.map(item => {
+            const payload = buildPayload(item, true);
+            // Se o BD não gera UUIDs, fornecemos um válido para satisfazer a constraint NOT NULL.
+            if (!payload.id) {
+              payload.id = crypto.randomUUID();
+            }
+            return payload;
+        });
+
+        let { error: insertError } = await supabase.from('sales_history').insert(insertPayloads);
+        
+        if (insertError && (insertError.code === '23503' || insertError.message.includes('imported_by'))) {
+            console.warn("NZERP Warning (INSERT): Foreign key violation on imported_by. Retrying without user.");
+            const retryPayloads = uniqueItemsToInsert.map(item => {
+                const payload = buildPayload(item, false);
+                if (!payload.id) {
+                  payload.id = crypto.randomUUID();
+                }
+                return payload;
+            });
+            const { error: retryError } = await supabase.from('sales_history').insert(retryPayloads);
+            if (retryError) throw retryError;
+        } else if (insertError) {
+            throw insertError;
+        }
+    }
     
     return { success: true, count: items.length };
   }

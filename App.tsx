@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { User, ModuleContext, ViewType, CompanySettings, AppNotification } from './types';
 import { DataService } from './services/dataService';
@@ -26,6 +25,7 @@ import HRPayrollModule from './components/HRPayrollModule';
 import HRServiceOrdersModule from './components/HRServiceOrdersModule';
 import SalesPriceTable from './components/SalesPriceTable';
 import SalesHistoryModule from './components/SalesHistoryModule';
+import SalesBI from './components/SalesBI';
 
 interface AppErrorBoundaryState {
   hasError: boolean;
@@ -90,7 +90,7 @@ const App: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('lpn')) {
       setModuleContext('ESTOQUE');
-      setCurrentView('INVENTARIO');
+      navigate('INVENTARIO');
     }
   }, []);
 
@@ -136,7 +136,7 @@ const App: React.FC = () => {
               if (ctx === 'ESTOQUE') navigate('INVENTARIO');
               else if (ctx === 'FINANCEIRO') navigate('LANCAMENTO_RECEBER');
               else if (ctx === 'RH') navigate('RH_COLLABORATORS');
-              else if (ctx === 'COMERCIAL') navigate('SALES_PRICETABLE');
+              else if (ctx === 'COMERCIAL') navigate('SALES_BI'); 
             }} 
             userPermissions={currentUser.permissions || []} 
             isDirectory={currentUser.role === 'DIRETORIA'} 
@@ -160,6 +160,7 @@ const App: React.FC = () => {
 
         case 'SALES_PRICETABLE': return <SalesPriceTable user={currentUser} />;
         case 'SALES_HISTORY': return <SalesHistoryModule user={currentUser} />;
+        case 'SALES_BI': return <SalesBI />;
 
         case 'RH_COLLABORATORS': return <HREmployees currentUser={currentUser} />;
         case 'RH_PAYROLL': return <HRPayrollModule currentUser={currentUser} />;
@@ -202,6 +203,7 @@ const App: React.FC = () => {
               <>
                 {hasAccess('SALES_PRICETABLE') && <button onClick={() => navigate('SALES_PRICETABLE')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'SALES_PRICETABLE' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Tabela de Preço</button>}
                 {hasAccess('SALES_HISTORY') && <button onClick={() => navigate('SALES_HISTORY')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'SALES_HISTORY' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Histórico Vendas</button>}
+                {hasAccess('SALES_BI') && <button onClick={() => navigate('SALES_BI')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'SALES_BI' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>BI Vendas</button>}
               </>
             )}
 
