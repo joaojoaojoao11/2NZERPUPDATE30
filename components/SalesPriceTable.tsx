@@ -580,7 +580,70 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
       {/* MODAL DE EDIÇÃO INDIVIDUAL */}
       {editingItem && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300">
-           {/* ... (código do modal de edição mantido) ... */}
+          <div className="bg-white max-w-4xl w-full rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-fit animate-in zoom-in-95">
+              <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
+                  <div>
+                      <h3 className="text-2xl font-black text-slate-900 uppercase italic">Gestão Comercial de SKU</h3>
+                      <p className="text-indigo-600 font-bold text-[10px] uppercase tracking-widest mt-1">{editingItem.sku}</p>
+                  </div>
+                  <button onClick={() => setEditingItem(null)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-red-500 transition-all">
+                      <ICONS.Add className="w-6 h-6 rotate-45" />
+                  </button>
+              </div>
+
+              <div className="p-10 space-y-10 overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                  <div className="space-y-6">
+                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">Estrutura de Custo (Por Metro)</h4>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1 italic">Custo Base (R$)</label>
+                        <input type="number" step="0.01" value={editingItem.custoUnitario} onChange={e => setEditingItem({...editingItem, custoUnitario: parseFloat(e.target.value)})} className="w-full mt-1 px-4 py-3 bg-slate-100 rounded-xl font-bold" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1 italic">Imposto sobre Custo (%)</label>
+                        <input type="number" step="0.1" value={editingItem.costTaxPercent} onChange={e => setEditingItem({...editingItem, costTaxPercent: parseFloat(e.target.value)})} className="w-full mt-1 px-4 py-3 bg-slate-100 rounded-xl font-bold" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1 italic">Custo Extra/Frete (R$)</label>
+                        <input type="number" step="0.01" value={editingItem.costExtraValue} onChange={e => setEditingItem({...editingItem, costExtraValue: parseFloat(e.target.value)})} className="w-full mt-1 px-4 py-3 bg-slate-100 rounded-xl font-bold" />
+                      </div>
+                    </div>
+                    <div className="bg-slate-900 text-white p-6 rounded-2xl text-center">
+                      <p className="text-[9px] font-black text-blue-300 uppercase tracking-widest">Custo Final Total</p>
+                      <p className="text-2xl font-black italic">R$ {calculateFinalCost(editingItem).toFixed(2)}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <h4 className="text-[11px] font-black text-indigo-500 uppercase tracking-widest border-b border-indigo-100 pb-2">Precificação (Por Metro)</h4>
+                    
+                    <div className="space-y-4">
+                      <p className="text-[10px] font-bold text-slate-600 uppercase">Venda de Rolo Fechado</p>
+                      <div className="grid grid-cols-2 gap-3"><input type="number" step="0.01" value={editingItem.priceRoloMin?.toFixed(2)} onChange={e => onPriceChange('priceRoloMin', e.target.value, 'roloMin')} className="w-full px-4 py-2 bg-slate-50 border rounded-xl" placeholder="Preço Mín." /><input value={markupStrings.roloMin} onChange={e => onMarkupChange('roloMin', 'priceRoloMin', e.target.value)} className="w-full px-4 py-2 bg-slate-100 border rounded-xl" placeholder="Markup % Mín." /></div>
+                      <div className="grid grid-cols-2 gap-3"><input type="number" step="0.01" value={editingItem.priceRoloIdeal?.toFixed(2)} onChange={e => onPriceChange('priceRoloIdeal', e.target.value, 'roloIdeal')} className="w-full px-4 py-2 bg-indigo-50 border rounded-xl font-bold" placeholder="Preço Ideal" /><input value={markupStrings.roloIdeal} onChange={e => onMarkupChange('roloIdeal', 'priceRoloIdeal', e.target.value)} className="w-full px-4 py-2 bg-indigo-100 border rounded-xl font-bold" placeholder="Markup % Ideal" /></div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-600 uppercase">Venda Fracionada</p>
+                      <div className="grid grid-cols-2 gap-3"><input type="number" step="0.01" value={editingItem.priceFracMin?.toFixed(2)} onChange={e => onPriceChange('priceFracMin', e.target.value, 'fracMin')} className="w-full px-4 py-2 bg-slate-50 border rounded-xl" placeholder="Preço Mín." /><input value={markupStrings.fracMin} onChange={e => onMarkupChange('fracMin', 'priceFracMin', e.target.value)} className="w-full px-4 py-2 bg-slate-100 border rounded-xl" placeholder="Markup % Mín." /></div>
+                      <div className="grid grid-cols-2 gap-3"><input type="number" step="0.01" value={editingItem.priceFracIdeal?.toFixed(2)} onChange={e => onPriceChange('priceFracIdeal', e.target.value, 'fracIdeal')} className="w-full px-4 py-2 bg-emerald-50 border rounded-xl font-bold" placeholder="Preço Ideal" /><input value={markupStrings.fracIdeal} onChange={e => onMarkupChange('fracIdeal', 'priceFracIdeal', e.target.value)} className="w-full px-4 py-2 bg-emerald-100 border rounded-xl font-bold" placeholder="Markup % Ideal" /></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-10 bg-slate-50/50 border-t border-slate-100 flex justify-end gap-4">
+                  <button onClick={() => setEditingItem(null)} className="px-8 py-4 text-slate-400 font-black text-[10px] uppercase tracking-widest italic hover:text-slate-900 transition-colors">Cancelar</button>
+                  <button 
+                      onClick={handleSavePrice}
+                      disabled={isSaving}
+                      className="px-12 py-4 bg-slate-900 text-white rounded-[1.5rem] font-black text-[10px] uppercase tracking-[0.2em] shadow-xl hover:bg-indigo-600 transition-all italic active:scale-95 disabled:opacity-50"
+                  >
+                      {isSaving ? 'Salvando...' : 'Salvar Alterações'}
+                  </button>
+              </div>
+          </div>
         </div>
       )}
     </div>
