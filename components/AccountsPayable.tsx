@@ -14,14 +14,27 @@ const AccountsPayableModule: React.FC<{ currentUser: User }> = ({ currentUser })
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
-  const [showImportInstructions, setShowImportInstructions] = useState(false); // Novo estado
+  const [showImportInstructions, setShowImportInstructions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Novos estados para rastreamento de importação
+  const [fileName, setFileName] = useState<string>('');
+  const [lastImport, setLastImport] = useState<{ fileName: string; timestamp: string } | null>(null);
 
   const fetchItems = async () => {
     setLoading(true);
-    const items = await DataService.getAccountsPayable();
-    setData(items);
-    setLoading(false);
+    try {
+      const [items, lastImportData] = await Promise.all([
+        DataService.getAccountsPayable(),
+        DataService.getLastAPImport()
+      ]);
+      setData(items);
+      setLastImport(lastImportData);
+    } catch (e) {
+      setToast({ msg: "Erro ao carregar dados.", type: 'error' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -67,6 +80,7 @@ const AccountsPayableModule: React.FC<{ currentUser: User }> = ({ currentUser })
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setFileName(file.name); // Salva o nome do arquivo no estado
     setIsProcessing(true);
     const reader = new FileReader();
     
@@ -199,7 +213,7 @@ const AccountsPayableModule: React.FC<{ currentUser: User }> = ({ currentUser })
     if (!staging) return;
     setIsProcessing(true);
     try {
-      const res = await DataService.commitAPBatch(staging, currentUser);
+      const res = await DataService.commitAPBatch(staging, currentUser, fileName);
       if (res.success) {
         setToast({ msg: 'BASE DE CONTAS A PAGAR SINCRONIZADA!', type: 'success' });
         setStaging(null);
@@ -274,6 +288,16 @@ const AccountsPayableModule: React.FC<{ currentUser: User }> = ({ currentUser })
            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xls,.xlsx,.csv" className="hidden" />
         </div>
       </div>
+
+      {lastImport && (
+        <div className="bg-slate-50 border border-slate-200 text-slate-500 text-[10px] font-bold uppercase p-3 rounded-2xl flex items-center gap-3 animate-in fade-in duration-300">
+            <ICONS.History className="w-4 h-4 text-slate-400" />
+            <span>Última Sincronização:</span>
+            <span className="font-black text-slate-700">{lastImport.fileName}</span>
+            <span>em</span>
+            <span className="font-black text-slate-700">{new Date(lastImport.timestamp).toLocaleString('pt-BR')}</span>
+        </div>
+      )}
 
       <div className="table-container flex-1 overflow-auto border border-slate-200 rounded-[2rem] bg-white shadow-sm" style={{ maxHeight: 'calc(100vh - 220px)' }}>
         <table className="w-full border-separate border-spacing-0" style={{ minWidth: '1800px' }}>

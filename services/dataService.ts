@@ -379,13 +379,14 @@ export class DataService {
 
   static async getAccountsReceivable() { return FinanceService.getAccountsReceivable(); }
   static async getAccountsPayable() { return FinanceService.getAccountsPayable(); }
+  static async getLastAPImport() { return FinanceService.getLastAPImport(); }
 
   static async processAPStaging(items: AccountsPayable[]): Promise<APStagingItem[]> {
     return FinanceService.processAPStaging(items);
   }
 
-  static async commitAPBatch(staging: APStagingItem[], user: User) {
-    return FinanceService.commitAPBatch(staging, user);
+  static async commitAPBatch(staging: APStagingItem[], user: User, fileName?: string) {
+    return FinanceService.commitAPBatch(staging, user, fileName);
   }
 
   static async login(email: string, pass: string) { return UserService.login(email, pass); }

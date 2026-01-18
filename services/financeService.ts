@@ -1,4 +1,3 @@
-
 // Fix: Correctly import 'supabaseClient' as 'supabase' from './core'
 import { supabaseClient as supabase } from './core';
 import { 
@@ -441,7 +440,7 @@ export class FinanceService {
     }
   }
 
-  static async commitAPBatch(staging: APStagingItem[], user: User): Promise<{ success: boolean; message?: string }> {
+  static async commitAPBatch(staging: APStagingItem[], user: User, fileName?: string): Promise<{ success: boolean; message?: string }> {
     try {
       if (!supabase) return { success: false, message: 'DB Offline' };
       const itemsToSave = staging.filter(s => s.status !== 'UNCHANGED').map(s => ({
@@ -465,10 +464,38 @@ export class FinanceService {
       if (itemsToSave.length > 0) {
         const { error: upsertError } = await supabase.from('accounts_payable').upsert(itemsToSave, { onConflict: 'id' });
         if (upsertError) throw upsertError;
+
+        if (fileName) {
+          await this.saveFinancialLog(user, 'IMPORTACAO_AP', fileName, `Importação Olist Contas a Pagar: ${itemsToSave.length} registros.`, itemsToSave.length);
+        }
       }
       return { success: true };
     } catch (e: any) {
       return { success: false, message: e.message };
+    }
+  }
+
+  static async getLastAPImport(): Promise<{ fileName: string; timestamp: string } | null> {
+    if (!supabase) return null;
+    try {
+      const { data, error } = await supabase
+        .from('financial_logs')
+        .select('cliente, timestamp') // 'cliente' é usado para o nome do arquivo aqui
+        .eq('acao', 'IMPORTACAO_AP')
+        .order('timestamp', { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (error || !data) {
+        if (error && error.code !== 'PGRST116') { // Ignora 'no rows found'
+          console.error("Erro ao buscar último import:", error);
+        }
+        return null;
+      }
+      return { fileName: data.cliente, timestamp: data.timestamp };
+    } catch (e) {
+      console.error("Exceção ao buscar último import:", e);
+      return null;
     }
   }
 
@@ -492,6 +519,7 @@ export class FinanceService {
         .update({ status_cobranca: 'COBRAVEL', "Situação": 'VENCIDO' })
         .in('ID', titleIds);
       if (error) throw error;
+// Fix: The original code returned `success: false` on a successful operation and had an undefined variable 'e'. This corrects the return value to `true` and adds the proper error handling block.
       return { success: true };
     } catch (e: any) {
       return { success: false, message: e.message };
