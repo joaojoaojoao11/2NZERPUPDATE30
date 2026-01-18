@@ -36,6 +36,28 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
   const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const getStatusBadgeStyle = (status?: string): string => {
+    const normalizedStatus = (status || '').toUpperCase();
+
+    if (['PAGO', 'LIQUIDADO', 'RECEBIDO', 'QUITADO'].some(s => normalizedStatus.includes(s))) {
+        return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+    }
+    if (normalizedStatus.includes('VENCIDO')) {
+        return 'bg-red-50 text-red-600 border-red-100';
+    }
+    if (normalizedStatus.includes('ABERTO')) {
+        return 'bg-orange-50 text-orange-600 border-orange-100';
+    }
+    if (normalizedStatus.includes('CANCELADO')) {
+        return 'bg-slate-100 text-slate-500 border-slate-200';
+    }
+    if (normalizedStatus.includes('NEGOCIADO')) {
+        return 'bg-blue-50 text-blue-600 border-blue-100';
+    }
+    // Default style for unknown statuses
+    return 'bg-slate-100 text-slate-500 border-slate-200';
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -201,81 +223,85 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
 
             if (jsonData.length < 2) throw new Error("Planilha vazia ou sem dados.");
 
-            // Normalização robusta de cabeçalhos
             const headers = (jsonData[0] as string[]).map(h => 
                 String(h).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim()
             );
-            
+
+            const findIdx = (keywords: string[]) => headers.findIndex(h => keywords.some(k => h.includes(k)));
+
+            const col = {
+                id: findIdx(['id', 'codigo']),
+                cliente: findIdx(['cliente', 'sacado']),
+                emissao: findIdx(['emissao']),
+                vencimento: findIdx(['vencimento']),
+                liquidacao: findIdx(['liquidacao', 'pagamento']),
+                valor: findIdx(['valor doc']),
+                saldo: findIdx(['saldo']),
+                situacao: findIdx(['situacao', 'status']),
+                doc: findIdx(['numero doc']),
+                banco: findIdx(['numero banco', 'numero no banco']),
+                categoria: findIdx(['categoria']),
+                historico: findIdx(['historico']),
+                forma: findIdx(['forma de recebimento', 'forma pagamento']),
+                meio: findIdx(['meio de recebimento']),
+                taxas: findIdx(['taxas']),
+                competencia: findIdx(['competencia']),
+                recebido: findIdx(['recebido', 'valor recebido']),
+            };
+
+            if (col.id === -1) throw new Error("Coluna ID/CÓDIGO não identificada no arquivo.");
+
             const rows = jsonData.slice(1);
             
             const parsedItems: AccountsReceivable[] = rows.map((row: any) => {
-                // Helpers de Extração
-                const getVal = (possibleKeys: string[]) => {
-                    const idx = headers.findIndex(h => possibleKeys.some(k => h === k || h.startsWith(k)));
-                    return idx !== -1 ? row[idx] : undefined;
+                const getRaw = (idx: number) => idx !== -1 ? row[idx] : undefined;
+                
+                let rawId = getRaw(col.id);
+                if (!rawId) return null;
+                
+                const idStr = String(rawId).trim();
+                let rawSituacao = String(getRaw(col.situacao) || 'EM ABERTO').toUpperCase().trim();
+
+                const parseMoney = (v: any) => {
+                    if (typeof v === 'number') return v;
+                    if (!v) return 0;
+                    return parseFloat(String(v).replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
                 };
 
-                // ID: Busca estrita para evitar confusão com 'pedido'
-                const rawId = getVal(['id', 'codigo', 'código', 'identificador']);
-                
-                const parseDate = (val: any) => {
-                    if (!val) return '';
-                    if (val instanceof Date) return val.toISOString().split('T')[0];
-                    if (typeof val === 'string' && val.includes('/')) {
-                        const parts = val.split('/');
-                        if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+                const parseDate = (v: any) => {
+                    if (!v) return '';
+                    if (v instanceof Date) return v.toISOString().split('T')[0];
+                    const str = String(v).trim();
+                    if (str.match(/^\d{2}\/\d{2}\/\d{4}/)) {
+                        const parts = str.split('/');
+                        return `${parts[2]}-${parts[1]}-${parts[0]}`;
                     }
-                    return String(val);
+                    return str.substring(0, 10);
                 };
-
-                const parseNum = (val: any) => {
-                    if (typeof val === 'number') return val;
-                    if (!val) return 0;
-                    return parseFloat(String(val).replace('R$', '').replace(/\./g, '').replace(',', '.')) || 0;
-                };
-
-                // Lógica de Situação aprimorada
-                let valSituacao = getVal(['situacao', 'status', 'estado']);
-                let rawSituacao = String(valSituacao || 'EM ABERTO').toUpperCase().trim();
-                
-                // Normalização de Termos de Pagamento
-                if (['PAGO', 'LIQUIDADO', 'RECEBIDO', 'QUITADO', 'BAIXADO', 'CONFIRMADO'].some(s => rawSituacao.includes(s))) {
-                    rawSituacao = 'PAGO';
-                } else if (rawSituacao.includes('CANCEL')) {
-                    rawSituacao = 'CANCELADO';
-                } else if (rawSituacao === 'ABERTO') {
-                    rawSituacao = 'EM ABERTO';
-                }
-
-                let saldo = parseNum(getVal(['saldo']));
-                
-                // Se o status for PAGO, forçamos o saldo a zero para consistência se não vier na planilha
-                if (rawSituacao === 'PAGO') {
-                    saldo = 0; 
-                }
 
                 return {
-                    id: String(rawId || `IMP-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`),
-                    cliente: String(getVal(['cliente', 'sacado', 'nome']) || '').toUpperCase(),
-                    data_emissao: parseDate(getVal(['emissao', 'data emissao'])),
-                    data_vencimento: parseDate(getVal(['vencimento', 'data vencimento'])),
-                    valor_documento: parseNum(getVal(['valor', 'valor documento', 'valor titulo'])),
-                    saldo: saldo,
+                    id: idStr,
+                    cliente: String(getRaw(col.cliente) || 'N/A').toUpperCase(),
+                    data_emissao: parseDate(getRaw(col.emissao)),
+                    data_vencimento: parseDate(getRaw(col.vencimento)),
+                    data_liquidacao: parseDate(getRaw(col.liquidacao)),
+                    valor_documento: parseMoney(getRaw(col.valor)),
+                    saldo: parseMoney(getRaw(col.saldo)),
                     situacao: rawSituacao,
-                    numero_documento: String(getVal(['numero', 'doc', 'documento']) || ''),
-                    categoria: String(getVal(['categoria', 'classificacao']) || '').toUpperCase(),
-                    historico: String(getVal(['historico', 'descricao']) || ''),
-                    competencia: String(getVal(['competencia']) || ''),
-                    forma_pagamento: String(getVal(['forma', 'metodo']) || '').toUpperCase(),
-                    valor_recebido: parseNum(getVal(['recebido', 'valor recebido'])),
+                    numero_documento: String(getRaw(col.doc) || ''),
+                    numero_banco: String(getRaw(col.banco) || ''),
+                    categoria: String(getRaw(col.categoria) || 'VENDAS').toUpperCase(),
+                    historico: String(getRaw(col.historico) || ''),
+                    forma_pagamento: String(getRaw(col.forma) || 'OUTROS').toUpperCase(),
+                    meio_recebimento: String(getRaw(col.meio) || '').toUpperCase(),
+                    taxas: parseMoney(getRaw(col.taxas)),
+                    competencia: String(getRaw(col.competencia) || ''),
+                    valor_recebido: parseMoney(getRaw(col.recebido)),
                     origem: 'OLIST',
-                    taxas: 0,
-                    meio_recebimento: 'IMPORTADO',
-                    numero_banco: ''
                 } as AccountsReceivable;
-            }).filter(i => i.cliente && i.valor_documento > 0);
+            }).filter((i): i is AccountsReceivable => i !== null && i.valor_documento > 0);
 
-            if (parsedItems.length === 0) throw new Error("Nenhum dado válido encontrado para importação.");
+            if (parsedItems.length === 0) throw new Error("Nenhum dado válido processado.");
 
             const staging = await FinanceService.processARStaging(parsedItems);
             setImportStaging(staging);
@@ -327,7 +353,6 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
     XLSX.writeFile(wb, "ContasReceber_NZERP.xlsx");
   };
 
-  // Verificações de filtro ativo para highlight do botão
   const hasActiveFilters = filters.startDate !== '' || filters.endDate !== '' || filters.origin !== 'TODOS' || filters.paymentMethod !== 'TODOS' || filters.status !== 'TODOS';
 
   const clearFilters = () => {
@@ -356,7 +381,6 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
         </div>
         
         <div className="flex gap-3 items-center">
-           {/* Barra de Pesquisa e Filtro */}
            <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex-1 md:w-auto">
               <input 
                 type="text" 
@@ -392,134 +416,74 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
         </div>
       </div>
 
-      <div className="table-container flex-1 overflow-auto border border-slate-200 rounded-[2rem] bg-white shadow-sm" style={{ maxHeight: 'calc(100vh - 220px)' }}>
-        <table className="w-full border-separate border-spacing-0" style={{ minWidth: '1600px' }}>
+      <div className="table-container flex-1 overflow-auto border border-slate-200 rounded-[2rem] bg-white shadow-sm relative" style={{ maxHeight: 'calc(100vh - 220px)' }}>
+        <table className="w-full border-separate border-spacing-0" style={{ minWidth: '2800px' }}>
           <thead>
             <tr>
-              {renderSortableHeader("ID LANÇAMENTO", "id", "left", "sticky left-0 z-40 w-32")}
-              {renderSortableHeader("ID ACORDO", "id_acordo")}
-              {renderSortableHeader("Origem", "origem")}
-              {renderSortableHeader("Cliente", "cliente")}
-              {renderSortableHeader("Vencimento", "data_vencimento", "center")}
+              <th 
+                className="bg-slate-900 text-slate-400 px-4 py-5 text-[9px] font-black uppercase border-b border-slate-800 cursor-pointer hover:text-white transition-colors group select-none text-left sticky left-0 z-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                style={{ width: '150px', minWidth: '150px' }}
+                onClick={() => handleSort('id')}
+              >
+                <div className="flex items-center gap-1 justify-start">
+                  <span>ID LANÇAMENTO</span>
+                  <SortButton column="id" />
+                </div>
+              </th>
+              {renderSortableHeader("ID Acordo", "id_acordo")}
+              {renderSortableHeader("Cliente", "cliente", "left", "min-w-[200px]")}
+              {renderSortableHeader("Data Emissão", "data_emissao", "center")}
+              {renderSortableHeader("Data Venc.", "data_vencimento", "center")}
+              {renderSortableHeader("Data Liq.", "data_liquidacao", "center")}
               {renderSortableHeader("Valor Doc.", "valor_documento", "right")}
               {renderSortableHeader("Saldo", "saldo", "right")}
               {renderSortableHeader("Situação", "situacao", "center")}
               {renderSortableHeader("Nº Doc", "numero_documento")}
-              {renderSortableHeader("Forma Pgto", "forma_pagamento")}
-              {renderSortableHeader("Status Cobrança", "statusCobranca", "center")}
-              {renderSortableHeader("Liquidação", "data_liquidacao", "center")}
-              {renderSortableHeader("Recebido", "valor_recebido", "right")}
+              {renderSortableHeader("Nº Banco", "numero_banco")}
+              {renderSortableHeader("Categoria", "categoria")}
+              {renderSortableHeader("Histórico", "historico", "left", "min-w-[250px]")}
+              {renderSortableHeader("Forma Receb.", "forma_pagamento")}
+              {renderSortableHeader("Meio Receb.", "meio_recebimento")}
+              {renderSortableHeader("Taxas", "taxas", "right")}
+              {renderSortableHeader("Competência", "competencia")}
+              {renderSortableHeader("Valor Recebido", "valor_recebido", "right")}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50">
             {sortedData.map(item => {
-              // Lógica de Cancelamento
-              const isCanceled = item.situacao === 'CANCELADO';
-              
-              // Lógica de Vencimento (não considera vencido se estiver cancelado)
-              const isOverdue = !isCanceled && item.data_vencimento && new Date(item.data_vencimento) < new Date() && item.saldo > 0.01;
-              const isPaid = item.saldo <= 0.01 || item.situacao === 'PAGO';
-              
-              // Regras de Visualização Condicional
-              const isParcelaAcordo = item.origem === 'NZERP' && !!item.id_acordo;
-              const isTituloNegociado = item.situacao === 'NEGOCIADO';
-
-              // Lógica de Status Visual (Badge) e Cor
-              let badgeLabel = item.situacao;
-              let badgeStyle = 'bg-slate-100 text-slate-500 border-slate-200';
-
-              if (isCanceled) {
-                  badgeLabel = 'CANCELADO';
-                  badgeStyle = 'bg-slate-100 text-slate-500 border-slate-200'; // Cinza Claro
-              } else if (isPaid) {
-                  badgeLabel = 'PAGO';
-                  badgeStyle = 'bg-emerald-50 text-emerald-600 border-emerald-100'; // Verde
-              } else if (isOverdue) {
-                  badgeLabel = 'VENCIDO';
-                  badgeStyle = 'bg-red-50 text-red-600 border-red-100'; // Vermelho
-              } else {
-                  // EM ABERTO / A VENCER
-                  badgeLabel = 'EM ABERTO';
-                  badgeStyle = 'bg-orange-50 text-orange-600 border-orange-100'; // Laranja
-              }
-
-              // Lógica de Status de Cobrança (Coluna extra)
-              let cobrancaLabel = 'EM DIA';
-              let cobrancaStyle = 'bg-emerald-50 text-emerald-600 border-emerald-100';
-
-              if (item.statusCobranca === 'CARTORIO') {
-                  cobrancaLabel = 'EM CARTÓRIO';
-                  cobrancaStyle = 'bg-slate-900 text-white border-slate-900';
-              } else if (item.statusCobranca === 'BLOQUEADO_CARTORIO') {
-                  cobrancaLabel = 'ACORDO (CARTÓRIO)';
-                  cobrancaStyle = 'bg-slate-900 text-white border-slate-900 opacity-70';
-              } else if (item.situacao === 'NEGOCIADO' || item.id_acordo) {
-                  cobrancaLabel = 'ACORDO';
-                  cobrancaStyle = 'bg-blue-50 text-blue-600 border-blue-100';
-              } else if (isPaid) {
-                  cobrancaLabel = 'QUITADO';
-                  cobrancaStyle = 'bg-slate-100 text-slate-400 border-slate-200';
-              } else if (isOverdue) {
-                  cobrancaLabel = 'COBRANDO';
-                  cobrancaStyle = 'bg-amber-50 text-amber-600 border-amber-100';
-              } else if (isCanceled) {
-                  cobrancaLabel = 'CANCELADO';
-                  cobrancaStyle = 'bg-slate-100 text-slate-400 border-slate-200';
-              }
+              const isOverdue = item.data_vencimento && new Date(item.data_vencimento) < new Date() && item.saldo > 0.01;
+              const badgeLabel = item.situacao || 'INDEFINIDO';
+              const badgeStyle = getStatusBadgeStyle(item.situacao);
 
               return (
                 <tr key={item.id} className="group hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-3 border-b border-slate-100 sticky left-0 z-20 bg-white group-hover:bg-slate-50 w-32 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                    {!isParcelaAcordo && (
-                        <span className="font-black text-slate-400 text-[10px] italic">#{item.id}</span>
-                    )}
+                  <td 
+                    className="px-6 py-3 border-b border-slate-100 sticky left-0 z-30 bg-white group-hover:bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]"
+                    style={{ width: '150px', minWidth: '150px' }}
+                  >
+                    <span className="font-black text-slate-400 text-[10px] italic">#{item.id}</span>
                   </td>
-                  <td className="px-6 py-3 border-b border-slate-100">
-                    {!isTituloNegociado && item.id_acordo ? (
-                        <span className="text-[10px] font-bold text-purple-600">#{item.id_acordo}</span>
-                    ) : (
-                        <span className="text-slate-300">-</span>
-                    )}
+                  <td className="px-6 py-3 border-b border-slate-100 text-[10px] font-bold text-purple-600">
+                    {item.id_acordo ? `#${item.id_acordo}` : <span className="text-slate-300">-</span>}
                   </td>
-                  <td className="px-6 py-3 border-b border-slate-100">
-                    <span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${
-                        item.origem === 'NZERP' 
-                        ? 'bg-purple-50 text-purple-600 border-purple-100' 
-                        : 'bg-blue-50 text-blue-600 border-blue-100'
-                    }`}>
-                        {item.origem || '---'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3 border-b border-slate-100 font-black text-slate-900 uppercase text-[11px] whitespace-nowrap">
-                    {item.cliente}
-                  </td>
-                  <td className={`px-4 py-3 border-b border-slate-100 text-center font-bold text-[11px] ${isOverdue ? 'text-red-600' : 'text-slate-600'}`}>
-                    {item.data_vencimento ? item.data_vencimento.split('-').reverse().join('/') : '-'}
-                  </td>
-                  <td className="px-4 py-3 border-b border-slate-100 text-right font-bold text-slate-500 text-[11px]">
-                    {item.valor_documento?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="px-4 py-3 border-b border-slate-100 text-right font-black text-slate-900 text-[11px]">
-                    {item.saldo?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </td>
+                  <td className="px-6 py-3 border-b border-slate-100 font-black text-slate-900 uppercase text-[11px] whitespace-nowrap">{item.cliente}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 text-center font-bold text-[11px] text-slate-500">{item.data_emissao ? item.data_emissao.split('-').reverse().join('/') : '-'}</td>
+                  <td className={`px-4 py-3 border-b border-slate-100 text-center font-bold text-[11px] ${isOverdue && !badgeLabel.includes('PAGO') ? 'text-red-600' : 'text-slate-600'}`}>{item.data_vencimento ? item.data_vencimento.split('-').reverse().join('/') : '-'}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 text-center font-bold text-[11px] text-emerald-600">{item.data_liquidacao ? item.data_liquidacao.split('-').reverse().join('/') : '-'}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 text-right font-bold text-slate-500 text-[11px]">{item.valor_documento?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 text-right font-black text-slate-900 text-[11px]">{item.saldo?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                   <td className="px-4 py-3 border-b border-slate-100 text-center">
-                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${badgeStyle}`}>
-                        {badgeLabel}
-                     </span>
+                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${badgeStyle}`}>{badgeLabel}</span>
                   </td>
                   <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-600 uppercase">{item.numero_documento}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase">{item.numero_banco}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase">{item.categoria}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 text-[10px] text-slate-400 max-w-xs truncate" title={item.historico}>{item.historico}</td>
                   <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase">{item.forma_pagamento}</td>
-                  <td className="px-4 py-3 border-b border-slate-100 text-center">
-                    <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase border ${cobrancaStyle}`}>
-                        {cobrancaLabel}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 border-b border-slate-100 text-center text-[10px] text-slate-400 font-bold">
-                    {item.data_liquidacao ? item.data_liquidacao.split('-').reverse().join('/') : '-'}
-                  </td>
-                  <td className="px-4 py-3 border-b border-slate-100 text-right font-bold text-emerald-600 text-[11px]">
-                    {item.valor_recebido?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </td>
+                  <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase">{item.meio_recebimento}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 text-right font-bold text-red-500 text-[11px]">{item.taxas?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-500">{item.competencia}</td>
+                  <td className="px-4 py-3 border-b border-slate-100 text-right font-bold text-emerald-600 text-[11px]">{item.valor_recebido?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                 </tr>
               );
             })}
@@ -545,7 +509,6 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
               </div>
               
               <div className="p-8 space-y-6">
-                 {/* Período */}
                  <div className="space-y-2">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Período de Vencimento</label>
                     <div className="grid grid-cols-2 gap-4">
@@ -559,8 +522,6 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
                        </div>
                     </div>
                  </div>
-
-                 {/* Origem */}
                  <div className="space-y-2">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Origem do Lançamento</label>
                     <select value={filters.origin} onChange={e => setFilters({...filters, origin: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl text-xs font-bold outline-none uppercase cursor-pointer">
@@ -568,8 +529,6 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
                        {uniqueOrigins.map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
                  </div>
-
-                 {/* Forma Pagamento */}
                  <div className="space-y-2">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Forma de Pagamento</label>
                     <select value={filters.paymentMethod} onChange={e => setFilters({...filters, paymentMethod: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl text-xs font-bold outline-none uppercase cursor-pointer">
@@ -577,8 +536,6 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
                        {uniqueMethods.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
                  </div>
-
-                 {/* Situação */}
                  <div className="space-y-2">
                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Situação do Título</label>
                     <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl text-xs font-bold outline-none uppercase cursor-pointer">
@@ -603,7 +560,7 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
       {/* --- MODAL DE IMPORTAÇÃO --- */}
       {showImportModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-6 animate-in fade-in duration-300">
-           <div className="bg-white max-w-6xl w-full rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-[85vh]">
+           <div className="bg-white max-w-[95vw] w-full rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-[85vh]">
               <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/30 shrink-0">
                  <div>
                     <h3 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">
@@ -635,56 +592,55 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
               ) : (
                 <div className="flex flex-col flex-1 overflow-hidden">
                    <div className="flex-1 overflow-auto p-8 custom-scrollbar">
-                      <table className="w-full text-left">
+                      <table className="w-full text-left" style={{minWidth: '2400px'}}>
                          <thead className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest sticky top-0 z-10">
                             <tr>
                                <th className="px-6 py-4">Status</th>
-                               <th className="px-6 py-4">Origem</th>
                                <th className="px-6 py-4">Cliente / ID</th>
-                               <th className="px-6 py-4 text-center">Vencimento</th>
-                               <th className="px-6 py-4 text-center">Situação</th>
-                               <th className="px-6 py-4 text-right">Valor</th>
+                               <th className="px-6 py-4">Emissão</th>
+                               <th className="px-6 py-4">Venc.</th>
+                               <th className="px-6 py-4">Liq.</th>
+                               <th className="px-6 py-4 text-right">Valor Doc.</th>
                                <th className="px-6 py-4 text-right">Saldo</th>
+                               <th className="px-6 py-4 text-center">Situação</th>
+                               <th className="px-6 py-4">Nº Doc</th>
+                               <th className="px-6 py-4">Nº Banco</th>
+                               <th className="px-6 py-4">Cat.</th>
+                               <th className="px-6 py-4">Histórico</th>
+                               <th className="px-6 py-4">Forma</th>
+                               <th className="px-6 py-4">Meio</th>
+                               <th className="px-6 py-4 text-right">Taxas</th>
+                               <th className="px-6 py-4">Comp.</th>
+                               <th className="px-6 py-4 text-right">Recebido</th>
                                <th className="px-6 py-4">Alterações</th>
                             </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-50 text-[11px]">
                             {importStaging.map((item, idx) => (
                                <tr key={idx} className={`hover:bg-blue-50/30 transition-all ${item.status === 'NEW' ? 'bg-emerald-50/30' : item.status === 'CHANGED' ? 'bg-blue-50/30' : ''}`}>
-                                  <td className="px-6 py-4">
-                                     <span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${
-                                        item.status === 'NEW' ? 'bg-emerald-100 text-emerald-700' : 
-                                        item.status === 'CHANGED' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'
-                                     }`}>{item.status === 'NEW' ? 'NOVO' : item.status === 'CHANGED' ? 'ALTERADO' : 'IGUAL'}</span>
-                                  </td>
-                                  <td className="px-6 py-4">
-                                     <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[8px] font-black border border-blue-100">OLIST</span>
-                                  </td>
-                                  <td className="px-6 py-4">
-                                     <p className="font-black text-slate-900">{item.data.cliente}</p>
-                                     <p className="text-[9px] text-slate-400 uppercase truncate max-w-[200px]">ID: {item.data.id}</p>
-                                  </td>
-                                  <td className="px-6 py-4 text-center font-bold text-slate-500">{item.data.data_vencimento || '-'}</td>
+                                  <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${ item.status === 'NEW' ? 'bg-emerald-100 text-emerald-700' : item.status === 'CHANGED' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>{item.status}</span></td>
+                                  <td className="px-6 py-4"><p className="font-black text-slate-900">{item.data.cliente}</p><p className="text-[9px] text-slate-400">ID: {item.data.id}</p></td>
+                                  <td className="px-6 py-4 font-bold">{item.data.data_emissao}</td>
+                                  <td className="px-6 py-4 font-bold">{item.data.data_vencimento}</td>
+                                  <td className="px-6 py-4 font-bold">{item.data.data_liquidacao}</td>
+                                  <td className="px-6 py-4 text-right font-black">R$ {item.data.valor_documento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                  <td className="px-6 py-4 text-right font-bold">R$ {item.data.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                                   <td className="px-6 py-4 text-center">
-                                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
-                                        item.data.situacao === 'CANCELADO' ? 'bg-slate-100 text-slate-500 border-slate-200' :
-                                        item.data.situacao === 'PAGO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                                        (item.data.situacao === 'EM ABERTO' || item.data.situacao === 'ABERTO') ? 'bg-orange-50 text-orange-600 border-orange-100' :
-                                        'bg-red-50 text-red-600 border-red-100'
-                                     }`}>
+                                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${getStatusBadgeStyle(item.data.situacao)}`}>
                                         {item.data.situacao}
-                                     </span>
+                                    </span>
                                   </td>
-                                  <td className="px-6 py-4 text-right font-black text-slate-900">R$ {item.data.valor_documento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="px-6 py-4 text-right font-bold text-slate-400">R$ {item.data.saldo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                  <td className="px-6 py-4">{item.data.numero_documento}</td>
+                                  <td className="px-6 py-4">{item.data.numero_banco}</td>
+                                  <td className="px-6 py-4">{item.data.categoria}</td>
+                                  <td className="px-6 py-4 truncate max-w-xs">{item.data.historico}</td>
+                                  <td className="px-6 py-4">{item.data.forma_pagamento}</td>
+                                  <td className="px-6 py-4">{item.data.meio_recebimento}</td>
+                                  <td className="px-6 py-4 text-right">{item.data.taxas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                  <td className="px-6 py-4">{item.data.competencia}</td>
+                                  <td className="px-6 py-4 text-right">{item.data.valor_recebido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                                   <td className="px-6 py-4">
-                                     {item.diff && item.diff.length > 0 ? (
-                                        <div className="flex flex-wrap gap-1">
-                                           {item.diff.map(d => (
-                                              <span key={d} className="bg-blue-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter">{d}</span>
-                                           ))}
-                                        </div>
-                                     ) : <span className="text-slate-300 text-[8px] italic">-</span>}
+                                     {item.diff && item.diff.length > 0 ? (<div className="flex flex-wrap gap-1">{item.diff.map(d => (<span key={d} className="bg-blue-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase">{d}</span>))}</div>) : <span className="text-slate-300 text-[8px] italic">-</span>}
                                   </td>
                                </tr>
                             ))}

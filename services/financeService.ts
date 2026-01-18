@@ -79,30 +79,34 @@ export class FinanceService {
 
   static async getAccountsReceivable(): Promise<AccountsReceivable[]> {
     if (!supabase) return [];
-    const { data, error } = await supabase.from('accounts_receivable').select('*').order('data_vencimento', { ascending: true });
-    if (error) return [];
+    const { data, error } = await supabase.from('accounts_receivable').select('*').order('Data Vencimento', { ascending: true });
+    if (error) {
+        console.error("Error fetching accounts receivable:", error);
+        return [];
+    };
     
     return data.map(item => ({
-      id: item.id,
-      cliente: item.cliente,
-      data_emissao: item.data_emissao,
-      data_vencimento: item.data_vencimento,
-      data_liquidacao: item.data_liquidacao,
-      valor_documento: Number(item.valor_documento || 0),
-      saldo: Number(item.saldo || 0),
-      situacao: item.situacao,
-      numero_documento: item.numero_documento,
-      numero_banco: item.numero_banco,
-      categoria: item.categoria,
-      historico: item.historico,
-      competencia: item.competencia,
-      forma_pagamento: item.forma_pagamento,
-      meio_recebimento: item.meio_recebimento,
-      taxas: Number(item.taxas || 0),
-      valor_recebido: Number(item.valor_recebido || 0),
+      id: item.ID,
+      cliente: item.Cliente,
+      data_emissao: item['Data Emissão'],
+      data_vencimento: item['Data Vencimento'],
+      data_liquidacao: item['Data Liquidação'],
+      valor_documento: Number(item['Valor documento'] || 0),
+      saldo: Number(item.Saldo || 0),
+      situacao: item['Situação'],
+      numero_documento: item['Número documento'],
+      numero_banco: item['Número no banco'],
+      categoria: item.Categoria,
+      historico: item.Histórico,
+      competencia: item.Competência,
+      forma_pagamento: item['Forma de recebimento'],
+      meio_recebimento: item['Meio de recebimento'],
+      taxas: Number(item.Taxas || 0),
+      valor_recebido: Number(item.Recebido || 0),
       id_acordo: item.id_acordo,
       origem: item.origem,
-      statusCobranca: item.status_cobranca
+      statusCobranca: item.status_cobranca,
+      data_recebimento: item.data_recebimento
     })) as unknown as AccountsReceivable[];
   }
 
@@ -149,33 +153,27 @@ export class FinanceService {
       });
       if (sError) throw sError;
 
-      // Verifica status atual dos títulos para decidir o tipo de bloqueio
-      const { data: currentTitles } = await supabase.from('accounts_receivable').select('id, status_cobranca').in('id', titleIds);
+      const { data: currentTitles } = await supabase.from('accounts_receivable').select('ID, status_cobranca').in('ID', titleIds);
       
-      const cartorioIds = (currentTitles || [])
-        .filter((t: any) => t.status_cobranca === 'CARTORIO')
-        .map((t: any) => t.id);
-      
+      const cartorioIds = (currentTitles || []).filter((t: any) => t.status_cobranca === 'CARTORIO').map((t: any) => t.ID);
       const normalIds = titleIds.filter(id => !cartorioIds.includes(id));
 
-      // Bloqueia títulos normais
       if (normalIds.length > 0) {
         await supabase.from('accounts_receivable').update({ 
           id_acordo: settlement.id, 
-          situacao: 'NEGOCIADO', 
-          saldo: 0,
+          "Situação": 'NEGOCIADO', 
+          "Saldo": 0,
           status_cobranca: 'BLOQUEADO_ACORDO'
-        }).in('id', normalIds);
+        }).in('ID', normalIds);
       }
 
-      // Bloqueia títulos de cartório (com status diferenciado para retorno futuro)
       if (cartorioIds.length > 0) {
         await supabase.from('accounts_receivable').update({ 
           id_acordo: settlement.id, 
-          situacao: 'NEGOCIADO', 
-          saldo: 0,
+          "Situação": 'NEGOCIADO', 
+          "Saldo": 0,
           status_cobranca: 'BLOQUEADO_CARTORIO'
-        }).in('id', cartorioIds);
+        }).in('ID', cartorioIds);
       }
 
       const parcelasItems = [];
@@ -184,19 +182,19 @@ export class FinanceService {
 
       for (let i = 1; i <= settlement.parcelas; i++) {
         parcelasItems.push({
-          id: `${settlement.id}-${i}`,
-          cliente: settlement.cliente,
-          data_emissao: new Date().toISOString().split('T')[0],
-          data_vencimento: dataRef.toISOString().split('T')[0],
-          valor_documento: valorParcela,
-          saldo: valorParcela,
-          situacao: 'ABERTO',
-          numero_documento: `PARC ${i}/${settlement.parcelas}`,
-          categoria: 'ACORDO COMERCIAL',
-          historico: `PARCELA ${i} DO ACORDO ${settlement.id}`,
-          competencia: `${dataRef.getMonth() + 1}/${dataRef.getFullYear()}`,
-          forma_pagamento: 'PIX',
-          meio_recebimento: 'PIX',
+          "ID": `${settlement.id}-${i}`,
+          "Cliente": settlement.cliente,
+          "Data Emissão": new Date().toISOString().split('T')[0],
+          "Data Vencimento": dataRef.toISOString().split('T')[0],
+          "Valor documento": valorParcela,
+          "Saldo": valorParcela,
+          "Situação": 'ABERTO',
+          "Número documento": `PARC ${i}/${settlement.parcelas}`,
+          "Categoria": 'ACORDO COMERCIAL',
+          "Histórico": `PARCELA ${i} DO ACORDO ${settlement.id}`,
+          "Competência": `${dataRef.getMonth() + 1}/${dataRef.getFullYear()}`,
+          "Forma de recebimento": 'PIX',
+          "Meio de recebimento": 'PIX',
           status_cobranca: 'NAO_COBRAVEL',
           origem: 'NZERP',
           id_acordo: settlement.id
@@ -220,20 +218,20 @@ export class FinanceService {
   static async liquidateInstallment(id: string, dataLiquidacao: string, meio: string, user: User): Promise<boolean> {
     try {
       if (!supabase) return false;
-      const { data: title } = await supabase.from('accounts_receivable').select('valor_documento, cliente').eq('id', id).single();
+      const { data: title } = await supabase.from('accounts_receivable').select('"Valor documento", "Cliente"').eq('ID', id).single();
       if (!title) return false;
 
       const { error } = await supabase.from('accounts_receivable').update({
-        situacao: 'PAGO',
-        saldo: 0,
-        valor_recebido: title.valor_documento,
-        data_liquidacao: dataLiquidacao,
-        meio_recebimento: meio
-      }).eq('id', id);
+        "Situação": 'PAGO',
+        "Saldo": 0,
+        "Recebido": title['Valor documento'],
+        "Data Liquidação": dataLiquidacao,
+        "Meio de recebimento": meio
+      }).eq('ID', id);
 
       if (error) throw error;
 
-      await this.saveFinancialLog(user, 'BAIXA_PARCELA_ACORDO', title.cliente, `Parcela ${id} liquidada via ${meio}.`, title.valor_documento);
+      await this.saveFinancialLog(user, 'BAIXA_PARCELA_ACORDO', title.Cliente, `Parcela ${id} liquidada via ${meio}.`, title['Valor documento']);
       return true;
     } catch (e) {
       console.error("Erro ao baixar parcela:", e);
@@ -247,22 +245,18 @@ export class FinanceService {
       const { data: s, error: fError } = await supabase.from('settlements').select('*').eq('id', settlementId).single();
       if (fError || !s) throw new Error("Acordo não localizado.");
 
-      // 1. Atualizar Status do Acordo
       await supabase.from('settlements').update({ status: 'LIQUIDADO' }).eq('id', settlementId);
-
-      // 2. Liquidar Títulos Originais (usando a lista oficial do acordo)
       const idsOriginais: string[] = s.titulos_negociados || [];
 
       if (idsOriginais.length > 0) {
-        // Update em lote para performance, marcando todos os originais como LIQUIDADO
         const { error: updError } = await supabase.from('accounts_receivable')
             .update({
-                situacao: 'LIQUIDADO',
-                saldo: 0,
-                data_liquidacao: new Date().toISOString().split('T')[0],
+                "Situação": 'LIQUIDADO',
+                "Saldo": 0,
+                "Data Liquidação": new Date().toISOString().split('T')[0],
                 status_cobranca: 'NAO_COBRAVEL'
             })
-            .in('id', idsOriginais);
+            .in('ID', idsOriginais);
             
         if (updError) throw updError;
       }
@@ -284,49 +278,32 @@ export class FinanceService {
 
       const idsOriginais: string[] = s.titulos_negociados || [];
 
-      const { data: relatedItems, error: rError } = await supabase
-        .from('accounts_receivable')
-        .select('*')
-        .eq('id_acordo', settlementId);
-
+      const { data: relatedItems, error: rError } = await supabase.from('accounts_receivable').select('*').eq('id_acordo', settlementId);
       if (rError) throw rError;
 
-      const originals = relatedItems.filter(i => 
-        idsOriginais.includes(i.id) || 
-        i.status_cobranca === 'BLOQUEADO_ACORDO' ||
-        i.status_cobranca === 'BLOQUEADO_CARTORIO'
-      );
-      const originalIds = originals.map(i => i.id);
-      const installments = relatedItems.filter(i => !originalIds.includes(i.id));
+      const originals = relatedItems.filter(i => idsOriginais.includes(i.ID) || i.status_cobranca === 'BLOQUEADO_ACORDO' || i.status_cobranca === 'BLOQUEADO_CARTORIO');
+      const originalIds = originals.map(i => i.ID);
+      const installments = relatedItems.filter(i => !originalIds.includes(i.ID));
 
-      // 4. EXCLUIR AS PARCELAS FISICAMENTE (Diferença do Cancelar)
       if (installments.length > 0) {
-        const instIds = installments.map(i => i.id);
-        const { error: delPartsError } = await supabase.from('accounts_receivable')
-          .delete()
-          .in('id', instIds);
-        
+        const instIds = installments.map(i => i.ID);
+        const { error: delPartsError } = await supabase.from('accounts_receivable').delete().in('ID', instIds);
         if (delPartsError) throw delPartsError;
       }
 
-      // 5. RESTAURAR TÍTULOS ORIGINAIS
       const today = new Date().toISOString().split('T')[0];
-
       for (const orig of originals) {
-        const isOverdue = orig.data_vencimento && orig.data_vencimento < today;
+        const isOverdue = orig['Data Vencimento'] && orig['Data Vencimento'] < today;
         const wasInCartorio = orig.status_cobranca === 'BLOQUEADO_CARTORIO';
 
         await supabase.from('accounts_receivable').update({
-          // Se estava em cartório, volta para situação 'EM CARTORIO', senão 'VENCIDO'/'ABERTO'
-          situacao: wasInCartorio ? 'EM CARTORIO' : (isOverdue ? 'VENCIDO' : 'ABERTO'),
-          saldo: Number(orig.valor_documento),
-          // Restaura status: se era BLOQUEADO_CARTORIO volta para CARTORIO, senão COBRAVEL
+          "Situação": wasInCartorio ? 'EM CARTORIO' : (isOverdue ? 'VENCIDO' : 'ABERTO'),
+          "Saldo": Number(orig['Valor documento']),
           status_cobranca: wasInCartorio ? 'CARTORIO' : 'COBRAVEL',
           id_acordo: null
-        }).eq('id', orig.id);
+        }).eq('ID', orig.ID);
       }
 
-      // 6. EXCLUIR O REGISTRO DO ACORDO (Diferença do Cancelar)
       const { error: delContractError } = await supabase.from('settlements').delete().eq('id', settlementId);
       if (delContractError) throw delContractError;
 
@@ -348,48 +325,44 @@ export class FinanceService {
       valorAcordo: Number(s.valor_acordo || 0),
       dataPrimeiraParcela: s.data_primeira_parcela,
       dataCriacao: s.created_at,
-      titulosNegociados: s.titulos_negociados // Carrega o array importante
+      titulosNegociados: s.titulos_negociados
     }));
   }
 
   static async getSettlementDetails(settlementId: string): Promise<{ installments: AccountsReceivable[], originals: AccountsReceivable[] }> {
     if (!supabase) return { installments: [], originals: [] };
     
-    // 1. Busca o acordo para pegar os IDs
     const { data: s } = await supabase.from('settlements').select('titulos_negociados').eq('id', settlementId).single();
     const idsOriginais: string[] = s?.titulos_negociados || [];
 
-    // 2. Busca tudo vinculado
-    const { data: allRelated, error } = await supabase.from('accounts_receivable').select('*').eq('id_acordo', settlementId).order('data_vencimento', { ascending: true });
+    const { data: allRelated, error } = await supabase.from('accounts_receivable').select('*').eq('id_acordo', settlementId).order('Data Vencimento', { ascending: true });
     if (error) return { installments: [], originals: [] };
 
     const mapper = (item: any) => ({
-      id: item.id,
-      cliente: item.cliente,
-      data_emissao: item.data_emissao,
-      data_vencimento: item.data_vencimento,
-      data_liquidacao: item.data_liquidacao,
-      valor_documento: Number(item.valor_documento || 0),
-      saldo: Number(item.saldo || 0),
-      situacao: item.situacao,
-      numero_documento: item.numero_documento,
-      categoria: item.categoria,
-      historico: item.historico,
-      valor_recebido: Number(item.valor_recebido || 0),
+      id: item.ID,
+      cliente: item.Cliente,
+      data_emissao: item['Data Emissão'],
+      data_vencimento: item['Data Vencimento'],
+      data_liquidacao: item['Data Liquidação'],
+      valor_documento: Number(item['Valor documento'] || 0),
+      saldo: Number(item.Saldo || 0),
+      situacao: item['Situação'],
+      numero_documento: item['Número documento'],
+      categoria: item.Categoria,
+      historico: item.Histórico,
+      valor_recebido: Number(item.Recebido || 0),
       id_acordo: item.id_acordo,
       origem: item.origem,
       statusCobranca: item.status_cobranca,
-      forma_pagamento: item.forma_pagamento,
-      meio_recebimento: item.meio_recebimento
+      forma_pagamento: item['Forma de recebimento'],
+      meio_recebimento: item['Meio de recebimento'],
+      numero_banco: item['Número no banco'],
+      competencia: item.Competência,
+      taxas: Number(item.Taxas || 0),
+      data_recebimento: item.data_recebimento,
     } as unknown as AccountsReceivable);
 
-    // 3. Separação correta usando a lista de IDs + Status Cobrança para robustez
-    const originals = allRelated.filter(i => 
-        idsOriginais.includes(i.id) || 
-        i.status_cobranca === 'BLOQUEADO_ACORDO' ||
-        i.status_cobranca === 'BLOQUEADO_CARTORIO'
-    ).map(mapper);
-    
+    const originals = allRelated.filter(i => idsOriginais.includes(i.ID) || i.status_cobranca === 'BLOQUEADO_ACORDO' || i.status_cobranca === 'BLOQUEADO_CARTORIO').map(mapper);
     const originalIds = originals.map(i => i.id);
     const installments = allRelated.filter(i => !originalIds.includes(i.id)).map(mapper);
 
@@ -403,67 +376,32 @@ export class FinanceService {
       
       if (!match) return { data: item, status: 'NEW' as const };
 
-      // LÓGICA DE DETECÇÃO DE MUDANÇA (VENCIMENTO, SALDO, SITUAÇÃO)
       const diff: string[] = [];
-      
       const cleanDate = (d: string | null | undefined) => d ? new Date(d).toISOString().split('T')[0] : '';
       
-      if (cleanDate(match.data_vencimento) !== cleanDate(item.data_vencimento)) {
-          diff.push('VENCIMENTO');
-      }
-      
-      if (Math.abs(Number(match.saldo || 0) - Number(item.saldo || 0)) > 0.01) {
-          diff.push('SALDO');
-      }
-      
-      if ((match.situacao || '').toUpperCase() !== (item.situacao || '').toUpperCase()) {
-          diff.push('SITUAÇÃO');
-      }
+      if (cleanDate(match.data_vencimento) !== cleanDate(item.data_vencimento)) diff.push('VENCIMENTO');
+      if (Math.abs(Number(match.saldo || 0) - Number(item.saldo || 0)) > 0.01) diff.push('SALDO');
+      if ((match.situacao || '').toUpperCase() !== (item.situacao || '').toUpperCase()) diff.push('SITUAÇÃO');
 
-      if (diff.length > 0) {
-          return { data: item, status: 'CHANGED' as const, diff };
-      }
-
+      if (diff.length > 0) return { data: item, status: 'CHANGED' as const, diff };
       return { data: item, status: 'UNCHANGED' as const };
     });
   }
 
   static async processAPStaging(items: AccountsPayable[]): Promise<APStagingItem[]> {
     const current = await this.getAccountsPayable();
-    
-    // Funções de limpeza reforçadas
-    const cleanStr = (s: any) => {
-        if (s === null || s === undefined) return '';
-        const str = String(s);
-        // Evita strings literais "null" ou "undefined" que possam ter sido passadas
-        if (str === 'null' || str === 'undefined') return '';
-        return str.trim().toUpperCase()
-            .normalize('NFD').replace(/[\u0300-\u036f]/g, "") // Remove acentos
-            .replace(/\s+/g, ' '); // Remove espaços duplos
-    };
-    
-    const cleanNum = (n: any) => {
-        if (n === null || n === undefined || n === '') return 0;
-        return Number(n);
-    };
+    const cleanStr = (s: any) => (s || '').toString().trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, ' ');
+    const cleanNum = (n: any) => Number(n || 0);
 
     return items.map(item => {
-      // Comparação de ID insensível a caixa
       const match = current.find(c => cleanStr(c.id) === cleanStr(item.id));
       if (!match) return { data: item, status: 'NEW' as const };
       
       const diff: string[] = [];
-      
-      // REQUISITO: Monitorar apenas Situação e Saldo
       if (cleanStr(match.situacao) !== cleanStr(item.situacao)) diff.push('SITUAÇÃO');
-      
-      // Comparação numérica para Saldo
       if (Math.abs(cleanNum(match.saldo) - cleanNum(item.saldo)) > 0.01) diff.push('SALDO');
 
-      if (diff.length > 0) {
-          console.debug(`Diff detectado para ID ${item.id}:`, diff);
-          return { data: item, status: 'CHANGED' as const, diff };
-      }
+      if (diff.length > 0) return { data: item, status: 'CHANGED' as const, diff };
       return { data: item, status: 'UNCHANGED' as const };
     });
   }
@@ -472,23 +410,30 @@ export class FinanceService {
     try {
       if (!supabase) return { success: false, message: 'DB Offline' };
       const itemsToSave = staging.map(s => ({ 
-        id: s.data.id, 
-        cliente: s.data.cliente, 
-        data_emissao: s.data.data_emissao || null, 
-        data_vencimento: s.data.data_vencimento || null, 
-        valor_documento: s.data.valor_documento, 
-        saldo: s.data.saldo, 
-        situacao: s.data.situacao, 
-        numero_documento: s.data.numero_documento, 
-        categoria: s.data.categoria, 
-        historico: s.data.historico, 
-        competencia: s.data.competencia, 
-        forma_pagamento: s.data.forma_pagamento,
-        origem: s.data.origem || 'OLIST', 
-        status_cobranca: s.data.statusCobranca
+        "ID": s.data.id,
+        "Cliente": s.data.cliente,
+        "Data Emissão": s.data.data_emissao || null,
+        "Data Vencimento": s.data.data_vencimento || null,
+        "Data Liquidação": s.data.data_liquidacao || null,
+        "Valor documento": s.data.valor_documento,
+        "Saldo": s.data.saldo,
+        "Situação": s.data.situacao,
+        "Número documento": s.data.numero_documento,
+        "Número no banco": s.data.numero_banco,
+        "Categoria": s.data.categoria,
+        "Histórico": s.data.historico,
+        "Competência": s.data.competencia,
+        "Forma de recebimento": s.data.forma_pagamento,
+        "Meio de recebimento": s.data.meio_recebimento,
+        "Taxas": s.data.taxas,
+        "Recebido": s.data.valor_recebido,
+        origem: s.data.origem || 'OLIST',
+        status_cobranca: s.data.statusCobranca,
+        id_acordo: s.data.id_acordo || null,
+        data_recebimento: s.data.data_recebimento || null
       }));
 
-      const { error: upsertError } = await supabase.from('accounts_receivable').upsert(itemsToSave, { onConflict: 'id' });
+      const { error: upsertError } = await supabase.from('accounts_receivable').upsert(itemsToSave, { onConflict: 'ID' });
       if (upsertError) throw upsertError;
       return { success: true };
     } catch (e: any) {
@@ -508,7 +453,7 @@ export class FinanceService {
         valor_documento: s.data.valorDocumento,
         saldo: s.data.saldo,
         situacao: s.data.situacao,
-        numero_documento: s.data.numeroDocumento, // Corrected to camelCase
+        numero_documento: s.data.numeroDocumento,
         categoria: s.data.categoria,
         historico: s.data.historico,
         valor_pago: s.data.valorPago,
@@ -530,13 +475,10 @@ export class FinanceService {
   static async sendTitlesToNotary(titleIds: string[], user: User): Promise<{ success: boolean; message?: string }> {
     try {
       if (!supabase) return { success: false, message: 'DB Offline' };
-      
       const { error } = await supabase.from('accounts_receivable')
-        .update({ status_cobranca: 'CARTORIO', situacao: 'EM CARTORIO' })
-        .in('id', titleIds);
-
+        .update({ status_cobranca: 'CARTORIO', "Situação": 'EM CARTORIO' })
+        .in('ID', titleIds);
       if (error) throw error;
-
       return { success: true };
     } catch (e: any) {
       return { success: false, message: e.message };
@@ -546,14 +488,10 @@ export class FinanceService {
   static async removeTitlesFromNotary(titleIds: string[], user: User): Promise<{ success: boolean; message?: string }> {
     try {
       if (!supabase) return { success: false, message: 'DB Offline' };
-      
-      // Retorna para situação padrão de cobrança (VENCIDO pois provavelmente está atrasado se estava em cartório)
       const { error } = await supabase.from('accounts_receivable')
-        .update({ status_cobranca: 'COBRAVEL', situacao: 'VENCIDO' })
-        .in('id', titleIds);
-
+        .update({ status_cobranca: 'COBRAVEL', "Situação": 'VENCIDO' })
+        .in('ID', titleIds);
       if (error) throw error;
-
       return { success: true };
     } catch (e: any) {
       return { success: false, message: e.message };

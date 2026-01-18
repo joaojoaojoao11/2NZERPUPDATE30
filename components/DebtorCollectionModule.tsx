@@ -6,8 +6,12 @@ import { DebtorInfo, User, AccountsReceivable, CollectionHistory, Settlement } f
 import { ICONS } from '../constants';
 import Toast from './Toast';
 import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
+// Fix: Add CartesianGrid to recharts import to fix "Cannot find name 'CartesianGrid'" errors.
+import { ResponsiveContainer, BarChart, PieChart, Bar, Pie, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 
-type MainTab = 'CARTEIRA' | 'ACORDOS' | 'LOGS';
+type MainTab = 'CARTEIRA' | 'ACORDOS' | 'LOGS' | 'BI';
+const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#a855f7', '#64748b'];
 
 const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('CARTEIRA');
@@ -583,6 +587,80 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     );
   }, [globalLogs, searchTerm]);
 
+  // --- NOVA LÓGICA PARA O BI ---
+  const biData = useMemo(() => {
+    const totalEmAtraso = debtors.reduce((acc, d) => acc + d.totalVencido, 0);
+    const totalEmAcordo = activeSettlements.reduce((acc, s) => acc + s.valorAcordo, 0);
+    const totalCarteira = totalEmAtraso + totalEmAcordo;
+    const recoveryRate = totalCarteira > 0 ? (totalEmAcordo / totalCarteira) * 100 : 0;
+
+    const agingData = [
+      { name: '0-15 Dias', value: debtors.reduce((acc, d) => acc + d.vencidoAte15d, 0) },
+      { name: '15+ Dias', value: debtors.reduce((acc, d) => acc + d.vencidoMais15d, 0) },
+      { name: 'Em Cartório', value: debtors.reduce((acc, d) => acc + d.enviarCartorio, 0) },
+    ];
+
+    const operatorMap: Record<string, number> = {};
+    globalLogs.forEach(log => {
+      const operator = log.usuario.split('@')[0].toUpperCase();
+      operatorMap[operator] = (operatorMap[operator] || 0) + 1;
+    });
+    const operatorPerformance = Object.entries(operatorMap)
+      .map(([name, actions]) => ({ name, actions }))
+      .sort((a, b) => b.actions - a.actions)
+      .slice(0, 10);
+
+    const actionMap: Record<string, number> = {};
+    globalLogs.forEach(log => {
+      const action = log.acao_tomada;
+      actionMap[action] = (actionMap[action] || 0) + 1;
+    });
+    const actionDistribution = Object.entries(actionMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+
+    return {
+      totalEmAtraso,
+      totalEmAcordo,
+      recoveryRate,
+      debtorCount: debtors.length,
+      agingData,
+      operatorPerformance,
+      actionDistribution,
+    };
+  }, [debtors, activeSettlements, globalLogs]);
+
+
+  const exportLogsToExcel = () => {
+    if (filteredLogs.length === 0) {
+      setToast({ msg: 'Nenhum log para exportar.', type: 'error' });
+      return;
+    }
+
+    const dataForExport = filteredLogs.map(log => ({
+      'Data/Hora': new Date(log.data_registro).toLocaleString('pt-BR'),
+      'Cliente': log.cliente,
+      'Ação Tomada': log.acao_tomada,
+      'Valor Devido (R$)': log.valor_devido,
+      'Operador': log.usuario,
+      'Detalhamento': log.observacao,
+      'Próxima Ação Agendada': log.data_proxima_acao ? new Date(log.data_proxima_acao).toLocaleDateString('pt-BR') : ''
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataForExport);
+    
+    ws['!cols'] = [
+      { wch: 20 }, { wch: 35 }, { wch: 20 }, { wch: 15 }, 
+      { wch: 15 }, { wch: 60 }, { wch: 25 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Log_Cobranca');
+    XLSX.writeFile(wb, `Log_Cobranca_NZERP_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    setToast({ msg: 'Log de cobrança exportado!', type: 'success' });
+  };
+
+
   const DebtorCard: React.FC<{ d: DebtorInfo }> = ({ d }) => (
     <div className="bg-white border border-slate-100 p-6 rounded-[2rem] shadow-sm hover:border-blue-300 transition-all group flex flex-col xl:flex-row justify-between items-center gap-6">
        <div className="flex-1 w-full xl:w-auto">
@@ -659,18 +737,35 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                  >
                    Log Cobrança
                  </button>
+                 <button
+                    onClick={() => setActiveMainTab('BI')}
+                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeMainTab === 'BI' ? 'bg-teal-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
+                 >
+                    BI Cobrança
+                 </button>
               </div>
             </div>
             
-            <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex-1 max-w-md flex items-center">
-              <svg className="w-5 h-5 text-slate-300 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="3"/></svg>
-              <input 
-                type="text" 
-                placeholder="LOCALIZAR..." 
-                className="w-full px-4 py-3 bg-transparent outline-none font-black text-xs uppercase"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+            <div className="flex items-center gap-3">
+              <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex-1 max-w-md flex items-center">
+                <svg className="w-5 h-5 text-slate-300 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="3"/></svg>
+                <input 
+                  type="text" 
+                  placeholder="LOCALIZAR..." 
+                  className="w-full px-4 py-3 bg-transparent outline-none font-black text-xs uppercase"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              {activeMainTab === 'LOGS' && (
+                <button 
+                  onClick={exportLogsToExcel}
+                  className="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center space-x-2 italic"
+                >
+                   <ICONS.Upload className="w-3.5 h-3.5 rotate-180" />
+                   <span>Exportar</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -775,7 +870,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                   </div>
                </section>
             </div>
-          ) : (
+          ) : activeMainTab === 'LOGS' ? (
             <div className="space-y-6">
                 <div className="table-container shadow-none border border-slate-100 bg-white rounded-[2rem]">
                     <table className="w-full">
@@ -838,6 +933,63 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                         </tbody>
                     </table>
                 </div>
+            </div>
+          ) : (
+            <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
+              {/* KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total em Atraso</p><h3 className="text-2xl font-black text-red-600 italic tracking-tighter">R$ {biData.totalEmAtraso.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3></div>
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total em Acordo</p><h3 className="text-2xl font-black text-blue-600 italic tracking-tighter">R$ {biData.totalEmAcordo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3></div>
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Taxa de Recuperação</p><h3 className="text-2xl font-black text-emerald-600 italic tracking-tighter">{biData.recoveryRate.toFixed(1)}%</h3></div>
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Devedores Ativos</p><h3 className="text-2xl font-black text-slate-800 italic tracking-tighter">{biData.debtorCount}</h3></div>
+              </div>
+              
+              {/* Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <div className="lg:col-span-3 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm h-96">
+                   <h4 className="text-sm font-black text-slate-600 uppercase mb-4 italic tracking-tight">Dívida por Faixa de Atraso (Aging)</h4>
+                   <ResponsiveContainer width="100%" height="90%">
+                      <BarChart data={biData.agingData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                         <XAxis dataKey="name" fontSize={10} fontWeight="bold" />
+                         <YAxis tickFormatter={(val) => `R$${(val/1000).toFixed(0)}k`} fontSize={10} />
+                         <Tooltip formatter={(val: number) => `R$ ${val.toLocaleString('pt-BR')}`} />
+                         <Bar dataKey="value" name="Valor" radius={[4, 4, 0, 0]}>
+                            {biData.agingData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={['#fbbf24', '#f87171', '#1f2937'][index % 3]} />
+                            ))}
+                         </Bar>
+                      </BarChart>
+                   </ResponsiveContainer>
+                </div>
+                
+                <div className="lg:col-span-2 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm h-96">
+                   <h4 className="text-sm font-black text-slate-600 uppercase mb-4 italic tracking-tight">Distribuição de Ações</h4>
+                   <ResponsiveContainer width="100%" height="90%">
+                      <PieChart>
+                         <Pie data={biData.actionDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}>
+                            {biData.actionDistribution.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                         </Pie>
+                         <Tooltip formatter={(val: number, name: string) => [`${val} ações`, name]} />
+                         <Legend iconType="circle" wrapperStyle={{fontSize: '10px'}} />
+                      </PieChart>
+                   </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm h-[450px]">
+                 <h4 className="text-sm font-black text-slate-600 uppercase mb-4 italic tracking-tight">Produtividade por Operador (Top 10)</h4>
+                 <ResponsiveContainer width="100%" height="90%">
+                    <BarChart layout="vertical" data={biData.operatorPerformance} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                       <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                       <XAxis type="number" />
+                       <YAxis dataKey="name" type="category" width={80} fontSize={10} />
+                       <Tooltip />
+                       <Legend />
+                       <Bar dataKey="actions" name="Ações Realizadas" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                 </ResponsiveContainer>
+              </div>
             </div>
           )}
         </>
@@ -1135,7 +1287,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                              <div key={inst.id} className={`p-5 border rounded-2xl flex justify-between items-center group transition-all shadow-sm ${inst.situacao === 'PAGO' ? 'bg-slate-50 border-slate-100' : 'bg-white border-blue-100 hover:border-blue-400'}`}>
                                 <div>
                                    <p className="text-[10px] font-black text-slate-400 uppercase">PARC {i+1}</p>
-                                   <p className="font-black text-slate-900 text-xs italic">Vencimento: {inst.data_vencimento?.split('-').reverse().join('/')}</p>
+                                   <p className="font-black text-slate-900 text-xs italic">Vencimento: {inst.data_vencimento || '---'}</p>
                                    {inst.situacao === 'PAGO' && (
                                      <p className="text-[8px] font-bold text-emerald-600 uppercase mt-1">Pago via {inst.meio_recebimento} em {inst.data_liquidacao?.split('-').reverse().join('/')}</p>
                                    )}
