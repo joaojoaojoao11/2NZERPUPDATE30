@@ -99,6 +99,8 @@ export interface MasterProduct {
   metragemPadrao?: number;
   estoqueMinimo: number;
   custoUnitario?: number;
+  custoUnitarioFrac?: number; // Novo
+  custoUnitarioRolo?: number; // Novo
   costTaxPercent?: number;
   costExtraValue?: number;
   precoVenda?: number;
@@ -163,7 +165,7 @@ export interface AccountsPayable {
   valorDocumento: number;
   saldo: number;
   situacao: string;
-  numeroDocumento: string;
+  numero_documento: string;
   categoria: string;
   historico: string;
   valorPago: number;

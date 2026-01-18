@@ -80,7 +80,9 @@ export class DataService {
       larguraL: Number(p.largura_l ?? p.larguraL ?? 1.52), 
       metragemPadrao: Number(p.metragem_padrao ?? p.metragemPadrao ?? 15),
       estoqueMinimo: Number(p.estoque_minimo ?? p.estoqueMinimo ?? 0), 
-      custoUnitario: Number(p.custo_unitario ?? p.custoUnitario ?? 0), 
+      custoUnitario: Number(p.custo_unitario ?? 0), 
+      custoUnitarioFrac: Number(p.custo_unitario_frac ?? p.custo_unitario ?? 0),
+      custoUnitarioRolo: Number(p.custo_unitario_rolo ?? p.custo_unitario ?? 0),
       costTaxPercent: Number(p.cost_tax_percent ?? 0),
       costExtraValue: Number(p.cost_extra_value ?? 0),
       precoVenda: Number(p.preco_venda ?? p.precoVenda ?? 0),
@@ -93,7 +95,7 @@ export class DataService {
       priceFracMin: Number(p.price_frac_min ?? 0),
       priceFracIdeal: Number(p.price_frac_ideal ?? 0),
       active: p.active ?? true,
-      updatedAt: p.updated_at || p.created_at // Mapeamento da data de atualização
+      updatedAt: p.updated_at || p.created_at
     }));
   }
 
@@ -108,6 +110,8 @@ export class DataService {
       metragem_padrao: Number(product.metragemPadrao || 0), 
       estoque_minimo: Number(product.estoqueMinimo || 0), 
       custo_unitario: Number(product.custoUnitario || 0), 
+      custo_unitario_frac: Number(product.custoUnitarioFrac || 0),
+      custo_unitario_rolo: Number(product.custoUnitarioRolo || 0),
       cost_tax_percent: Number(product.costTaxPercent || 0),
       cost_extra_value: Number(product.costExtraValue || 0),
       preco_venda: Number(product.precoVenda || 0),
@@ -120,7 +124,7 @@ export class DataService {
       price_frac_min: Number(product.priceFracMin || 0),
       price_frac_ideal: Number(product.priceFracIdeal || 0),
       active: product.active ?? true,
-      updated_at: new Date().toISOString() // Força atualização da data
+      updated_at: new Date().toISOString()
     };
 
     const { error } = await supabase
@@ -129,10 +133,8 @@ export class DataService {
       .eq('sku', oldSku);
     
     if (error) {
-        // Tratamento de Schema Desatualizado (42703 = Undefined Column, PGRST204 = No Content/Mismatch)
-        // Adicionado check por string 'column' para capturar variações de erro
         if (error.code === 'PGRST204' || error.code === '42703' || (error.message && error.message.includes('column'))) {
-            console.warn("Database Schema Mismatch: Coluna possivelmente inexistente. Tentando salvamento resiliente...");
+            console.warn("Database Schema Mismatch: Fallback basic update.");
             
             const basicPayload = {
                 sku: product.sku,
@@ -145,7 +147,6 @@ export class DataService {
                 estoque_minimo: Number(product.estoqueMinimo || 0),
                 custo_unitario: Number(product.custoUnitario || 0),
                 preco_venda: Number(product.precoVenda || 0)
-                // Excluímos 'active' e outros campos novos no fallback
             };
 
             const { error: retryError } = await supabase
@@ -154,18 +155,12 @@ export class DataService {
                 .eq('sku', oldSku);
 
             if (retryError) throw new Error(`Falha crítica de persistência: ${retryError.message}`);
-            
-            // Se o usuário tentou especificamente pausar/ativar, mas a coluna não existe, avisa e sugere correção.
-            if (product.active !== undefined) {
-               throw new Error("Aviso: Status não salvo (Coluna 'active' inexistente). Vá em 'Configurações > Banco de Dados' para corrigir.");
-            }
-            
             return true;
         }
         throw new Error(`Falha no Banco de Dados: ${error.message}`);
     }
     
-    await this.addLog(user, 'EDICAO_MASTER_COMERCIAL', product.sku, '', 0, `Atualização de parâmetros comerciais. Ativo: ${product.active}`);
+    await this.addLog(user, 'EDICAO_MASTER_COMERCIAL', product.sku, '', 0, `Atualização de parâmetros comerciais.`);
     return true;
   }
 
@@ -231,8 +226,8 @@ export class DataService {
       recipientState: row.recipient_state,
       recipientPhone: row.recipient_phone,
       importedAt: row.imported_at,
-      totalAmount: Number(row.unit_price || 0) * Number(row.quantity || 0), // Calculado
-      totalFreight: Number(row.order_freight || 0) // Alias para compatibilidade visual
+      totalAmount: Number(row.unit_price || 0) * Number(row.quantity || 0),
+      totalFreight: Number(row.order_freight || 0)
     }));
   }
 
@@ -351,7 +346,6 @@ export class DataService {
         };
 
         if (includeUser) payload.imported_by = user.id;
-        // O ID só é adicionado se existir no objeto de entrada.
         if (item.id) payload.id = item.id;
         
         return payload;
@@ -360,16 +354,13 @@ export class DataService {
     const itemsToUpdate = items.filter(i => !!i.id);
     const itemsToInsert = items.filter(i => !i.id);
     
-    // Processa Updates
     if (itemsToUpdate.length > 0) {
-        // De-duplicate items based on 'id' to prevent "affect row twice" error.
         const uniqueItemsToUpdate = Array.from(new Map(itemsToUpdate.map(item => [item.id, item])).values());
         let updatePayloads = uniqueItemsToUpdate.map(i => buildPayload(i, true));
         
         let { error: updateError } = await supabase.from('sales_history').upsert(updatePayloads, { onConflict: 'id' });
         
         if (updateError && (updateError.code === '23503' || updateError.message.includes('imported_by'))) {
-            console.warn("NZERP Warning (UPDATE): Foreign key violation on imported_by. Retrying without user.");
             updatePayloads = uniqueItemsToUpdate.map(i => buildPayload(i, false));
             const { error: retryError } = await supabase.from('sales_history').upsert(updatePayloads, { onConflict: 'id' });
             if (retryError) throw retryError;
@@ -378,14 +369,11 @@ export class DataService {
         }
     }
 
-    // Processa Inserts
     if (itemsToInsert.length > 0) {
-        // De-duplicate based on externalId to avoid inserting duplicates from a messy source file.
         const uniqueItemsToInsert = Array.from(new Map(itemsToInsert.map(item => [item.externalId, item])).values());
         
         const insertPayloads = uniqueItemsToInsert.map(item => {
             const payload = buildPayload(item, true);
-            // Se o BD não gera UUIDs, fornecemos um válido para satisfazer a constraint NOT NULL.
             if (!payload.id) {
               payload.id = crypto.randomUUID();
             }
@@ -395,7 +383,6 @@ export class DataService {
         let { error: insertError } = await supabase.from('sales_history').insert(insertPayloads);
         
         if (insertError && (insertError.code === '23503' || insertError.message.includes('imported_by'))) {
-            console.warn("NZERP Warning (INSERT): Foreign key violation on imported_by. Retrying without user.");
             const retryPayloads = uniqueItemsToInsert.map(item => {
                 const payload = buildPayload(item, false);
                 if (!payload.id) {
@@ -462,7 +449,7 @@ export class DataService {
     }
   
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Define para meia-noite do dia atual (local)
+    today.setHours(0, 0, 0, 0); 
     const debtorsMap: Record<string, DebtorInfo> = {};
   
     ar.forEach(t => {
@@ -471,8 +458,6 @@ export class DataService {
       
       let dueDate: Date | null = null;
       if (t.data_vencimento) {
-        // Constrói a data a partir do string YYYY-MM-DD para evitar problemas de fuso horário.
-        // Isso cria a data na meia-noite do fuso horário local.
         const parts = t.data_vencimento.split('-').map(Number);
         if (parts.length === 3) {
             dueDate = new Date(parts[0], parts[1] - 1, parts[2]);
@@ -484,7 +469,7 @@ export class DataService {
           formaPgto === 'BOLETO' &&
           t.saldo > 0.01 &&
           !t.id_acordo &&
-          dueDate && dueDate < today; // Comparação de objetos Date, agora ambos no fuso local.
+          dueDate && dueDate < today;
   
       if (!isDebtActiveAndOverdue || !dueDate) return;
   

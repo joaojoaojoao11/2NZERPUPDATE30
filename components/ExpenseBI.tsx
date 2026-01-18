@@ -438,7 +438,8 @@ const ExpenseBI: React.FC = () => {
                                 <tr key={i} className="bg-white shadow-sm rounded-2xl group hover:shadow-md transition-all">
                                     <td className="px-4 py-4 border border-slate-100 rounded-l-2xl">
                                         <p className="font-black text-slate-900 text-[11px] uppercase italic">{item.fornecedor}</p>
-                                        <p className="text-[9px] font-bold text-slate-400">DOC: {item.numeroDocumento || 'S/N'}</p>
+                                        {/* Corrected: item.numeroDocumento -> item.numero_documento */}
+                                        <p className="text-[9px] font-bold text-slate-400">DOC: {item.numero_documento || 'S/N'}</p>
                                     </td>
                                     <td className="px-4 py-4 border-y border-slate-100">
                                         <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded text-[8px] font-black uppercase mb-1 inline-block">{item.categoria}</span>

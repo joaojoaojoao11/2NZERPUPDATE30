@@ -1,3 +1,4 @@
+
 // Fix: Correctly import 'supabaseClient' as 'supabase' from './core'
 import { supabaseClient as supabase } from './core';
 import { 
@@ -123,7 +124,8 @@ export class FinanceService {
       valorDocumento: Number(item.valor_documento || 0),
       saldo: Number(item.saldo || 0),
       situacao: item.situacao,
-      numeroDocumento: item.numero_documento,
+      // Corrected: numeroDocumento -> numero_documento to match interface
+      numero_documento: item.numero_documento,
       categoria: item.categoria,
       historico: item.historico,
       valorPago: Number(item.valor_pago || 0),
@@ -452,7 +454,8 @@ export class FinanceService {
         valor_documento: s.data.valorDocumento,
         saldo: s.data.saldo,
         situacao: s.data.situacao,
-        numero_documento: s.data.numeroDocumento,
+        // Corrected: s.data.numeroDocumento -> s.data.numero_documento
+        numero_documento: s.data.numero_documento,
         categoria: s.data.categoria,
         historico: s.data.historico,
         valor_pago: s.data.valorPago,

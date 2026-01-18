@@ -59,7 +59,7 @@ const Settings: React.FC<SettingsProps> = ({ admin, onUpdate, onNavigate }) => {
 
   const copySqlToClipboard = () => {
     const sql = `
--- Script de Correção de Schema NZERP
+-- Script de Correção de Schema NZERP v1.2
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_min NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_ideal NUMERIC DEFAULT 0;
@@ -67,6 +67,12 @@ ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_min NUMERIC DEFAU
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_ideal NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_tax_percent NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_frac NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_rolo NUMERIC DEFAULT 0;
+
+-- Sincronização de custos legados (Opcional)
+UPDATE master_catalog SET custo_unitario_frac = custo_unitario WHERE custo_unitario_frac = 0;
+UPDATE master_catalog SET custo_unitario_rolo = custo_unitario WHERE custo_unitario_rolo = 0;
 
 -- Correção de níveis hierárquicos (Users Role Constraint)
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
@@ -134,7 +140,6 @@ ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('DIRETORIA', '
             </div>
           )}
 
-          {/* Seção de Manutenção de Banco de Dados */}
           {hasUserManagementAccess && (
             <div className="bg-slate-900 p-10 rounded-[3rem] shadow-2xl border border-slate-800 text-white">
                 <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
@@ -148,24 +153,19 @@ ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('DIRETORIA', '
                     </button>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed font-medium mb-6">
-                    Se você encontrar erros como "new row for relation violates check constraint" ou "Schema inválido", execute este script SQL no painel do Supabase.
+                    Execute este script SQL no painel do Supabase para adicionar o suporte a custos diferenciados.
                 </p>
                 
                 {showSql && (
                     <div className="bg-black/30 rounded-2xl p-4 border border-white/10 relative group">
                         <pre className="text-[10px] font-mono text-emerald-400 whitespace-pre-wrap break-all">
-{`-- Script de Correção de Schema NZERP
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_min NUMERIC DEFAULT 0;
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_ideal NUMERIC DEFAULT 0;
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_min NUMERIC DEFAULT 0;
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_ideal NUMERIC DEFAULT 0;
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_tax_percent NUMERIC DEFAULT 0;
-ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;
+{`-- Script de Correção de Schema NZERP v1.2
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_frac NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_rolo NUMERIC DEFAULT 0;
 
--- Correção de níveis hierárquicos (Users Role Check)
-ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('DIRETORIA', 'ADM', 'ESTOQUISTA', 'VENDEDOR'));`}
+-- Sincronização inicial
+UPDATE master_catalog SET custo_unitario_frac = custo_unitario WHERE custo_unitario_frac = 0;
+UPDATE master_catalog SET custo_unitario_rolo = custo_unitario WHERE custo_unitario_rolo = 0;`}
                         </pre>
                         <button 
                             type="button"
