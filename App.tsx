@@ -136,7 +136,7 @@ const App: React.FC = () => {
               if (ctx === 'ESTOQUE') navigate('INVENTARIO');
               else if (ctx === 'FINANCEIRO') navigate('LANCAMENTO_RECEBER');
               else if (ctx === 'RH') navigate('RH_COLLABORATORS');
-              else if (ctx === 'COMERCIAL') navigate('SALES_BI'); 
+              else if (ctx === 'COMERCIAL') navigate('SALES_PRICETABLE'); 
             }} 
             userPermissions={currentUser.permissions || []} 
             isDirectory={currentUser.role === 'DIRETORIA'} 
