@@ -524,24 +524,24 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm shrink-0">
                     <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-6 italic">Ações Rápidas CRM</h4>
                     {!activeQuickAction ? (
-                        <div className="grid grid-cols-2 gap-4">
-                            <button onClick={() => setActiveQuickAction('AGENDAR')} className="flex flex-col items-center justify-center p-6 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-[1.5rem] hover:bg-emerald-100 transition-all group">
-                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2" strokeWidth="2.5"/></svg>
-                                <span className="text-[10px] font-black uppercase">Agendar Pagto</span>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button onClick={() => setActiveQuickAction('AGENDAR')} className="flex flex-col items-center justify-center h-28 p-4 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-[1.5rem] hover:bg-emerald-100 transition-all group active:scale-95">
+                                <svg className="w-7 h-7 mb-2 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <span className="text-[9px] font-black uppercase text-center">Agendar Pagto</span>
                             </button>
-                            <button onClick={() => setActiveQuickAction('RETORNO')} className="flex flex-col items-center justify-center p-6 bg-blue-50 text-blue-700 border border-blue-100 rounded-[1.5rem] hover:bg-blue-100 transition-all group">
-                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684" strokeWidth="2.5"/></svg>
-                                <span className="text-[10px] font-black uppercase">Agendar Retorno</span>
+                            <button onClick={() => setActiveQuickAction('RETORNO')} className="flex flex-col items-center justify-center h-28 p-4 bg-blue-50 text-blue-700 border border-blue-100 rounded-[1.5rem] hover:bg-blue-100 transition-all group active:scale-95">
+                                <svg className="w-7 h-7 mb-2 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                                <span className="text-[9px] font-black uppercase text-center">Agendar Retorno</span>
                             </button>
-                            <button onClick={() => handleSimpleLog('TENTATIVA', 'TENTATIVA DE CONTATO SEM SUCESSO')} className="flex flex-col items-center justify-center p-6 bg-amber-50 text-amber-700 border border-amber-100 rounded-[1.5rem] hover:bg-amber-100 transition-all group">
-                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M18.364 5.636l-3.536 3.536" strokeWidth="2.5"/></svg>
-                                <span className="text-[10px] font-black uppercase">Sem Retorno</span>
+                            <button onClick={() => handleSimpleLog('TENTATIVA', 'TENTATIVA DE CONTATO SEM SUCESSO')} className="flex flex-col items-center justify-center h-28 p-4 bg-amber-50 text-amber-700 border border-amber-100 rounded-[1.5rem] hover:bg-amber-100 transition-all group active:scale-95">
+                                <svg className="w-7 h-7 mb-2 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" /></svg>
+                                <span className="text-[9px] font-black uppercase text-center">Sem Retorno</span>
                             </button>
-                            <button onClick={() => setActiveQuickAction('CARTORIO_IN')} className="flex flex-col items-center justify-center p-6 bg-slate-950 text-white rounded-[1.5rem] hover:bg-slate-900 border border-slate-800 transition-all group">
-                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 6l3 1m0 0l-3 9" strokeWidth="2.5"/></svg>
-                                <span className="text-[10px] font-black uppercase">Incluir Cartório</span>
+                            <button onClick={() => setActiveQuickAction('CARTORIO_IN')} className="flex flex-col items-center justify-center h-28 p-4 bg-slate-950 text-white rounded-[1.5rem] hover:bg-slate-800 border border-slate-800 transition-all group active:scale-95 shadow-md">
+                                <svg className="w-7 h-7 mb-2 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" /></svg>
+                                <span className="text-[9px] font-black uppercase text-center">Incluir Cartório</span>
                             </button>
-                            <button onClick={() => setActiveQuickAction('CARTORIO_OUT')} className="col-span-2 py-4 mt-2 bg-white border-2 border-slate-100 text-slate-400 font-black text-[10px] uppercase rounded-xl hover:text-blue-600 transition-all italic">Retirar do Cartório</button>
+                            <button onClick={() => setActiveQuickAction('CARTORIO_OUT')} className="col-span-2 py-3 bg-white border border-slate-200 text-slate-400 font-black text-[9px] uppercase rounded-xl hover:text-red-500 hover:border-red-200 transition-all italic active:scale-95">Retirar do Cartório</button>
                         </div>
                     ) : (
                         <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
@@ -558,7 +558,9 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                             )}
                             {(activeQuickAction === 'CARTORIO_IN' || activeQuickAction === 'CARTORIO_OUT') && (
                                 <div className="space-y-6">
-                                    <button onClick={handleNotaryActionExec} disabled={selectedForAgreement.length === 0 || isSubmittingInteraction} className="w-full py-6 bg-emerald-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 italic">Confirmar Operação Cartório</button>
+                                    <button onClick={handleNotaryActionExec} disabled={selectedForAgreement.length === 0 || isSubmittingInteraction} className="w-full py-6 bg-emerald-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 italic">
+                                        {activeQuickAction === 'CARTORIO_IN' ? 'Confirmar INCLUSÃO' : 'Confirmar RETIRADA'}
+                                    </button>
                                 </div>
                             )}
                         </div>

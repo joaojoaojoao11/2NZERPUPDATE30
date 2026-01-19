@@ -1,4 +1,5 @@
 
+// ... imports ... (keeping existing imports)
 import { supabaseClient as supabase } from './core';
 import { InventoryService } from './inventoryService';
 import { FinanceService } from './financeService';
@@ -11,6 +12,7 @@ import {
 } from '../types';
 
 export class DataService {
+  // ... (keeping existing methods up to getDebtorsSummary)
   static async getInventory() { return InventoryService.getInventory(); }
   static async updateStockItem(item: StockItem, user: User) { return InventoryService.updateStockItem(item, user); }
   static async saveInventory(items: StockItem[]) { return InventoryService.saveInventory(items); }
@@ -467,14 +469,17 @@ export class DataService {
         }
       }
 
-      const isDebtActiveAndOverdue = 
-          situacao === 'EM ABERTO' &&
+      // Correção: Aceita títulos em cartório como "Ativos" para fins de cálculo de dívida total
+      const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO';
+      const isOverdue = situacao === 'EM ABERTO' && dueDate && dueDate < today;
+
+      const shouldProcess = 
           formaPgto === 'BOLETO' &&
           t.saldo > 0.01 &&
           !t.id_acordo &&
-          dueDate && dueDate < today;
+          (isOverdue || isCartorio);
   
-      if (!isDebtActiveAndOverdue || !dueDate) return;
+      if (!shouldProcess) return;
   
       if (!debtorsMap[t.cliente]) {
         debtorsMap[t.cliente] = {
@@ -495,10 +500,10 @@ export class DataService {
       info.totalVencido += t.saldo;
       info.qtdTitulos += 1;
   
-      if (t.statusCobranca === 'CARTORIO') {
+      if (isCartorio) {
         info.enviarCartorio += t.saldo;
         info.enviadoCartorio = true;
-      } else {
+      } else if (dueDate) { // Só calcula dias se tiver data e não for cartório
         const diffDays = Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays <= 15) {
           info.vencidoAte15d += t.saldo;
