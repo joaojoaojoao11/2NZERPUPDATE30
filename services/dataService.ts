@@ -12,7 +12,7 @@ import {
 } from '../types';
 
 export class DataService {
-  // ... (métodos anteriores mantidos)
+  // ... (métodos anteriores mantidos até getDebtorsSummary)
   static async getInventory() { return InventoryService.getInventory(); }
   static async updateStockItem(item: StockItem, user: User) { return InventoryService.updateStockItem(item, user); }
   static async saveInventory(items: StockItem[]) { return InventoryService.saveInventory(items); }
@@ -428,7 +428,7 @@ export class DataService {
     const [ar, { data: historyData }, { data: settlementsData }] = await Promise.all([
       this.getAccountsReceivable(),
       supabase.from('collection_history').select('cliente, data_proxima_acao').order('data_registro', { ascending: false }),
-      supabase.from('settlements').select('id, status') // Busca Status
+      supabase.from('settlements').select('id, status')
     ]);
   
     // CRITICAL FIX: Filtrar apenas acordos ATIVOS ou LIQUIDADOS (ignorar CANCELADOS)
@@ -471,8 +471,6 @@ export class DataService {
       const isDateOverdue = dueDate && dueDate < today;
 
       // LÓGICA DE FILTRAGEM REFINADA:
-      // Se tiver acordo VÁLIDO, aceita qualquer forma de pagamento.
-      // Se não, exige BOLETO (padrão)
       const isBoleto = formaPgto === 'BOLETO';
       if (!isBoleto && !hasAgreement) return;
 
@@ -491,6 +489,7 @@ export class DataService {
           vencidoMais15d: 0,
           enviarCartorio: 0,
           emAcordo: 0,
+          acordoAtrasado: 0, // Inicia zerado
           qtdTitulos: 0,
           statusCobranca: 'PENDENTE',
           protocoloAtual: `COB-${Date.now().toString().slice(-6)}`,
@@ -501,10 +500,15 @@ export class DataService {
   
       const info = debtorsMap[t.cliente];
       
-      // Lógica de Acordo (Novo Bucket) - Se tiver acordo VÁLIDO, soma aqui
+      // Lógica de Acordo (Novo Bucket)
       if (hasAgreement) {
           info.emAcordo += t.saldo;
           info.qtdTitulos += 1;
+          
+          // CRITICAL FIX: Se for uma parcela de acordo VENCIDA, soma no novo contador
+          if (isDateOverdue && t.saldo > 0.01) {
+              info.acordoAtrasado = (info.acordoAtrasado || 0) + t.saldo;
+          }
           return; 
       }
 

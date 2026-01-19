@@ -173,7 +173,7 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
     // Header
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text('TERMO DE CONFISSÃO DE DÍVIDA', pageWidth / 2, 20, { align: 'center' });
+    doc.text('TERMO DE CONFISSÃO E EXTRATO', pageWidth / 2, 20, { align: 'center' });
     
     doc.setFontSize(10);
     doc.text(`PROTOCOLO: ${viewingSettlement.id}`, pageWidth / 2, 26, { align: 'center' });
@@ -235,11 +235,11 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
 
     // Cláusula 2 - Novo Acordo (Parcelas)
     doc.setFontSize(11);
-    doc.text('2. DA FORMA DE PAGAMENTO ACORDADA', margin, y);
+    doc.text('2. PLANO DE PAGAMENTO / EXTRATO', margin, y);
     y += 6;
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text('A dívida acima confessada será paga conforme o fluxo abaixo, acrescido de juros/multa se houver:', margin, y);
+    doc.text('A dívida acima confessada será paga conforme o fluxo abaixo (status atualizado):', margin, y);
     y += 8;
 
     // Tabela Parcelas
@@ -247,16 +247,29 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
     doc.rect(margin, y - 4, pageWidth - (margin * 2), 6, 'F');
     doc.setFont('helvetica', 'bold');
     doc.text('PARCELA', margin + 2, y);
-    doc.text('VENCIMENTO', margin + 50, y);
-    doc.text('VALOR PARCELA', pageWidth - margin - 2, y, { align: 'right' });
+    doc.text('VENCIMENTO', margin + 35, y);
+    doc.text('VALOR', margin + 85, y);
+    doc.text('SITUAÇÃO ATUAL', pageWidth - margin - 2, y, { align: 'right' });
     y += 6;
 
     doc.setFont('helvetica', 'normal');
     viewingDetails.installments.forEach(inst => {
         if (y > 270) { doc.addPage(); y = 20; }
+        
+        const isPaid = inst.situacao === 'PAGO' || inst.situacao === 'LIQUIDADO';
+        const liquidacaoStr = inst.data_liquidacao ? new Date(inst.data_liquidacao).toLocaleDateString('pt-BR') : '';
+        const statusText = isPaid ? `PAGO (${liquidacaoStr})` : 'A VENCER';
+
         doc.text(inst.numero_documento, margin + 2, y);
-        doc.text(inst.data_vencimento ? new Date(inst.data_vencimento).toLocaleDateString('pt-BR') : '-', margin + 50, y);
-        doc.text(`R$ ${Number(inst.valor_documento).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, pageWidth - margin - 2, y, { align: 'right' });
+        doc.text(inst.data_vencimento ? new Date(inst.data_vencimento).toLocaleDateString('pt-BR') : '-', margin + 35, y);
+        doc.text(`R$ ${Number(inst.valor_documento).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, margin + 85, y);
+        
+        if (isPaid) doc.setTextColor(22, 163, 74); // Verde para pago
+        else doc.setTextColor(0, 0, 0); // Preto padrão
+        
+        doc.text(statusText, pageWidth - margin - 2, y, { align: 'right' });
+        doc.setTextColor(0, 0, 0); // Reset cor
+
         y += 5;
     });
 
@@ -264,6 +277,13 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
     y += 2;
     doc.setFont('helvetica', 'bold');
     doc.text(`TOTAL ACORDADO: R$ ${Number(viewingSettlement.valorAcordo).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, pageWidth - margin - 2, y, { align: 'right' });
+
+    // Saldo Pendente
+    const saldoPendente = viewingDetails.installments.reduce((acc, i) => acc + (Number(i.saldo) || 0), 0);
+    y += 5;
+    doc.setTextColor(185, 28, 28); // Vermelho escuro
+    doc.text(`SALDO PENDENTE ATUAL: R$ ${saldoPendente.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, pageWidth - margin - 2, y, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
 
     // Assinaturas
     y += 30;
@@ -277,9 +297,9 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
     doc.text('ASSINATURA CREDOR', 50, y + 5, { align: 'center' });
     doc.text('ASSINATURA DEVEDOR', 160, y + 5, { align: 'center' });
 
-    doc.text(`Emitido em: ${new Date().toLocaleString()}`, margin, 285);
+    doc.text(`Documento gerado em: ${new Date().toLocaleString()}`, margin, 285);
 
-    doc.save(`Confissao_Divida_${viewingSettlement.cliente.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+    doc.save(`Confissao_Extrato_${viewingSettlement.cliente.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
     setToast({ msg: "Documento gerado com sucesso!", type: 'success' });
   };
 
@@ -530,10 +550,18 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
 
                  {/* BLOCO 2: PARCELAMENTO */}
                  <div>
-                    <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
-                       <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-                       Plano de Pagamento (Parcelas)
-                    </h4>
+                    <div className="flex justify-between items-center mb-4">
+                        <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                           <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                           Plano de Pagamento (Parcelas)
+                        </h4>
+                        <div className="bg-red-50 text-red-600 px-3 py-1 rounded-lg border border-red-100 shadow-sm">
+                            <span className="text-[9px] font-bold uppercase mr-2">Saldo Pendente:</span>
+                            <span className="font-black text-sm">
+                                R$ {viewingDetails.installments.reduce((acc, i) => acc + (Number(i.saldo) || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                            </span>
+                        </div>
+                    </div>
                     <div className="space-y-3">
                        {(viewingDetails.installments || []).map((inst, i) => (
                           <div key={inst.id} className="p-5 bg-white border border-slate-100 rounded-2xl flex justify-between items-center group shadow-sm hover:shadow-md transition-all">

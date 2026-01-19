@@ -233,7 +233,8 @@ export interface DebtorInfo {
   vencidoAte15d: number;
   vencidoMais15d: number;
   enviarCartorio: number;
-  emAcordo: number; // Novo Campo
+  emAcordo: number;
+  acordoAtrasado?: number; // Novo Campo: Rastreia valor de parcelas de acordo vencidas
   qtdTitulos: number;
   statusCobranca: string;
   protocoloAtual: string;
@@ -391,4 +392,5 @@ export interface SalesHistoryItem {
   recipientPhone?: string;
   importedAt?: string;
   totalAmount?: number;
+  totalFreight?: number;
 }

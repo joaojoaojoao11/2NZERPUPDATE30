@@ -149,6 +149,17 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         setQuickActionData({ date: '', obs: '' });
         const updatedHistory = await FinanceService.getCollectionHistoryByClient(selectedClient);
         setClientHistory(updatedHistory);
+
+        // --- ATUALIZAÇÃO AUTOMÁTICA DE LISTA ---
+        // Se houve ação, move para "Em Dia / Agendados" visualmente
+        // Se não foi passada data, assume que está resolvido por hoje (joga para amanhã)
+        const nextDateStr = date || new Date(Date.now() + 86400000).toISOString().split('T')[0]; 
+        
+        setDebtors(prev => prev.map(d => 
+            d.cliente === selectedClient 
+            ? { ...d, nextActionDate: nextDateStr } 
+            : d
+        ));
       }
     } catch (e) {
       setToast({ msg: 'Erro ao registrar.', type: 'error' });
@@ -285,11 +296,21 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     const upToDate: DebtorInfo[] = [];
 
     filteredDebtors.forEach(d => {
-        // Lógica: É prioridade se NÃO tiver data de próxima ação 
-        // OU se a data de próxima ação for HOJE ou PASSADO.
-        const isActionDue = !d.nextActionDate || d.nextActionDate <= todayStr;
+        // Lógica de Risco: 
+        // 1. Tem dívida "solta" vencida (totalVencido > 0)
+        // 2. OU tem parcela de acordo vencida (acordoAtrasado > 0)
+        const hasArrears = d.totalVencido > 0.01 || (d.acordoAtrasado || 0) > 0.01;
         
-        if (isActionDue) {
+        // Lógica de Data de Ação:
+        // Está vencido o prazo de contato?
+        const isActionDue = !d.nextActionDate || d.nextActionDate <= todayStr;
+
+        // Regra de Ouro:
+        // Se NÃO tem pendências (hasArrears == false), vai para "Em Dia / Agendados" automaticamente (mesmo que a data de ação tenha passado, pois não há o que cobrar urgentemente).
+        // Se TEM pendências (hasArrears == true), vai para "Prioridade" SE a data de ação chegou.
+        // Se TEM pendências mas a data é futura (ex: agendou para semana que vem), fica em "Em Dia / Agendados" (temporariamente sob controle).
+
+        if (hasArrears && isActionDue) {
             priority.push(d);
         } else {
             upToDate.push(d);
@@ -371,6 +392,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                         <div className="flex items-center gap-3 mb-1">
                                            <h3 className="font-black text-slate-900 uppercase italic text-lg tracking-tight">{d.cliente}</h3>
                                            {d.vencidoMais15d > 0 && <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-red-100">Risco Alto</span>}
+                                           {(d.acordoAtrasado || 0) > 0 && <span className="bg-purple-50 text-purple-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-purple-100">Acordo Quebrado</span>}
                                         </div>
                                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos em aberto</p>
                                      </div>
@@ -397,14 +419,22 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                               Cobrança em Dia / Agendados
                            </p>
                            <div className="space-y-4 opacity-80 hover:opacity-100 transition-opacity">
-                               {upToDateList.map(d => (
+                               {upToDateList.map(d => {
+                                  const isFullyPaidOrAgreed = d.totalVencido === 0 && (d.acordoAtrasado || 0) === 0;
+                                  return (
                                   <div key={d.cliente} className="bg-white border border-slate-100 p-6 rounded-[2.5rem] shadow-sm hover:border-blue-300 transition-all group flex flex-col xl:flex-row justify-between items-center gap-6">
                                      <div className="flex-1 w-full">
                                         <div className="flex items-center gap-3 mb-1">
                                            <h3 className="font-black text-slate-700 uppercase italic text-lg tracking-tight">{d.cliente}</h3>
-                                           <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-blue-100">
-                                              Retorno: {d.nextActionDate ? new Date(d.nextActionDate).toLocaleDateString('pt-BR') : '-'}
-                                           </span>
+                                           {isFullyPaidOrAgreed ? (
+                                              <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-emerald-100">
+                                                 EM DIA / ACORDO
+                                              </span>
+                                           ) : (
+                                              <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-blue-100">
+                                                 Retorno: {d.nextActionDate ? new Date(d.nextActionDate).toLocaleDateString('pt-BR') : '-'}
+                                              </span>
+                                           )}
                                         </div>
                                         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos sob gestão</p>
                                      </div>
@@ -418,7 +448,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                         <button onClick={() => handleManageClient(d.cliente)} className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg italic h-full">Gerenciar</button>
                                      </div>
                                   </div>
-                               ))}
+                               )})}
                            </div>
                        </div>
                    )}
@@ -582,6 +612,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
       ) : (
         /* --- DOSSIÊ DO CLIENTE (MANTIDO E MELHORADO) --- */
         <div className="animate-in slide-in-from-right-4 duration-500 space-y-8 flex flex-col h-full overflow-hidden">
+           {/* ... (Conteúdo do Dossiê mantido sem alterações na lógica, apenas visualização) ... */}
            <div className="flex items-center justify-between border-b border-slate-200 pb-8 shrink-0">
               <div className="flex items-center gap-6">
                  <button onClick={() => setSelectedClient(null)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm">
