@@ -466,43 +466,58 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {filteredProducts.map(p => (
-                <tr key={p.sku} className={`group hover:bg-indigo-50/20 transition-all ${p.active === false ? 'opacity-40 grayscale' : ''}`}>
-                  <td className="px-8 py-6 sticky left-0 z-10 bg-white group-hover:bg-indigo-50/20 shadow-[5px_0_10px_-5px_rgba(0,0,0,0.05)]">
-                    <div className="flex flex-col">
-                       <div className="flex items-center gap-2 mb-1">
-                          <span className="bg-slate-100 text-slate-500 text-[8px] font-black px-1.5 py-0.5 rounded w-fit uppercase">{p.sku}</span>
-                          {p.active === false && <span className="bg-red-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">PAUSADO</span>}
-                       </div>
-                       <span className="font-black text-slate-900 text-[12px] uppercase italic tracking-tight">{p.nome}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-6 text-center"><span className="px-2 py-1 bg-slate-100 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-wide">{p.categoria}</span></td>
-                  <td className="px-4 py-6 text-center"><span className="text-[11px] font-bold text-slate-500">{p.metragemPadrao || 15}m</span></td>
-                  <td className="px-4 py-6 text-center">
-                    {(stockMap[p.sku] || 0) > 0.01 ? (
-                      <div className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg font-black text-[8px] uppercase italic shadow-sm">ESTOQUE</div>
-                    ) : (
-                      <div className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 border-amber-100 rounded-lg font-black text-[8px] uppercase italic">DROP</div>
-                    )}
-                  </td>
-                  <td className="px-2 py-6 text-center bg-indigo-50/10 text-[11px] font-bold text-slate-400 italic">R$ {((p.priceRoloMin || 0) * (p.metragemPadrao || 15)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-2 py-6 text-center bg-indigo-50/20 text-xs font-black text-indigo-700 italic border-x border-slate-100/50">R$ {((p.priceRoloIdeal || 0) * (p.metragemPadrao || 15)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-2 py-6 text-center bg-emerald-50/10 text-[11px] font-bold text-slate-400 italic">R$ {(p.priceFracMin || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-2 py-6 text-center bg-emerald-50/20 text-xs font-black text-emerald-700 italic border-x border-slate-100/50">R$ {(p.priceFracIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-6 py-6 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { setSimulatingProduct(p); setSimulationMeters('1'); }} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-green-600 hover:border-green-200 transition-all shadow-sm" title="Simular"><ICONS.Calculator className="w-4 h-4" /></button>
-                      {isDiretoria && (
-                        <>
-                          <button onClick={() => handleToggleActive(p)} className={`p-2 border rounded-xl transition-all shadow-sm ${p.active === false ? 'text-emerald-500 border-emerald-100 bg-emerald-50 hover:bg-emerald-100' : 'text-slate-400 border-slate-200 bg-white hover:text-red-500 hover:border-red-200'}`} title={p.active === false ? "Ativar" : "Inativar"}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
-                          <button onClick={() => { setEditingItem(p); setMarkupStrings({ roloMin: getMarkup(p.priceRoloMin, p.custoUnitarioRolo ?? p.custoUnitario).toString(), roloIdeal: getMarkup(p.priceRoloIdeal, p.custoUnitarioRolo ?? p.custoUnitario).toString(), fracMin: getMarkup(p.priceFracMin, p.custoUnitarioFrac ?? p.custoUnitario).toString(), fracIdeal: getMarkup(p.priceFracIdeal, p.custoUnitarioFrac ?? p.custoUnitario).toString() }); }} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm" title="Gerir SKU"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" strokeWidth="2.5"/></svg></button>
-                        </>
+              {filteredProducts.map(p => {
+                // Lógica da Bolinha de Status (30 dias)
+                const lastUpdateDate = p.updatedAt ? new Date(p.updatedAt) : null;
+                const now = new Date();
+                const diffTime = lastUpdateDate ? (now.getTime() - lastUpdateDate.getTime()) : Infinity;
+                const isUpdatedRecently = diffTime < (30 * 24 * 60 * 60 * 1000);
+
+                return (
+                  <tr key={p.sku} className={`group hover:bg-indigo-50/20 transition-all ${p.active === false ? 'opacity-40 grayscale' : ''}`}>
+                    <td className="px-8 py-6 sticky left-0 z-10 bg-white group-hover:bg-indigo-50/20 shadow-[5px_0_10px_-5px_rgba(0,0,0,0.05)]">
+                      <div className="flex flex-col">
+                         <div className="flex items-center gap-2 mb-1">
+                            <span className="bg-slate-100 text-slate-500 text-[8px] font-black px-1.5 py-0.5 rounded w-fit uppercase">{p.sku}</span>
+                            {p.active === false && <span className="bg-red-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">PAUSADO</span>}
+                         </div>
+                         <div className="flex items-center gap-2">
+                            {/* Bolinha de Status de Atualização */}
+                            <div 
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 shadow-sm transition-all ${isUpdatedRecently ? 'bg-emerald-500 animate-pulse ring-2 ring-emerald-100' : 'bg-amber-500'}`}
+                              title={lastUpdateDate ? `Última alteração: ${lastUpdateDate.toLocaleDateString('pt-BR')}` : 'Sem registro de alteração'}
+                            ></div>
+                            <span className="font-black text-slate-900 text-[12px] uppercase italic tracking-tight truncate max-w-[250px]">{p.nome}</span>
+                         </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-6 text-center"><span className="px-2 py-1 bg-slate-100 rounded-lg text-[9px] font-black text-slate-500 uppercase tracking-wide">{p.categoria}</span></td>
+                    <td className="px-4 py-6 text-center"><span className="text-[11px] font-bold text-slate-500">{p.metragemPadrao || 15}m</span></td>
+                    <td className="px-4 py-6 text-center">
+                      {(stockMap[p.sku] || 0) > 0.01 ? (
+                        <div className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg font-black text-[8px] uppercase italic shadow-sm">ESTOQUE</div>
+                      ) : (
+                        <div className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 border-amber-100 rounded-lg font-black text-[8px] uppercase italic">DROP</div>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-2 py-6 text-center bg-indigo-50/10 text-[11px] font-bold text-slate-400 italic">R$ {((p.priceRoloMin || 0) * (p.metragemPadrao || 15)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-2 py-6 text-center bg-indigo-50/20 text-xs font-black text-indigo-700 italic border-x border-slate-100/50">R$ {((p.priceRoloIdeal || 0) * (p.metragemPadrao || 15)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-2 py-6 text-center bg-emerald-50/10 text-[11px] font-bold text-slate-400 italic">R$ {(p.priceFracMin || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-2 py-6 text-center bg-emerald-50/20 text-xs font-black text-emerald-700 italic border-x border-slate-100/50">R$ {(p.priceFracIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-6 py-6 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => { setSimulatingProduct(p); setSimulationMeters('1'); }} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-green-600 hover:border-green-200 transition-all shadow-sm" title="Simular"><ICONS.Calculator className="w-4 h-4" /></button>
+                        {isDiretoria && (
+                          <>
+                            <button onClick={() => handleToggleActive(p)} className={`p-2 border rounded-xl transition-all shadow-sm ${p.active === false ? 'text-emerald-500 border-emerald-100 bg-emerald-50 hover:bg-emerald-100' : 'text-slate-400 border-slate-200 bg-white hover:text-red-500 hover:border-red-200'}`} title={p.active === false ? "Ativar" : "Inativar"}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
+                            <button onClick={() => { setEditingItem(p); setMarkupStrings({ roloMin: getMarkup(p.priceRoloMin, p.custoUnitarioRolo ?? p.custoUnitario).toString(), roloIdeal: getMarkup(p.priceRoloIdeal, p.custoUnitarioRolo ?? p.custoUnitario).toString(), fracMin: getMarkup(p.priceFracMin, p.custoUnitarioFrac ?? p.custoUnitario).toString(), fracIdeal: getMarkup(p.priceFracIdeal, p.custoUnitarioFrac ?? p.custoUnitario).toString() }); }} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm" title="Gerir SKU"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" strokeWidth="2.5"/></svg></button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
