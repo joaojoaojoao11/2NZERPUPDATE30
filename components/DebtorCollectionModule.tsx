@@ -276,6 +276,33 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     return { pending, sent };
   }, [allAR, sentReminders]);
 
+  // --- PREPARAÇÃO DAS LISTAS PRIORITÁRIAS E EM DIA ---
+  const { priorityList, upToDateList } = useMemo(() => {
+    const filteredDebtors = debtors.filter(d => d.cliente.toLowerCase().includes(searchTerm.toLowerCase()));
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    const priority: DebtorInfo[] = [];
+    const upToDate: DebtorInfo[] = [];
+
+    filteredDebtors.forEach(d => {
+        // Lógica: É prioridade se NÃO tiver data de próxima ação 
+        // OU se a data de próxima ação for HOJE ou PASSADO.
+        const isActionDue = !d.nextActionDate || d.nextActionDate <= todayStr;
+        
+        if (isActionDue) {
+            priority.push(d);
+        } else {
+            upToDate.push(d);
+        }
+    });
+
+    // Ordenação interna
+    priority.sort((a, b) => b.totalVencido - a.totalVencido);
+    upToDate.sort((a, b) => b.totalVencido - a.totalVencido);
+
+    return { priorityList: priority, upToDateList: upToDate };
+  }, [debtors, searchTerm]);
+
   const getDaysLabel = (dateStr: string) => {
     const today = new Date();
     today.setHours(0,0,0,0);
@@ -327,32 +354,80 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
 
           <div className="flex-1 min-h-0">
              {activeMainTab === 'CARTEIRA' && (
-                <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar">
-                   <p className="text-[10px] font-black text-red-500 uppercase tracking-widest italic flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                      Prioridade: A Cobrar / Atrasados
-                   </p>
-                   {debtors.filter(d => d.cliente.toLowerCase().includes(searchTerm.toLowerCase())).map(d => (
-                      <div key={d.cliente} className="bg-white border border-slate-100 p-6 rounded-[2.5rem] shadow-sm hover:border-blue-300 transition-all group flex flex-col xl:flex-row justify-between items-center gap-6">
-                         <div className="flex-1 w-full">
-                            <div className="flex items-center gap-3 mb-1">
-                               <h3 className="font-black text-slate-900 uppercase italic text-lg tracking-tight">{d.cliente}</h3>
-                               {d.vencidoMais15d > 0 && <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-red-100">Risco Alto</span>}
-                            </div>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos em aberto</p>
-                         </div>
-                         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center items-center w-full xl:w-auto">
-                            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p><p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
-                            <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
-                            <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[110px]"><p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p><p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
-                            <div className="bg-slate-900 p-3 rounded-2xl text-white min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p><p className="text-sm font-black italic text-white">R$ {d.enviarCartorio.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
-                            {/* NOVO CARD EM ACORDO NA LISTA PRINCIPAL */}
-                            <div className="bg-purple-50 p-3 rounded-2xl border border-purple-100 min-w-[110px]"><p className="text-[7px] font-black text-purple-600 uppercase tracking-widest mb-1">Em Acordo</p><p className="text-sm font-black text-purple-700 italic">R$ {d.emAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
-                            
-                            <button onClick={() => handleManageClient(d.cliente)} className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg italic h-full">Gerenciar</button>
-                         </div>
-                      </div>
-                   ))}
+                <div className="space-y-8 overflow-y-auto pr-2 custom-scrollbar">
+                   
+                   {/* SEÇÃO 1: PRIORIDADE */}
+                   {priorityList.length > 0 && (
+                       <div>
+                           <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest italic flex items-center gap-2 mb-4 sticky top-0 bg-white/80 backdrop-blur-sm p-2 z-10 rounded-xl border border-amber-100/50">
+                              <span className="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
+                              Prioridade: A Cobrar / Atrasados
+                           </p>
+                           <div className="space-y-4">
+                               {priorityList.map(d => (
+                                  <div key={d.cliente} className="bg-white border border-amber-200 p-6 rounded-[2.5rem] shadow-sm hover:border-amber-400 transition-all group flex flex-col xl:flex-row justify-between items-center gap-6 relative overflow-hidden">
+                                     <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-amber-500"></div>
+                                     <div className="flex-1 w-full pl-2">
+                                        <div className="flex items-center gap-3 mb-1">
+                                           <h3 className="font-black text-slate-900 uppercase italic text-lg tracking-tight">{d.cliente}</h3>
+                                           {d.vencidoMais15d > 0 && <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-red-100">Risco Alto</span>}
+                                        </div>
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos em aberto</p>
+                                     </div>
+                                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center items-center w-full xl:w-auto">
+                                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p><p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[110px]"><p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p><p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-slate-900 p-3 rounded-2xl text-white min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p><p className="text-sm font-black italic text-white">R$ {d.enviarCartorio.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-purple-50 p-3 rounded-2xl border border-purple-100 min-w-[110px]"><p className="text-[7px] font-black text-purple-600 uppercase tracking-widest mb-1">Em Acordo</p><p className="text-sm font-black text-purple-700 italic">R$ {d.emAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        
+                                        <button onClick={() => handleManageClient(d.cliente)} className="px-6 py-4 bg-amber-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-amber-700 transition-all shadow-lg italic h-full">Gerenciar</button>
+                                     </div>
+                                  </div>
+                               ))}
+                           </div>
+                       </div>
+                   )}
+
+                   {/* SEÇÃO 2: EM DIA / AGENDADOS */}
+                   {upToDateList.length > 0 && (
+                       <div className="mt-8 pt-8 border-t border-slate-100">
+                           <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic flex items-center gap-2 mb-4">
+                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                              Cobrança em Dia / Agendados
+                           </p>
+                           <div className="space-y-4 opacity-80 hover:opacity-100 transition-opacity">
+                               {upToDateList.map(d => (
+                                  <div key={d.cliente} className="bg-white border border-slate-100 p-6 rounded-[2.5rem] shadow-sm hover:border-blue-300 transition-all group flex flex-col xl:flex-row justify-between items-center gap-6">
+                                     <div className="flex-1 w-full">
+                                        <div className="flex items-center gap-3 mb-1">
+                                           <h3 className="font-black text-slate-700 uppercase italic text-lg tracking-tight">{d.cliente}</h3>
+                                           <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-blue-100">
+                                              Retorno: {d.nextActionDate ? new Date(d.nextActionDate).toLocaleDateString('pt-BR') : '-'}
+                                           </span>
+                                        </div>
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos sob gestão</p>
+                                     </div>
+                                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center items-center w-full xl:w-auto">
+                                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p><p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[110px]"><p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p><p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-slate-900 p-3 rounded-2xl text-white min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p><p className="text-sm font-black italic text-white">R$ {d.enviarCartorio.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-purple-50 p-3 rounded-2xl border border-purple-100 min-w-[110px]"><p className="text-[7px] font-black text-purple-600 uppercase tracking-widest mb-1">Em Acordo</p><p className="text-sm font-black text-purple-700 italic">R$ {d.emAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        
+                                        <button onClick={() => handleManageClient(d.cliente)} className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg italic h-full">Gerenciar</button>
+                                     </div>
+                                  </div>
+                               ))}
+                           </div>
+                       </div>
+                   )}
+
+                   {priorityList.length === 0 && upToDateList.length === 0 && (
+                        <div className="py-24 text-center opacity-30 font-black uppercase text-[10px] italic">
+                            Nenhum cliente inadimplente encontrado com este filtro.
+                        </div>
+                   )}
                 </div>
              )}
 
