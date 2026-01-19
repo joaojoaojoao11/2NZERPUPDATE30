@@ -5,6 +5,7 @@ import { DataService } from '../services/dataService';
 import { Settlement, AccountsReceivable, User, CompanySettings } from '../types';
 import { ICONS } from '../constants';
 import Toast from './Toast';
+import { jsPDF } from 'jspdf';
 
 type SettlementStep = 'GESTAO' | 'SELECAO' | 'SIMULACAO' | 'REVISAO';
 
@@ -160,6 +161,126 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
     } finally {
       setLoading(false);
     }
+  };
+
+  const generateConfessionPDF = () => {
+    if (!viewingSettlement || !viewingDetails) return;
+
+    const doc = new jsPDF();
+    const pageWidth = 210;
+    const margin = 15;
+    
+    // Header
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('TERMO DE CONFISSÃO DE DÍVIDA', pageWidth / 2, 20, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.text(`PROTOCOLO: ${viewingSettlement.id}`, pageWidth / 2, 26, { align: 'center' });
+
+    let y = 40;
+
+    // Partes
+    doc.setFontSize(11);
+    doc.text('CREDOR:', margin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(company?.name || 'EMPRESA USUÁRIA DO SISTEMA NZERP', margin + 25, y);
+    doc.text(`CNPJ: ${company?.cnpj || '00.000.000/0000-00'}`, margin + 25, y + 5);
+    
+    y += 15;
+    doc.setFont('helvetica', 'bold');
+    doc.text('DEVEDOR:', margin, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(viewingSettlement.cliente, margin + 25, y);
+    doc.text('Confirmado eletronicamente.', margin + 25, y + 5);
+
+    y += 20;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 10;
+
+    // Cláusula 1 - Objeto (Originais)
+    doc.setFont('helvetica', 'bold');
+    doc.text('1. DA ORIGEM DA DÍVIDA', margin, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text('O DEVEDOR reconhece e confessa a dívida referente aos títulos abaixo listados:', margin, y);
+    y += 8;
+
+    // Tabela Originais
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, y - 4, pageWidth - (margin * 2), 6, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.text('DOCUMENTO', margin + 2, y);
+    doc.text('VENCIMENTO ORIG.', margin + 50, y);
+    doc.text('VALOR ORIGINAL', pageWidth - margin - 2, y, { align: 'right' });
+    y += 6;
+
+    doc.setFont('helvetica', 'normal');
+    viewingDetails.originals.forEach(orig => {
+        if (y > 270) { doc.addPage(); y = 20; }
+        doc.text(`${orig.numero_documento || orig.id}`, margin + 2, y);
+        doc.text(orig.data_vencimento ? new Date(orig.data_vencimento).toLocaleDateString('pt-BR') : '-', margin + 50, y);
+        doc.text(`R$ ${Number(orig.valor_documento).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, pageWidth - margin - 2, y, { align: 'right' });
+        y += 5;
+    });
+    
+    // Total Originais
+    const totalOrig = viewingDetails.originals.reduce((acc, i) => acc + Number(i.valor_documento), 0);
+    y += 2;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`TOTAL ORIGINAL: R$ ${totalOrig.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, pageWidth - margin - 2, y, { align: 'right' });
+
+    y += 15;
+
+    // Cláusula 2 - Novo Acordo (Parcelas)
+    doc.setFontSize(11);
+    doc.text('2. DA FORMA DE PAGAMENTO ACORDADA', margin, y);
+    y += 6;
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text('A dívida acima confessada será paga conforme o fluxo abaixo, acrescido de juros/multa se houver:', margin, y);
+    y += 8;
+
+    // Tabela Parcelas
+    doc.setFillColor(240, 240, 240);
+    doc.rect(margin, y - 4, pageWidth - (margin * 2), 6, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.text('PARCELA', margin + 2, y);
+    doc.text('VENCIMENTO', margin + 50, y);
+    doc.text('VALOR PARCELA', pageWidth - margin - 2, y, { align: 'right' });
+    y += 6;
+
+    doc.setFont('helvetica', 'normal');
+    viewingDetails.installments.forEach(inst => {
+        if (y > 270) { doc.addPage(); y = 20; }
+        doc.text(inst.numero_documento, margin + 2, y);
+        doc.text(inst.data_vencimento ? new Date(inst.data_vencimento).toLocaleDateString('pt-BR') : '-', margin + 50, y);
+        doc.text(`R$ ${Number(inst.valor_documento).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, pageWidth - margin - 2, y, { align: 'right' });
+        y += 5;
+    });
+
+    // Total Acordo
+    y += 2;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`TOTAL ACORDADO: R$ ${Number(viewingSettlement.valorAcordo).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, pageWidth - margin - 2, y, { align: 'right' });
+
+    // Assinaturas
+    y += 30;
+    if (y > 260) { doc.addPage(); y = 40; }
+
+    doc.setLineWidth(0.1);
+    doc.line(margin + 10, y, 90, y);
+    doc.line(120, y, pageWidth - margin - 10, y);
+
+    doc.setFontSize(8);
+    doc.text('ASSINATURA CREDOR', 50, y + 5, { align: 'center' });
+    doc.text('ASSINATURA DEVEDOR', 160, y + 5, { align: 'center' });
+
+    doc.text(`Emitido em: ${new Date().toLocaleString()}`, margin, 285);
+
+    doc.save(`Confissao_Divida_${viewingSettlement.cliente.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+    setToast({ msg: "Documento gerado com sucesso!", type: 'success' });
   };
 
   if (loading && step === 'GESTAO' && !viewingSettlement) return <div className="py-40 text-center opacity-30 font-black uppercase text-[10px] animate-pulse">Sincronizando Mesa de Acordos...</div>;
@@ -356,13 +477,21 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
 
       {viewingSettlement && viewingDetails && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[200] flex items-center justify-center p-4">
-           <div className="bg-white max-w-4xl w-full h-[80vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
+           <div className="bg-white max-w-5xl w-full h-[90vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100">
+              <div className="px-8 py-6 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
                  <div>
                     <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">{viewingSettlement.cliente}</h3>
                     <p className="text-[10px] font-black text-blue-600 uppercase mt-2 italic">Contrato: {viewingSettlement.id}</p>
                  </div>
                  <div className="flex gap-2">
+                    <button 
+                        onClick={generateConfessionPDF}
+                        className="px-4 py-2 bg-slate-900 text-white hover:bg-blue-600 border border-transparent rounded-xl font-black text-[9px] uppercase transition-all flex items-center gap-2 shadow-lg"
+                        title="Imprimir Termo"
+                    >
+                        <ICONS.Finance className="w-4 h-4" />
+                        Imprimir Confissão
+                    </button>
                     {/* Botão de Excluir Acordo */}
                     <button 
                         onClick={handleDeleteSettlement}
@@ -375,26 +504,58 @@ const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initia
                     <button onClick={() => setViewingSettlement(null)} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-red-500 transition-all"><ICONS.Add className="w-5 h-5 rotate-45" /></button>
                  </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-10 space-y-6">
-                 {(viewingDetails.installments || []).map((inst, i) => (
-                    <div key={inst.id} className="p-5 bg-slate-50 border border-slate-100 rounded-2xl flex justify-between items-center group">
-                       <div><p className="text-[10px] font-black text-slate-400 uppercase italic">Parcela {i+1}</p><p className="font-black text-slate-900 text-sm">Vencimento: {inst.data_vencimento || '---'}</p></div>
-                       <div className="flex items-center gap-4 text-right">
-                          <div>
-                            <p className="text-base font-black text-slate-900 italic">R$ {(Number(inst.valor_documento) || 0).toLocaleString('pt-BR')}</p>
-                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${inst.situacao === 'PAGO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>{inst.situacao}</span>
+              
+              <div className="flex-1 overflow-y-auto p-8 space-y-8 bg-slate-50/30">
+                 {/* BLOCO 1: ORIGEM DA DÍVIDA */}
+                 <div>
+                    <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                       <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                       Origem da Dívida (Títulos Negociados)
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                       {viewingDetails.originals.map((orig) => (
+                          <div key={orig.id} className="p-4 bg-white border border-slate-200 rounded-2xl flex justify-between items-center opacity-70 hover:opacity-100 transition-opacity">
+                             <div>
+                                <p className="text-[9px] font-black text-slate-400 uppercase">NF Origem: {orig.numero_documento || orig.id}</p>
+                                <p className="text-[10px] font-bold text-slate-600">Venc. Original: {orig.data_vencimento ? new Date(orig.data_vencimento).toLocaleDateString('pt-BR') : '-'}</p>
+                             </div>
+                             <div className="text-right">
+                                <p className="text-sm font-black text-slate-800">R$ {Number(orig.valor_documento).toLocaleString('pt-BR')}</p>
+                                <span className="text-[7px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-black uppercase">BLOQUEADO</span>
+                             </div>
                           </div>
-                          {inst.situacao !== 'PAGO' && (
-                            <button 
-                                onClick={() => handleLiquidate(inst.id, Number(inst.valor_documento))} 
-                                className="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl font-black text-[9px] uppercase hover:bg-emerald-200 transition-all ml-2"
-                            >
-                                Baixar
-                            </button>
-                          )}
-                       </div>
+                       ))}
                     </div>
-                 ))}
+                 </div>
+
+                 {/* BLOCO 2: PARCELAMENTO */}
+                 <div>
+                    <h4 className="text-[11px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">
+                       <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                       Plano de Pagamento (Parcelas)
+                    </h4>
+                    <div className="space-y-3">
+                       {(viewingDetails.installments || []).map((inst, i) => (
+                          <div key={inst.id} className="p-5 bg-white border border-slate-100 rounded-2xl flex justify-between items-center group shadow-sm hover:shadow-md transition-all">
+                             <div><p className="text-[10px] font-black text-slate-400 uppercase italic">Parcela {i+1}</p><p className="font-black text-slate-900 text-sm">Vencimento: {inst.data_vencimento || '---'}</p></div>
+                             <div className="flex items-center gap-4 text-right">
+                                <div>
+                                  <p className="text-base font-black text-slate-900 italic">R$ {(Number(inst.valor_documento) || 0).toLocaleString('pt-BR')}</p>
+                                  <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${inst.situacao === 'PAGO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>{inst.situacao}</span>
+                                </div>
+                                {inst.situacao !== 'PAGO' && (
+                                  <button 
+                                      onClick={() => handleLiquidate(inst.id, Number(inst.valor_documento))} 
+                                      className="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl font-black text-[9px] uppercase hover:bg-emerald-200 transition-all ml-2"
+                                  >
+                                      Baixar
+                                  </button>
+                                )}
+                             </div>
+                          </div>
+                       ))}
+                    </div>
+                 </div>
               </div>
            </div>
         </div>
