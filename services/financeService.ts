@@ -379,7 +379,7 @@ export class FinanceService {
 
     const originals = allRelated.filter(i => idsOriginais.includes(i.ID) || i.status_cobranca === 'BLOQUEADO_ACORDO' || i.status_cobranca === 'BLOQUEADO_CARTORIO').map(mapper);
     const originalIds = originals.map(i => i.id);
-    const installments = allRelated.filter(i => !originalIds.includes(i.id)).map(mapper);
+    const installments = allRelated.filter(i => !originalIds.includes(i.ID)).map(mapper);
 
     return { installments, originals };
   }
