@@ -428,10 +428,13 @@ export class DataService {
     const [ar, { data: historyData }, { data: settlementsData }] = await Promise.all([
       this.getAccountsReceivable(),
       supabase.from('collection_history').select('cliente, data_proxima_acao').order('data_registro', { ascending: false }),
-      supabase.from('settlements').select('id')
+      supabase.from('settlements').select('id, status') // Busca Status
     ]);
   
-    const validSettlementIds = new Set((settlementsData || []).map(s => s.id));
+    // CRITICAL FIX: Filtrar apenas acordos ATIVOS ou LIQUIDADOS (ignorar CANCELADOS)
+    const validSettlementIds = new Set((settlementsData || [])
+        .filter(s => s.status !== 'CANCELADO')
+        .map(s => s.id));
 
     const nextActionMap: Record<string, string> = {};
     if (historyData) {
@@ -458,7 +461,7 @@ export class DataService {
         }
       }
 
-      // Validação Estrita de Acordo: deve ter ID e existir na tabela settlements
+      // Validação Estrita de Acordo: deve ter ID e existir na lista de IDs VÁLIDOS
       const hasAgreement = !!t.id_acordo && validSettlementIds.has(t.id_acordo);
       const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO';
       
@@ -468,7 +471,8 @@ export class DataService {
       const isDateOverdue = dueDate && dueDate < today;
 
       // LÓGICA DE FILTRAGEM REFINADA:
-      // Se tiver acordo VÁLIDO, aceita qualquer forma de pagamento
+      // Se tiver acordo VÁLIDO, aceita qualquer forma de pagamento.
+      // Se não, exige BOLETO (padrão)
       const isBoleto = formaPgto === 'BOLETO';
       if (!isBoleto && !hasAgreement) return;
 
@@ -504,8 +508,7 @@ export class DataService {
           return; 
       }
 
-      // Se tinha ID de acordo mas não existe mais (excluído), cai aqui e conta como dívida comum
-      // 1. Sempre soma no total (independente se é Cartório ou não)
+      // Se tinha ID de acordo mas não é válido (cancelado/inexistente), conta como dívida comum
       info.totalVencido += t.saldo;
       info.qtdTitulos += 1;
   

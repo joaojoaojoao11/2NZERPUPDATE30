@@ -285,36 +285,46 @@ export class FinanceService {
 
       const idsOriginais: string[] = s.titulos_negociados || [];
 
+      // Recupera itens relacionados (originais e parcelas)
       const { data: relatedItems, error: rError } = await supabase.from('accounts_receivable').select('*').eq('id_acordo', settlementId);
       if (rError) throw rError;
 
+      // Filtra os originais baseado nos IDs salvos no acordo ou status de bloqueio
       const originals = relatedItems.filter(i => idsOriginais.includes(i.ID) || i.status_cobranca === 'BLOQUEADO_ACORDO' || i.status_cobranca === 'BLOQUEADO_CARTORIO');
       const originalIds = originals.map(i => i.ID);
-      const installments = relatedItems.filter(i => !originalIds.includes(i.id));
+      
+      // As parcelas são os itens que não são originais
+      const installments = relatedItems.filter(i => !originalIds.includes(i.ID));
 
+      // 1. Deleta as parcelas
       if (installments.length > 0) {
         const instIds = installments.map(i => i.ID);
         const { error: delPartsError } = await supabase.from('accounts_receivable').delete().in('ID', instIds);
         if (delPartsError) throw delPartsError;
       }
 
+      // 2. Restaura os originais
       const today = new Date().toISOString().split('T')[0];
+      
       for (const orig of originals) {
-        const isOverdue = orig['Data Vencimento'] && orig['Data Vencimento'] < today;
+        const dueDate = orig['Data Vencimento'];
+        // Verifica se está vencido hoje
+        const isOverdue = dueDate && dueDate < today;
         const wasInCartorio = orig.status_cobranca === 'BLOQUEADO_CARTORIO';
 
         await supabase.from('accounts_receivable').update({
-          "Situação": wasInCartorio ? 'EM CARTORIO' : (isOverdue ? 'VENCIDO' : 'ABERTO'),
-          "Saldo": Number(orig['Valor documento']),
-          status_cobranca: wasInCartorio ? 'CARTORIO' : 'COBRAVEL',
-          id_acordo: null
+          "Situação": wasInCartorio ? 'EM CARTORIO' : (isOverdue ? 'VENCIDO' : 'EM ABERTO'), // Restaura para status correto (não NEGOCIADO/CANCELADO)
+          "Saldo": Number(orig['Valor documento']), // Restaura saldo total
+          status_cobranca: wasInCartorio ? 'CARTORIO' : 'COBRAVEL', // Libera para cobrança
+          id_acordo: null // Remove vínculo
         }).eq('ID', orig.ID);
       }
 
+      // 3. Remove o registro do acordo
       const { error: delContractError } = await supabase.from('settlements').delete().eq('id', settlementId);
       if (delContractError) throw delContractError;
 
-      await this.saveFinancialLog(user, 'EXCLUSAO_ACORDO', s.cliente, `Acordo ${settlementId} EXCLUÍDO. Parcelas deletadas e originais restaurados ao status original.`, s.valor_acordo);
+      await this.saveFinancialLog(user, 'EXCLUSAO_ACORDO', s.cliente, `Acordo ${settlementId} EXCLUÍDO. Parcelas deletadas e originais restaurados.`, s.valor_acordo);
       return true;
     } catch (e: any) {
       console.error("NZERP Delete Error:", e.message);

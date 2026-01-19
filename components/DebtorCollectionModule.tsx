@@ -70,7 +70,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         FinanceService.getSettlements()
       ]);
       
-      const validIds = new Set(settlementsData.map(s => s.id));
+      // CRITICAL FIX: Filtrar apenas acordos que NÃO estão cancelados
+      const validIds = new Set(settlementsData.filter(s => s.status !== 'CANCELADO').map(s => s.id));
       setValidSettlementIds(validIds);
 
       const today = new Date().toISOString().split('T')[0];
@@ -83,25 +84,31 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         if (t.cliente !== cliente) return false;
         
         // Validação Estrita de Acordo
-        const hasAgreement = !!t.id_acordo && validIds.has(t.id_acordo);
+        const hasValidAgreement = !!t.id_acordo && validIds.has(t.id_acordo);
+        // Título Órfão: Tem ID de acordo, mas o acordo não existe ou foi cancelado
+        const isOrphaned = !!t.id_acordo && !hasValidAgreement;
         
         // Se NÃO tiver acordo válido, exige BOLETO. Se tiver, aceita qualquer forma.
-        if (formaPgto !== 'BOLETO' && !hasAgreement) return false;
+        // Se for órfão (acordo cancelado), volta a ser tratado como pendência (deve aparecer)
+        if (formaPgto !== 'BOLETO' && !hasValidAgreement && !isOrphaned) return false;
 
         const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
 
-        // 2. Filtro de Saldo: Deve ter saldo positivo OU ser um acordo (que as vezes tem saldo zerado no original)
-        if (t.saldo <= 0.01 && !hasAgreement) return false;
+        // 2. Filtro de Saldo: Deve ter saldo positivo OU ser um acordo
+        if (t.saldo <= 0.01 && !hasValidAgreement) return false;
 
         // 3. Regras de Exibição:
-        // Caso A: Títulos já em gestão (Acordo ou Cartório) devem aparecer para permitir retirada/edição
-        if (hasAgreement || isCartorio || situacao === 'NEGOCIADO') return true;
+        // Caso A: Títulos já em gestão (Acordo Válido ou Cartório)
+        if (hasValidAgreement || isCartorio) return true;
 
-        // Caso B: Títulos "Soltos" (Em Aberto/Vencido) APENAS se Data Vencimento < Hoje
-        const isOpenStatus = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA'].includes(situacao);
+        // Caso B: Títulos "Soltos" OU "Órfãos" (Acordo Cancelado)
+        // Se for órfão e a situação ainda for 'NEGOCIADO', forçamos a exibição
+        const effectiveStatus = isOrphaned && situacao === 'NEGOCIADO' ? 'EM ABERTO' : situacao;
+        
+        const isOpenStatus = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'NEGOCIADO'].includes(effectiveStatus);
         const isStrictlyOverdue = vencimento < today;
 
-        return isOpenStatus && isStrictlyOverdue;
+        return isOpenStatus && (isStrictlyOverdue || isOrphaned);
       });
       
       setClientTitles(filtered);
