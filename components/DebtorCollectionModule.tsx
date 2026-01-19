@@ -69,20 +69,26 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         const situacao = (t.situacao || '').toUpperCase().trim();
         const formaPgto = (t.forma_pagamento || '').toUpperCase().trim();
         const vencimento = t.data_vencimento;
-        const isBoleto = formaPgto === 'BOLETO';
-        const situacoesExibiveis = ['EM ABERTO', 'ABERTO', 'EM CARTORIO', 'NEGOCIADO', 'VENCIDO', 'VENCIDA'];
-        const isCobravelStatus = situacoesExibiveis.includes(situacao);
-        const hasAgreement = !!t.id_acordo;
+        
+        // 1. Filtro Base: Cliente e Boleto
+        if (t.cliente !== cliente) return false;
+        if (formaPgto !== 'BOLETO') return false;
 
-        // Correção Lógica: Adicionado verificação explícita para 'VENCIDO'/'VENCIDA'.
-        // Isso garante que ao retirar do cartório (o que muda status para VENCIDO), o título continue aparecendo.
-        return (
-          t.cliente === cliente && 
-          isBoleto &&
-          isCobravelStatus &&
-          (vencimento < today || hasAgreement || situacao === 'EM CARTORIO' || situacao === 'VENCIDO' || situacao === 'VENCIDA') && 
-          (t.saldo > 0.01 || hasAgreement)
-        );
+        const hasAgreement = !!t.id_acordo;
+        const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
+
+        // 2. Filtro de Saldo: Deve ter saldo positivo OU ser um acordo (que as vezes tem saldo zerado no original)
+        if (t.saldo <= 0.01 && !hasAgreement) return false;
+
+        // 3. Regras de Exibição:
+        // Caso A: Títulos já em gestão (Acordo ou Cartório) devem aparecer para permitir retirada/edição
+        if (hasAgreement || isCartorio || situacao === 'NEGOCIADO') return true;
+
+        // Caso B: Títulos "Soltos" (Em Aberto/Vencido) APENAS se Data Vencimento < Hoje
+        const isOpenStatus = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA'].includes(situacao);
+        const isStrictlyOverdue = vencimento < today;
+
+        return isOpenStatus && isStrictlyOverdue;
       });
       
       setClientTitles(filtered);
@@ -315,11 +321,14 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                             </div>
                             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos em aberto</p>
                          </div>
-                         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center items-center w-full xl:w-auto">
+                         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center items-center w-full xl:w-auto">
                             <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p><p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                             <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                             <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[110px]"><p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p><p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                             <div className="bg-slate-900 p-3 rounded-2xl text-white min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p><p className="text-sm font-black italic text-white">R$ {d.enviarCartorio.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                            {/* NOVO CARD EM ACORDO NA LISTA PRINCIPAL */}
+                            <div className="bg-purple-50 p-3 rounded-2xl border border-purple-100 min-w-[110px]"><p className="text-[7px] font-black text-purple-600 uppercase tracking-widest mb-1">Em Acordo</p><p className="text-sm font-black text-purple-700 italic">R$ {d.emAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                            
                             <button onClick={() => handleManageClient(d.cliente)} className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg italic h-full">Gerenciar</button>
                          </div>
                       </div>
@@ -494,7 +503,16 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                      <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total em Aberto</p>
                      <p className="text-xl font-black italic">R$ {clientTitles.reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                   </div>
-                  {/* NOVO CARD: Em Cartório - Soma dinâmica no cliente */}
+                  
+                  {/* NOVO CARD: Em Acordo - Soma dinâmica */}
+                  <div className="bg-purple-900 px-6 py-3 rounded-xl text-white shadow-xl border border-purple-800">
+                     <p className="text-[8px] font-black text-purple-200 uppercase mb-1">Em Acordo</p>
+                     <p className="text-xl font-black italic">
+                        R$ {clientTitles.filter(t => !!t.id_acordo).reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                     </p>
+                  </div>
+
+                  {/* CARD: Em Cartório - Soma dinâmica */}
                   <div className="bg-red-900 px-6 py-3 rounded-xl text-white shadow-xl border border-red-800">
                      <p className="text-[8px] font-black text-red-200 uppercase mb-1">Em Cartório</p>
                      <p className="text-xl font-black italic">R$ {clientTitles.filter(t => t.situacao === 'EM CARTORIO').reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>

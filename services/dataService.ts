@@ -457,18 +457,28 @@ export class DataService {
 
       // Definição de status e flags
       const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO';
-      const validStatuses = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'EM CARTORIO'];
+      const hasAgreement = !!t.id_acordo;
+      
+      const validStatuses = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'EM CARTORIO', 'NEGOCIADO'];
       const isValidStatus = validStatuses.includes(situacao);
+      
+      // CRITICAL FIX: Only treat as overdue if date is strictly in the past
       const isDateOverdue = dueDate && dueDate < today;
 
-      const shouldProcess = 
-          formaPgto === 'BOLETO' &&
-          t.saldo > 0.01 &&
-          !t.id_acordo &&
+      // LÓGICA DE FILTRAGEM REFINADA:
+      // O item só entra no cálculo se for BOLETO e tiver Saldo > 0 (ou for acordo)
+      // E atender a UM dos critérios:
+      // 1. É um Acordo (hasAgreement)
+      // 2. Está em Cartório (isCartorio)
+      // 3. Está estritamente VENCIDO (isDateOverdue == true)
+      // Títulos apenas 'EM ABERTO' com data futura serão IGNORADOS nesta etapa.
+      
+      const isEligibleForCollection = 
+          (formaPgto === 'BOLETO' && (t.saldo > 0.01 || hasAgreement)) && // Base filters
           isValidStatus && 
-          (isDateOverdue || isCartorio);
-  
-      if (!shouldProcess) return;
+          (hasAgreement || isCartorio || isDateOverdue); // Condition trigger
+
+      if (!isEligibleForCollection) return;
   
       if (!debtorsMap[t.cliente]) {
         debtorsMap[t.cliente] = {
@@ -477,6 +487,7 @@ export class DataService {
           vencidoAte15d: 0,
           vencidoMais15d: 0,
           enviarCartorio: 0,
+          emAcordo: 0,
           qtdTitulos: 0,
           statusCobranca: 'PENDENTE',
           protocoloAtual: `COB-${Date.now().toString().slice(-6)}`,
@@ -487,6 +498,13 @@ export class DataService {
   
       const info = debtorsMap[t.cliente];
       
+      // Lógica de Acordo (Novo Bucket) - Se tiver acordo, soma aqui e NÃO soma no vencido
+      if (hasAgreement) {
+          info.emAcordo += t.saldo;
+          info.qtdTitulos += 1;
+          return; // Sai para não contar como vencido comum
+      }
+
       // 1. Sempre soma no total (independente se é Cartório ou não)
       //    Pois é uma dívida em aberto.
       info.totalVencido += t.saldo;
@@ -509,7 +527,10 @@ export class DataService {
       }
     });
   
-    return Object.values(debtorsMap).sort((a, b) => b.totalVencido - a.totalVencido);
+    // Filtra apenas clientes que tenham alguma pendência (Vencido, Acordo ou Cartório)
+    return Object.values(debtorsMap)
+        .filter(d => d.totalVencido > 0 || d.emAcordo > 0 || d.enviarCartorio > 0)
+        .sort((a, b) => b.totalVencido - a.totalVencido);
   }
 
   static async sendToNotary(cliente: string, user: User): Promise<boolean> {

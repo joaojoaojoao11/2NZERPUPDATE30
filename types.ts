@@ -233,6 +233,7 @@ export interface DebtorInfo {
   vencidoAte15d: number;
   vencidoMais15d: number;
   enviarCartorio: number;
+  emAcordo: number; // Novo Campo
   qtdTitulos: number;
   statusCobranca: string;
   protocoloAtual: string;
