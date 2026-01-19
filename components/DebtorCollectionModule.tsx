@@ -185,6 +185,19 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     }
   };
 
+  // --- LÓGICA DE BOTÃO DINÂMICO DE CARTÓRIO ---
+  const isNotaryRemovalMode = useMemo(() => {
+    if (selectedForAgreement.length === 0) return false;
+    const selectedItems = clientTitles.filter(t => selectedForAgreement.includes(t.id));
+    
+    // Se todos os selecionados estiverem em cartório (seja por 'situacao' ou 'statusCobranca'), o modo é REMOVER
+    return selectedItems.length > 0 && selectedItems.every(t => 
+        t.situacao === 'EM CARTORIO' || 
+        t.statusCobranca === 'CARTORIO' || 
+        t.statusCobranca === 'BLOQUEADO_CARTORIO'
+    );
+  }, [selectedForAgreement, clientTitles]);
+
   // --- LOGICA BI COBRANÇA ---
   const biData = useMemo(() => {
     const ageing = [
@@ -493,13 +506,26 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
               {/* COLUNA ESQUERDA: LISTA DE TÍTULOS */}
               <div className="lg:col-span-7 space-y-6 flex flex-col min-h-0">
                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col flex-1 min-h-0">
-                    <div className="flex justify-between items-center mb-6 shrink-0">
+                    <div className="flex justify-between items-center mb-6 shrink-0 h-12">
                        <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest italic">Títulos Pendentes</h4>
-                       {selectedForAgreement.length > 0 && <span className="bg-blue-600 text-white px-4 py-1 rounded-xl text-[9px] font-black uppercase shadow-lg shadow-blue-100">{selectedForAgreement.length} selecionados</span>}
+                       
+                       {selectedForAgreement.length > 0 ? (
+                          <button 
+                              onClick={handleGoToAgreement} 
+                              className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 animate-in zoom-in-95 flex items-center gap-2"
+                          >
+                              <span>Efetuar Acordo</span>
+                              <span className="bg-white/20 px-1.5 py-0.5 rounded text-[8px]">{selectedForAgreement.length}</span>
+                          </button>
+                       ) : (
+                          <span className="text-[8px] font-black text-slate-300 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-lg border border-slate-100">
+                              Selecione p/ Negociar
+                          </span>
+                       )}
                     </div>
                     <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1">
                        {clientTitles.map(t => {
-                          const isCurrentlyInNotary = t.situacao === 'EM CARTORIO';
+                          const isCurrentlyInNotary = t.situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
                           const hasAgreement = !!t.id_acordo;
                           const isSelected = selectedForAgreement.includes(t.id);
                           
@@ -510,11 +536,11 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                      {isSelected && <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                                   </div>
                                   <div>
-                                     <p className="font-black text-slate-800 text-[11px] uppercase flex items-center gap-2">
-                                        NF: {t.numero_documento || t.id}
+                                     <div className="flex items-center gap-2 mb-1">
+                                        <p className="font-black text-slate-800 text-[11px] uppercase">NF: {t.numero_documento || t.id}</p>
                                         {isCurrentlyInNotary && <span className="bg-red-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter">EM CARTÓRIO</span>}
                                         {hasAgreement && <span className="bg-purple-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter">EM ACORDO</span>}
-                                     </p>
+                                     </div>
                                      <p className="text-[9px] font-bold text-slate-400 uppercase">Venc: {new Date(t.data_vencimento).toLocaleDateString('pt-BR')} • BOLETO</p>
                                   </div>
                                </div>
@@ -526,9 +552,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                           );
                        })}
                     </div>
-                    <div className="mt-8 pt-8 border-t border-slate-100 flex justify-between items-center shrink-0">
-                       <button onClick={handleGoToAgreement} disabled={selectedForAgreement.length === 0} className="px-10 py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-[10px] uppercase shadow-xl hover:bg-blue-700 disabled:opacity-20 transition-all italic active:scale-95">Ir para Mesa de Acordo →</button>
-                    </div>
+                    {/* FOOTER REMOVIDO PARA LIMPEZA VISUAL (Botão movido para o topo) */}
+                    <div className="mt-4 border-t border-slate-50"></div>
                  </div>
               </div>
 
@@ -550,11 +575,21 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                 <svg className="w-7 h-7 mb-2 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" /></svg>
                                 <span className="text-[9px] font-black uppercase text-center">Sem Retorno</span>
                             </button>
-                            <button onClick={() => setActiveQuickAction('CARTORIO_IN')} className="flex flex-col items-center justify-center h-28 p-4 bg-slate-950 text-white rounded-[1.5rem] hover:bg-slate-800 border border-slate-800 transition-all group active:scale-95 shadow-md">
+                            <button 
+                                onClick={() => setActiveQuickAction(isNotaryRemovalMode ? 'CARTORIO_OUT' : 'CARTORIO_IN')} 
+                                disabled={selectedForAgreement.length === 0}
+                                className={`flex flex-col items-center justify-center h-28 p-4 rounded-[1.5rem] transition-all group active:scale-95 shadow-md border ${
+                                    selectedForAgreement.length === 0 ? 'opacity-50 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' :
+                                    isNotaryRemovalMode 
+                                        ? 'bg-white border-red-200 text-red-500 hover:bg-red-50 hover:border-red-300' 
+                                        : 'bg-slate-950 text-white border-slate-800 hover:bg-slate-800'
+                                }`}
+                            >
                                 <svg className="w-7 h-7 mb-2 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" /></svg>
-                                <span className="text-[9px] font-black uppercase text-center">Incluir Cartório</span>
+                                <span className="text-[9px] font-black uppercase text-center">
+                                    {isNotaryRemovalMode ? 'Retirar do Cartório' : 'Incluir Cartório'}
+                                </span>
                             </button>
-                            <button onClick={() => setActiveQuickAction('CARTORIO_OUT')} className="col-span-2 py-3 bg-white border border-slate-200 text-slate-400 font-black text-[9px] uppercase rounded-xl hover:text-red-500 hover:border-red-200 transition-all italic active:scale-95">Retirar do Cartório</button>
                         </div>
                     ) : (
                         <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">

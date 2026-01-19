@@ -1,5 +1,5 @@
 
-// ... imports ... (keeping existing imports)
+// ... imports (mantidos)
 import { supabaseClient as supabase } from './core';
 import { InventoryService } from './inventoryService';
 import { FinanceService } from './financeService';
@@ -12,7 +12,7 @@ import {
 } from '../types';
 
 export class DataService {
-  // ... (keeping existing methods up to getDebtorsSummary)
+  // ... (métodos anteriores mantidos até getDebtorsSummary)
   static async getInventory() { return InventoryService.getInventory(); }
   static async updateStockItem(item: StockItem, user: User) { return InventoryService.updateStockItem(item, user); }
   static async saveInventory(items: StockItem[]) { return InventoryService.saveInventory(items); }
@@ -102,7 +102,6 @@ export class DataService {
   }
 
   static async updateMasterProduct(product: MasterProduct, user: User, oldSku: string): Promise<{ success: boolean; warning?: string }> {
-    // Payload completo utilizando os nomes de coluna do script de migração
     const fullPayload = {
       sku: product.sku,
       nome: product.nome, 
@@ -136,7 +135,6 @@ export class DataService {
       .eq('sku', oldSku);
     
     if (error) {
-        // Fallback para banco desatualizado
         if (error.code === 'PGRST204' || error.code === '42703' || (error.message && error.message.includes('column'))) {
             const basicPayload = {
                 sku: product.sku,
@@ -163,7 +161,6 @@ export class DataService {
         throw new Error(`Erro: ${error.message}`);
     }
     
-    // Log específico para reajuste de preços/comercial para facilitar filtragem na aba de Log de Preços
     await this.addLog(user, 'REAJUSTE_COMERCIAL', product.sku, '', 0, `Atualização de preços: Rolo (R$ ${product.priceRoloIdeal}) | Frac (R$ ${product.priceFracIdeal})`, undefined, product.nome, product.custoUnitario, undefined, 'COMERCIAL');
     
     return { success: true };
@@ -174,14 +171,8 @@ export class DataService {
   }
 
   static async getSalesHistory(limit = 100): Promise<SalesHistoryItem[]> {
-    const { data, error } = await supabase
-      .from('sales_history')
-      .select('*')
-      .order('sale_date', { ascending: false })
-      .limit(limit);
-
+    const { data, error } = await supabase.from('sales_history').select('*').order('sale_date', { ascending: false }).limit(limit);
     if (error) throw error;
-
     return (data || []).map(row => ({
       id: row.id,
       externalId: row.external_id,
@@ -238,14 +229,8 @@ export class DataService {
 
   static async getSalesByIds(ids: string[]): Promise<SalesHistoryItem[]> {
     if (ids.length === 0) return [];
-    
-    const { data, error } = await supabase
-        .from('sales_history')
-        .select('*')
-        .in('external_id', ids);
-    
+    const { data, error } = await supabase.from('sales_history').select('*').in('external_id', ids);
     if (error) return [];
-
     return (data || []).map(row => ({
       id: row.id,
       externalId: row.external_id,
@@ -299,6 +284,7 @@ export class DataService {
   }
 
   static async importSalesHistoryBatch(items: SalesHistoryItem[], user: User): Promise<{ success: boolean, count: number }> {
+    // ... (mesma implementação do método importSalesHistoryBatch existente)
     const buildPayload = (item: SalesHistoryItem, includeUser: boolean) => {
         const payload: any = {
             external_id: item.externalId,
@@ -469,15 +455,18 @@ export class DataService {
         }
       }
 
-      // Correção: Aceita títulos em cartório como "Ativos" para fins de cálculo de dívida total
+      // Definição de status e flags
       const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO';
-      const isOverdue = situacao === 'EM ABERTO' && dueDate && dueDate < today;
+      const validStatuses = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'EM CARTORIO'];
+      const isValidStatus = validStatuses.includes(situacao);
+      const isDateOverdue = dueDate && dueDate < today;
 
       const shouldProcess = 
           formaPgto === 'BOLETO' &&
           t.saldo > 0.01 &&
           !t.id_acordo &&
-          (isOverdue || isCartorio);
+          isValidStatus && 
+          (isDateOverdue || isCartorio);
   
       if (!shouldProcess) return;
   
@@ -497,13 +486,20 @@ export class DataService {
       }
   
       const info = debtorsMap[t.cliente];
+      
+      // 1. Sempre soma no total (independente se é Cartório ou não)
+      //    Pois é uma dívida em aberto.
       info.totalVencido += t.saldo;
       info.qtdTitulos += 1;
   
+      // 2. Lógica de Cartório (Bucket específico - apenas flag)
       if (isCartorio) {
         info.enviarCartorio += t.saldo;
         info.enviadoCartorio = true;
-      } else if (dueDate) { // Só calcula dias se tiver data e não for cartório
+      }
+      
+      // 3. Lógica de Dias de Atraso (Bucket de Aging - Conta TODOS os atrasados, inclusive Cartório)
+      if (dueDate && isDateOverdue) {
         const diffDays = Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays <= 15) {
           info.vencidoAte15d += t.saldo;
