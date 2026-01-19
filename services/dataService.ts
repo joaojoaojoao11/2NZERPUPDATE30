@@ -12,7 +12,7 @@ import {
 } from '../types';
 
 export class DataService {
-  // ... (métodos anteriores mantidos até getDebtorsSummary)
+  // ... (métodos anteriores mantidos)
   static async getInventory() { return InventoryService.getInventory(); }
   static async updateStockItem(item: StockItem, user: User) { return InventoryService.updateStockItem(item, user); }
   static async saveInventory(items: StockItem[]) { return InventoryService.saveInventory(items); }
@@ -425,11 +425,14 @@ export class DataService {
   static async setAuditLock(lock: any): Promise<void> { }
 
   static async getDebtorsSummary(): Promise<DebtorInfo[]> {
-    const [ar, { data: historyData }] = await Promise.all([
+    const [ar, { data: historyData }, { data: settlementsData }] = await Promise.all([
       this.getAccountsReceivable(),
-      supabase.from('collection_history').select('cliente, data_proxima_acao').order('data_registro', { ascending: false })
+      supabase.from('collection_history').select('cliente, data_proxima_acao').order('data_registro', { ascending: false }),
+      supabase.from('settlements').select('id')
     ]);
   
+    const validSettlementIds = new Set((settlementsData || []).map(s => s.id));
+
     const nextActionMap: Record<string, string> = {};
     if (historyData) {
       historyData.forEach((h: any) => {
@@ -455,9 +458,9 @@ export class DataService {
         }
       }
 
-      // Definição de status e flags
+      // Validação Estrita de Acordo: deve ter ID e existir na tabela settlements
+      const hasAgreement = !!t.id_acordo && validSettlementIds.has(t.id_acordo);
       const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO';
-      const hasAgreement = !!t.id_acordo;
       
       const validStatuses = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'EM CARTORIO', 'NEGOCIADO'];
       const isValidStatus = validStatuses.includes(situacao);
@@ -465,8 +468,7 @@ export class DataService {
       const isDateOverdue = dueDate && dueDate < today;
 
       // LÓGICA DE FILTRAGEM REFINADA:
-      // Se tiver acordo, aceitamos qualquer forma de pagamento (pois as parcelas podem ser PIX)
-      // Se não tiver acordo, exigimos BOLETO (para a regra original de cobrança)
+      // Se tiver acordo VÁLIDO, aceita qualquer forma de pagamento
       const isBoleto = formaPgto === 'BOLETO';
       if (!isBoleto && !hasAgreement) return;
 
@@ -495,15 +497,15 @@ export class DataService {
   
       const info = debtorsMap[t.cliente];
       
-      // Lógica de Acordo (Novo Bucket) - Se tiver acordo, soma aqui e NÃO soma no vencido
+      // Lógica de Acordo (Novo Bucket) - Se tiver acordo VÁLIDO, soma aqui
       if (hasAgreement) {
           info.emAcordo += t.saldo;
           info.qtdTitulos += 1;
-          return; // Sai para não contar como vencido comum
+          return; 
       }
 
+      // Se tinha ID de acordo mas não existe mais (excluído), cai aqui e conta como dívida comum
       // 1. Sempre soma no total (independente se é Cartório ou não)
-      //    Pois é uma dívida em aberto.
       info.totalVencido += t.saldo;
       info.qtdTitulos += 1;
   
@@ -513,7 +515,7 @@ export class DataService {
         info.enviadoCartorio = true;
       }
       
-      // 3. Lógica de Dias de Atraso (Bucket de Aging - Conta TODOS os atrasados, inclusive Cartório)
+      // 3. Lógica de Dias de Atraso (Bucket de Aging)
       if (dueDate && isDateOverdue) {
         const diffDays = Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
         if (diffDays <= 15) {

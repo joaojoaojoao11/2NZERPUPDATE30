@@ -31,6 +31,9 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   const [activeQuickAction, setActiveQuickAction] = useState<QuickAction>(null);
   const [quickActionData, setQuickActionData] = useState({ date: '', obs: '' });
 
+  // Lista de IDs de acordos válidos para filtragem
+  const [validSettlementIds, setValidSettlementIds] = useState<Set<string>>(new Set());
+
   // Estado local para controlar lembretes enviados na sessão
   const [sentReminders, setSentReminders] = useState<string[]>([]);
 
@@ -61,9 +64,15 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     setSelectedForAgreement([]);
     setViewMode('CRM');
     try {
-      const arData = await FinanceService.getAccountsReceivable();
-      const historyData = await FinanceService.getCollectionHistoryByClient(cliente);
+      const [arData, historyData, settlementsData] = await Promise.all([
+        FinanceService.getAccountsReceivable(),
+        FinanceService.getCollectionHistoryByClient(cliente),
+        FinanceService.getSettlements()
+      ]);
       
+      const validIds = new Set(settlementsData.map(s => s.id));
+      setValidSettlementIds(validIds);
+
       const today = new Date().toISOString().split('T')[0];
       const filtered = arData.filter(t => {
         const situacao = (t.situacao || '').toUpperCase().trim();
@@ -73,9 +82,10 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         // 1. Filtro Base: Cliente
         if (t.cliente !== cliente) return false;
         
-        const hasAgreement = !!t.id_acordo;
+        // Validação Estrita de Acordo
+        const hasAgreement = !!t.id_acordo && validIds.has(t.id_acordo);
         
-        // Se NÃO tiver acordo, exige BOLETO. Se tiver acordo, aceita qualquer forma (ex: PIX das parcelas)
+        // Se NÃO tiver acordo válido, exige BOLETO. Se tiver, aceita qualquer forma.
         if (formaPgto !== 'BOLETO' && !hasAgreement) return false;
 
         const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
@@ -507,11 +517,11 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                      <p className="text-xl font-black italic">R$ {clientTitles.reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                   </div>
                   
-                  {/* NOVO CARD: Em Acordo - Soma dinâmica */}
+                  {/* NOVO CARD: Em Acordo - Soma dinâmica com validação */}
                   <div className="bg-purple-900 px-6 py-3 rounded-xl text-white shadow-xl border border-purple-800">
                      <p className="text-[8px] font-black text-purple-200 uppercase mb-1">Em Acordo</p>
                      <p className="text-xl font-black italic">
-                        R$ {clientTitles.filter(t => !!t.id_acordo).reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                        R$ {clientTitles.filter(t => !!t.id_acordo && validSettlementIds.has(t.id_acordo)).reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}
                      </p>
                   </div>
 
@@ -547,7 +557,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                     <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1">
                        {clientTitles.map(t => {
                           const isCurrentlyInNotary = t.situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
-                          const hasAgreement = !!t.id_acordo;
+                          const hasAgreement = !!t.id_acordo && validSettlementIds.has(t.id_acordo);
                           const isSelected = selectedForAgreement.includes(t.id);
                           
                           return (
