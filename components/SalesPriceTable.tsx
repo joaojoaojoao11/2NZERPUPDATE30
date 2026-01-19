@@ -85,6 +85,14 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     return Number((cost * (1 + (markup / 100))).toFixed(2));
   };
 
+  const stockMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    inventory.forEach(item => {
+      if (item.quantMl > 0.01) { map[item.sku] = (map[item.sku] || 0) + item.quantMl; }
+    });
+    return map;
+  }, [inventory]);
+
   // --- LÓGICA DE IMPORTAÇÃO EM LOTE EXPANDIDA ---
   const downloadPricingTemplate = () => {
     const template = products.map(p => {
@@ -94,6 +102,7 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
       return {
         SKU: p.sku,
         NOME: p.nome,
+        'DISPONIBILIDADE (Ref)': (stockMap[p.sku] || 0).toFixed(2), // Adicionado conforme solicitação (Apenas Referência)
         'CUSTO_FRAC_M (R$)': cFrac,
         'CUSTO_ROLO_M (R$)': cRolo,
         'CUSTO_EXTRA_FRETE_M (R$)': p.costExtraValue || 0,
@@ -109,8 +118,8 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Gestao_Comercial");
     ws['!cols'] = [
-      { wch: 12 }, { wch: 35 }, { wch: 15 }, { wch: 15 }, { wch: 18 }, 
-      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
+      { wch: 12 }, { wch: 35 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, 
+      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
     ];
     XLSX.writeFile(wb, `NZ_Gabarito_Comercial_${new Date().toISOString().slice(0, 10)}.xlsx`);
     setToast({ msg: 'Gabarito comercial gerado!', type: 'success' });
@@ -222,8 +231,6 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     }
   };
 
-  // --- RESTO DO CÓDIGO (TABLE, LOGS, SORT) ---
-
   const handleSort = (key: SortKey) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -231,15 +238,6 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     }
     setSortConfig({ key, direction });
   };
-
-  // Fix: Move stockMap above filteredProducts to avoid use-before-declaration error
-  const stockMap = useMemo(() => {
-    const map: Record<string, number> = {};
-    inventory.forEach(item => {
-      if (item.quantMl > 0.01) { map[item.sku] = (map[item.sku] || 0) + item.quantMl; }
-    });
-    return map;
-  }, [inventory]);
 
   const filteredProducts = useMemo(() => {
     let result = products.filter(p => {
@@ -279,7 +277,6 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     return result;
   }, [products, searchTerm, filterCategory, filterStatus, sortConfig, stockMap]);
 
-  // Fix: Add simulationResults useMemo to calculate simulation values in real-time
   const simulationResults = useMemo(() => {
     if (!simulatingProduct) return null;
     const meters = parseFloat(simulationMeters.replace(',', '.')) || 0;
@@ -312,13 +309,11 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     };
   }, [simulatingProduct, simulationMeters]);
 
-  // Fix: Add onCostChange and onMarkupChange helper functions
   const onCostChange = (field: 'custoUnitarioFrac' | 'custoUnitarioRolo', value: string) => {
     if (!editingItem) return;
     const numVal = parseFloat(value) || 0;
     const updated = { ...editingItem, [field]: numVal };
     
-    // Atualiza os preços baseado no novo custo e markups em string existentes
     if (field === 'custoUnitarioRolo') {
       updated.priceRoloMin = getPriceFromMarkup(parseFloat(markupStrings.roloMin) || 0, numVal);
       updated.priceRoloIdeal = getPriceFromMarkup(parseFloat(markupStrings.roloIdeal) || 0, numVal);
