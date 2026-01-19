@@ -81,25 +81,26 @@ export class DataService {
       metragemPadrao: Number(p.metragem_padrao ?? p.metragemPadrao ?? 15),
       estoqueMinimo: Number(p.estoque_minimo ?? p.estoqueMinimo ?? 0), 
       custoUnitario: Number(p.custo_unitario ?? 0), 
-      custoUnitarioFrac: Number(p.custo_unitario_frac ?? p.custo_unitario ?? 0),
-      custoUnitarioRolo: Number(p.custo_unitario_rolo ?? p.custo_unitario ?? 0),
-      costTaxPercent: Number(p.cost_tax_percent ?? 0),
-      costExtraValue: Number(p.cost_extra_value ?? 0),
+      custoUnitarioFrac: Number(p.custo_unitario_frac ?? p.custoUnitarioFrac ?? p.custo_unitario ?? 0),
+      custoUnitarioRolo: Number(p.custo_unitario_rolo ?? p.custoUnitarioRolo ?? p.custo_unitario ?? 0),
+      costTaxPercent: Number(p.cost_tax_percent ?? p.costTaxPercent ?? 0),
+      costExtraValue: Number(p.cost_extra_value ?? p.costExtraValue ?? 0),
       precoVenda: Number(p.preco_venda ?? p.precoVenda ?? 0),
       ncmCode: p.ncm_code || p.ncmCode,
       taxOrigin: p.tax_origin !== undefined ? Number(p.tax_origin) : (p.taxOrigin !== undefined ? Number(p.taxOrigin) : undefined),
       supplierState: p.supplier_state || p.supplierState,
       costUnit: p.cost_unit || p.costUnit,
-      priceRoloMin: Number(p.price_rolo_min ?? 0),
-      priceRoloIdeal: Number(p.price_rolo_ideal ?? 0),
-      priceFracMin: Number(p.price_frac_min ?? 0),
-      priceFracIdeal: Number(p.price_frac_ideal ?? 0),
+      priceRoloMin: Number(p.price_rolo_min ?? p.priceRoloMin ?? 0),
+      priceRoloIdeal: Number(p.price_rolo_ideal ?? p.priceRoloIdeal ?? 0),
+      priceFracMin: Number(p.price_frac_min ?? p.priceFracMin ?? 0),
+      priceFracIdeal: Number(p.price_frac_ideal ?? p.priceFracIdeal ?? 0),
       active: p.active ?? true,
       updatedAt: p.updated_at || p.created_at
     }));
   }
 
-  static async updateMasterProduct(product: MasterProduct, user: User, oldSku: string): Promise<boolean> {
+  static async updateMasterProduct(product: MasterProduct, user: User, oldSku: string): Promise<{ success: boolean; warning?: string }> {
+    // Payload completo utilizando os nomes de coluna do script de migração
     const fullPayload = {
       sku: product.sku,
       nome: product.nome, 
@@ -133,20 +134,16 @@ export class DataService {
       .eq('sku', oldSku);
     
     if (error) {
+        // Fallback para banco desatualizado
         if (error.code === 'PGRST204' || error.code === '42703' || (error.message && error.message.includes('column'))) {
-            console.warn("Database Schema Mismatch: Fallback basic update.");
-            
             const basicPayload = {
                 sku: product.sku,
                 nome: product.nome,
                 categoria: product.categoria,
-                marca: product.marca,
-                fornecedor: product.fornecedor,
                 largura_l: Number(product.larguraL || 1.52),
                 metragem_padrao: Number(product.metragemPadrao || 15),
-                estoque_minimo: Number(product.estoqueMinimo || 0),
                 custo_unitario: Number(product.custoUnitario || 0),
-                preco_venda: Number(product.precoVenda || 0)
+                updated_at: new Date().toISOString()
             };
 
             const { error: retryError } = await supabase
@@ -154,14 +151,20 @@ export class DataService {
                 .update(basicPayload)
                 .eq('sku', oldSku);
 
-            if (retryError) throw new Error(`Falha crítica de persistência: ${retryError.message}`);
-            return true;
+            if (retryError) throw new Error(`Falha crítica: ${retryError.message}`);
+            
+            return { 
+                success: true, 
+                warning: "SUCESSO PARCIAL: O custo foi salvo no campo principal. Para custos independentes (Rolo vs Frac), aplique o script SQL em 'Parâmetros Globais'." 
+            };
         }
-        throw new Error(`Falha no Banco de Dados: ${error.message}`);
+        throw new Error(`Erro: ${error.message}`);
     }
     
-    await this.addLog(user, 'EDICAO_MASTER_COMERCIAL', product.sku, '', 0, `Atualização de parâmetros comerciais.`);
-    return true;
+    // Log específico para reajuste de preços/comercial para facilitar filtragem na aba de Log de Preços
+    await this.addLog(user, 'REAJUSTE_COMERCIAL', product.sku, '', 0, `Atualização de preços: Rolo (R$ ${product.priceRoloIdeal}) | Frac (R$ ${product.priceFracIdeal})`, undefined, product.nome, product.custoUnitario, undefined, 'COMERCIAL');
+    
+    return { success: true };
   }
 
   static async importMasterProducts(items: MasterProduct[], user: User) {

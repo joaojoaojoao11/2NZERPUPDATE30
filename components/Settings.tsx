@@ -70,9 +70,13 @@ ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEF
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_frac NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_rolo NUMERIC DEFAULT 0;
 
--- Sincronização de custos legados (Opcional)
-UPDATE master_catalog SET custo_unitario_frac = custo_unitario WHERE custo_unitario_frac = 0;
-UPDATE master_catalog SET custo_unitario_rolo = custo_unitario WHERE custo_unitario_rolo = 0;
+-- Sincronização de dados iniciais
+UPDATE master_catalog 
+SET 
+  custo_unitario_frac = custo_unitario,
+  custo_unitario_rolo = custo_unitario
+WHERE (custo_unitario_frac = 0 OR custo_unitario_frac IS NULL) 
+  AND custo_unitario > 0;
 
 -- Correção de níveis hierárquicos (Users Role Constraint)
 ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
@@ -153,19 +157,29 @@ ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('DIRETORIA', '
                     </button>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed font-medium mb-6">
-                    Execute este script SQL no painel do Supabase para adicionar o suporte a custos diferenciados.
+                    Execute este script SQL no painel do Supabase (SQL Editor) para garantir total compatibilidade com custos diferenciados e novas métricas.
                 </p>
                 
                 {showSql && (
                     <div className="bg-black/30 rounded-2xl p-4 border border-white/10 relative group">
                         <pre className="text-[10px] font-mono text-emerald-400 whitespace-pre-wrap break-all">
 {`-- Script de Correção de Schema NZERP v1.2
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_min NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_rolo_ideal NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_min NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS price_frac_ideal NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_tax_percent NUMERIC DEFAULT 0;
+ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS cost_extra_value NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_frac NUMERIC DEFAULT 0;
 ALTER TABLE master_catalog ADD COLUMN IF NOT EXISTS custo_unitario_rolo NUMERIC DEFAULT 0;
 
--- Sincronização inicial
-UPDATE master_catalog SET custo_unitario_frac = custo_unitario WHERE custo_unitario_frac = 0;
-UPDATE master_catalog SET custo_unitario_rolo = custo_unitario WHERE custo_unitario_rolo = 0;`}
+-- Sincronização de dados iniciais
+UPDATE master_catalog 
+SET 
+  custo_unitario_frac = custo_unitario,
+  custo_unitario_rolo = custo_unitario
+WHERE (custo_unitario_frac = 0 OR custo_unitario_frac IS NULL) 
+  AND custo_unitario > 0;`}
                         </pre>
                         <button 
                             type="button"

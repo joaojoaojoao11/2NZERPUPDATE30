@@ -61,6 +61,16 @@
           font-family: 'JetBrains Mono', monospace;
           @apply inline-flex items-center px-2 py-0.5 bg-slate-100 text-slate-500 rounded font-black text-[10px] uppercase border border-slate-200;
         }
+
+        /* Utilitário para remover setas de input number */
+        .no-spinner::-webkit-inner-spin-button,
+        .no-spinner::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .no-spinner {
+          -moz-appearance: textfield;
+        }
       }
 
       /* Custom Scrollbar */
