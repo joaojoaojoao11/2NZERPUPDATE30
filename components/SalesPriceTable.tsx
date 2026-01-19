@@ -138,6 +138,16 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(sheet);
 
+        // Helper para normalizar markup decimal (0.3 -> 30%)
+        const normalizeMarkup = (val: any) => {
+            let num = parseFloat(val) || 0;
+            // Se o valor estiver entre 0 e 1, assume que é percentual decimal (ex: 0.3 = 30%)
+            if (num > 0 && num <= 1.0) {
+                num = num * 100;
+            }
+            return num;
+        };
+
         const staging: BulkPriceStaging[] = jsonData.map((row: any) => {
           const sku = String(row.SKU || '').trim().toUpperCase();
           const product = products.find(p => p.sku === sku);
@@ -148,10 +158,12 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
           const nCRolo = parseFloat(row['CUSTO_ROLO_M (R$)']) || 0;
           const nExtra = parseFloat(row['CUSTO_EXTRA_FRETE_M (R$)']) || 0;
           const nImposto = parseFloat(row['IMPOSTO_SOBRE_CUSTO (%)']) || 0;
-          const nMRoloMin = parseFloat(row['MARKUP_ROLO_MIN (%)']) || 0;
-          const nMRoloIdeal = parseFloat(row['MARKUP_ROLO_IDEAL (%)']) || 0;
-          const nMFracMin = parseFloat(row['MARKUP_FRAC_MIN (%)']) || 0;
-          const nMFracIdeal = parseFloat(row['MARKUP_FRAC_IDEAL (%)']) || 0;
+          
+          // Normaliza Markups (converte 0.3 para 30)
+          const nMRoloMin = normalizeMarkup(row['MARKUP_ROLO_MIN (%)']);
+          const nMRoloIdeal = normalizeMarkup(row['MARKUP_ROLO_IDEAL (%)']);
+          const nMFracMin = normalizeMarkup(row['MARKUP_FRAC_MIN (%)']);
+          const nMFracIdeal = normalizeMarkup(row['MARKUP_FRAC_IDEAL (%)']);
 
           // Calcula novos preços baseados nos novos custos e markups
           const nPRoloMin = getPriceFromMarkup(nMRoloMin, nCRolo);
@@ -329,7 +341,12 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     if (!editingItem) return;
     setMarkupStrings(prev => ({ ...prev, [markupKey]: val }));
     
-    const markupNum = parseFloat(val.replace(',', '.')) || 0;
+    // Normalização automática de input manual: se digitar 0.3, considera 30%
+    let markupNum = parseFloat(val.replace(',', '.')) || 0;
+    if (markupNum > 0 && markupNum <= 1) {
+        markupNum = markupNum * 100;
+    }
+
     const cost = isRolo 
         ? (editingItem.custoUnitarioRolo ?? editingItem.custoUnitario ?? 0)
         : (editingItem.custoUnitarioFrac ?? editingItem.custoUnitario ?? 0);
