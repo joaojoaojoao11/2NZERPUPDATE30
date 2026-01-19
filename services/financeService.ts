@@ -219,20 +219,26 @@ export class FinanceService {
   static async liquidateInstallment(id: string, dataLiquidacao: string, meio: string, user: User): Promise<boolean> {
     try {
       if (!supabase) return false;
-      const { data: title } = await supabase.from('accounts_receivable').select('"Valor documento", "Cliente"').eq('ID', id).single();
+      const { data: title } = await supabase.from('accounts_receivable').select('*').eq('ID', id).single();
       if (!title) return false;
+
+      // Se já estiver pago, retorna sucesso mas não faz nada
+      if (title['Situação'] === 'PAGO' || title['Saldo'] <= 0.01) return true;
+
+      const valorOriginal = Number(title['Valor documento']);
 
       const { error } = await supabase.from('accounts_receivable').update({
         "Situação": 'PAGO',
         "Saldo": 0,
-        "Recebido": title['Valor documento'],
+        "Recebido": valorOriginal,
         "Data Liquidação": dataLiquidacao,
-        "Meio de recebimento": meio
+        "Meio de recebimento": meio,
+        status_cobranca: 'LIQUIDADO'
       }).eq('ID', id);
 
       if (error) throw error;
 
-      await this.saveFinancialLog(user, 'BAIXA_PARCELA_ACORDO', title.Cliente, `Parcela ${id} liquidada via ${meio}.`, title['Valor documento']);
+      await this.saveFinancialLog(user, 'BAIXA_PARCELA_ACORDO', title.Cliente, `Parcela ${id} liquidada via ${meio}.`, valorOriginal);
       return true;
     } catch (e) {
       console.error("Erro ao baixar parcela:", e);

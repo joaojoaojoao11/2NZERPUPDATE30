@@ -1,82 +1,52 @@
 
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { DataService } from '../services/dataService';
 import { FinanceService } from '../services/financeService';
 import { DebtorInfo, User, AccountsReceivable, CollectionHistory, Settlement } from '../types';
 import { ICONS } from '../constants';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import Toast from './Toast';
-import { jsPDF } from 'jspdf';
-import * as XLSX from 'xlsx';
-// Fix: Add CartesianGrid to recharts import to fix "Cannot find name 'CartesianGrid'" errors.
-import { ResponsiveContainer, BarChart, PieChart, Bar, Pie, Cell, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
+import SettlementModule from './SettlementModule';
 
 type MainTab = 'CARTEIRA' | 'ACORDOS' | 'LEMBRETES' | 'LOGS' | 'BI';
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#a855f7', '#64748b'];
+type QuickAction = 'AGENDAR' | 'RETORNO' | 'CARTORIO_IN' | 'CARTORIO_OUT' | null;
+
+const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('CARTEIRA');
   const [debtors, setDebtors] = useState<DebtorInfo[]>([]);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
-  const [globalLogs, setGlobalLogs] = useState<CollectionHistory[]>([]);
-  const [allTitles, setAllTitles] = useState<AccountsReceivable[]>([]); // Para a aba Lembretes
+  const [allLogs, setAllLogs] = useState<CollectionHistory[]>([]);
+  const [allAR, setAllAR] = useState<AccountsReceivable[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'warning' } | null>(null);
   
-  // Estados do CRM
   const [selectedClient, setSelectedClient] = useState<string | null>(null);
   const [clientTitles, setClientTitles] = useState<AccountsReceivable[]>([]);
   const [clientHistory, setClientHistory] = useState<CollectionHistory[]>([]);
-  const [isSubmittingInteraction, setIsSubmittingInteraction] = useState(false);
-  
-  // Estados do Acordo (Settlement) & Cartório
-  const [isNegotiating, setIsNegotiating] = useState(false);
-  const [isNotarySelection, setIsNotarySelection] = useState(false);
-  const [isNotaryRemoval, setIsNotaryRemoval] = useState(false); // Novo estado para retirada
-  const [isReviewing, setIsReviewing] = useState(false);
   const [selectedForAgreement, setSelectedForAgreement] = useState<string[]>([]);
-  const [viewingSettlement, setViewingSettlement] = useState<Settlement | null>(null);
-  const [settlementDetails, setSettlementDetails] = useState<{ installments: AccountsReceivable[], originals: AccountsReceivable[] } | null>(null);
-  
-  // Estado para Lembretes
+  const [isSubmittingInteraction, setIsSubmittingInteraction] = useState(false);
+  const [viewMode, setViewMode] = useState<'CRM' | 'SETTLEMENT'>('CRM');
+  const [activeQuickAction, setActiveQuickAction] = useState<QuickAction>(null);
+  const [quickActionData, setQuickActionData] = useState({ date: '', obs: '' });
+
+  // Estado local para controlar lembretes enviados na sessão
   const [sentReminders, setSentReminders] = useState<string[]>([]);
-
-  // Estado para Baixa de Parcela
-  const [liquidatingInstallment, setLiquidatingInstallment] = useState<string | null>(null);
-  const [liquidationForm, setLiquidationForm] = useState({
-    data: new Date().toISOString().split('T')[0]
-  });
-
-  const [agreementConfig, setAgreementConfig] = useState({
-    parcelas: 1,
-    frequencia: 'Mensal' as 'Semanal' | 'Quinzenal' | 'Mensal',
-    dataPrimeira: new Date().toISOString().split('T')[0],
-    valorNegociado: 0,
-    observacao: ''
-  });
-
-  const [interactionForm, setInteractionForm] = useState({
-    acao: 'WhatsApp',
-    observacao: '',
-    proximaAcao: '' // Usado para data de agendamento ou retorno
-  });
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [debtorData, settlementData, logsData, titlesData] = await Promise.all([
+      const [debtorData, logsData, arData] = await Promise.all([
         DataService.getDebtorsSummary(),
-        FinanceService.getSettlements(),
         FinanceService.getAllCollectionLogs(),
-        FinanceService.getAccountsReceivable() // Para aba Lembretes
+        FinanceService.getAccountsReceivable()
       ]);
       setDebtors(debtorData);
-      setSettlements(settlementData);
-      setGlobalLogs(logsData);
-      setAllTitles(titlesData);
+      setAllLogs(logsData);
+      setAllAR(arData);
     } catch (e) {
-      setToast({ msg: 'Erro ao carregar dados financeiros.', type: 'error' });
+      setToast({ msg: 'Erro ao carregar dados.', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -85,209 +55,40 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   useEffect(() => { fetchData(); }, []);
 
   const handleManageClient = async (cliente: string) => {
-    setSelectedClient(cliente);
     setLoading(true);
+    setSelectedClient(cliente);
+    setActiveQuickAction(null);
+    setSelectedForAgreement([]);
+    setViewMode('CRM');
     try {
-      const allAR = await FinanceService.getAccountsReceivable();
-      const clientHistoryData = await FinanceService.getCollectionHistoryByClient(cliente);
-      const today = new Date().toISOString().split('T')[0];
+      const arData = await FinanceService.getAccountsReceivable();
+      const historyData = await FinanceService.getCollectionHistoryByClient(cliente);
       
-      const filtered = allAR.filter(t => {
+      const today = new Date().toISOString().split('T')[0];
+      const filtered = arData.filter(t => {
         const situacao = (t.situacao || '').toUpperCase().trim();
         const formaPgto = (t.forma_pagamento || '').toUpperCase().trim();
-        const isOverdue = t.data_vencimento && t.data_vencimento < today;
-        
+        const vencimento = t.data_vencimento;
+        const isBoleto = formaPgto === 'BOLETO';
+        const situacoesExibiveis = ['EM ABERTO', 'ABERTO', 'EM CARTORIO', 'NEGOCIADO', 'VENCIDO', 'VENCIDA'];
+        const isCobravelStatus = situacoesExibiveis.includes(situacao);
+        const hasAgreement = !!t.id_acordo;
+
         return (
           t.cliente === cliente && 
-          situacao === 'EM ABERTO' &&
-          formaPgto === 'BOLETO' &&
-          t.saldo > 0.01 && 
-          !t.id_acordo && 
-          isOverdue
+          isBoleto &&
+          isCobravelStatus &&
+          (vencimento < today || hasAgreement || situacao === 'EM CARTORIO') && 
+          (t.saldo > 0.01 || hasAgreement)
         );
       });
       
       setClientTitles(filtered);
-      setClientHistory(clientHistoryData);
+      setClientHistory(historyData);
     } catch (e) {
-      setToast({ msg: 'Erro ao carregar dossiê do cliente.', type: 'error' });
+      setToast({ msg: 'Erro ao carregar dossiê.', type: 'error' });
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSendToCartorio = async () => {
-    if (selectedForAgreement.length === 0) return;
-    if (!window.confirm(`Confirma o envio de ${selectedForAgreement.length} títulos para protesto em cartório?`)) return;
-
-    setIsSubmittingInteraction(true);
-    try {
-      const res = await FinanceService.sendTitlesToNotary(selectedForAgreement, currentUser);
-      if (res.success) {
-        await FinanceService.addCollectionHistory({
-          cliente: selectedClient!,
-          acao_tomada: 'CARTORIO',
-          observacao: `ENVIO PARA PROTESTO: ${selectedForAgreement.length} TÍTULOS. VALOR TOTAL: R$ ${totalSelectedForAgreement.toFixed(2)}`,
-          data_proxima_acao: undefined,
-          valor_devido: totalSelectedForAgreement,
-          dias_atraso: 0,
-          usuario: currentUser.name
-        });
-        setToast({ msg: 'TÍTULOS ENVIADOS PARA CARTÓRIO!', type: 'success' });
-        setIsNotarySelection(false);
-        setSelectedForAgreement([]);
-        fetchData();
-        setSelectedClient(null); 
-      } else {
-        setToast({ msg: res.message || 'Erro ao processar envio.', type: 'error' });
-      }
-    } catch (e) {
-      setToast({ msg: 'Erro de conexão.', type: 'error' });
-    } finally {
-      setIsSubmittingInteraction(false);
-    }
-  };
-
-  const handleRemoveFromCartorio = async () => {
-    if (selectedForAgreement.length === 0) return;
-    if (!window.confirm(`Confirma a retirada de ${selectedForAgreement.length} títulos do cartório?`)) return;
-
-    setIsSubmittingInteraction(true);
-    try {
-      const res = await FinanceService.removeTitlesFromNotary(selectedForAgreement, currentUser);
-      if (res.success) {
-        await FinanceService.addCollectionHistory({
-          cliente: selectedClient!,
-          acao_tomada: 'RETIRADA_CARTORIO',
-          observacao: `RETIRADA DE PROTESTO: ${selectedForAgreement.length} TÍTULOS. REVERTIDO PARA COBRANÇA.`,
-          data_proxima_acao: undefined,
-          valor_devido: totalSelectedForAgreement,
-          dias_atraso: 0,
-          usuario: currentUser.name
-        });
-        setToast({ msg: 'TÍTULOS RETIRADOS DO CARTÓRIO!', type: 'success' });
-        setIsNotaryRemoval(false);
-        setSelectedForAgreement([]);
-        fetchData();
-        setSelectedClient(null);
-      } else {
-        setToast({ msg: res.message || 'Erro ao processar retirada.', type: 'error' });
-      }
-    } catch (e) {
-      setToast({ msg: 'Erro de conexão.', type: 'error' });
-    } finally {
-      setIsSubmittingInteraction(false);
-    }
-  };
-
-  const handleQuickAction = (actionType: 'AGENDAR' | 'RETORNOU' | 'SEM_RETORNO' | 'CARTORIO' | 'RETIRAR_CARTORIO') => {
-    setIsNegotiating(false);
-    setIsNotarySelection(false);
-    setIsNotaryRemoval(false);
-    setSelectedForAgreement([]);
-
-    if (actionType === 'CARTORIO') {
-      setIsNotarySelection(true);
-      setToast({ msg: 'Selecione os títulos para envio.', type: 'success' });
-      return;
-    }
-
-    if (actionType === 'RETIRAR_CARTORIO') {
-      setIsNotaryRemoval(true);
-      setToast({ msg: 'Selecione os títulos para retirar.', type: 'success' });
-      return;
-    }
-
-    let obs = '';
-    let acao = 'Outros';
-
-    if (actionType === 'AGENDAR') {
-      acao = 'Agendamento';
-      obs = 'CLIENTE PROMETEU PAGAMENTO';
-    } else if (actionType === 'RETORNOU') {
-      acao = 'Retorno';
-      obs = 'CLIENTE RETORNOU CONTATO';
-    } else if (actionType === 'SEM_RETORNO') {
-      acao = 'Tentativa';
-      obs = 'TENTATIVA DE CONTATO SEM SUCESSO';
-    }
-
-    setInteractionForm({ acao, observacao: obs, proximaAcao: '' });
-  };
-
-  const handleViewSettlement = async (s: Settlement) => {
-    setLoading(true);
-    try {
-      const details = await FinanceService.getSettlementDetails(s.id);
-      setSettlementDetails(details);
-      setViewingSettlement(s);
-    } catch (e) {
-      setToast({ msg: 'Erro ao carregar detalhes do acordo.', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleExcluirAcordo = async () => {
-    if (!viewingSettlement) return;
-    if (!window.confirm("CUIDADO: Isso excluirá PERMANENTEMENTE o contrato do banco e restaurará os débitos originais. Continuar?")) return;
-    
-    setIsSubmittingInteraction(true);
-    try {
-        const success = await FinanceService.deleteSettlement(viewingSettlement.id, currentUser);
-        if (success) {
-            setToast({ msg: 'ACORDO EXCLUÍDO!', type: 'success' });
-            setViewingSettlement(null);
-            setSettlementDetails(null);
-            await fetchData();
-        } else {
-            setToast({ msg: 'Falha técnica ao excluir no banco.', type: 'error' });
-        }
-    } catch (e: any) {
-        setToast({ msg: `Erro: ${e.message || 'Falha de conexão'}`, type: 'error' });
-    } finally {
-        setIsSubmittingInteraction(false);
-    }
-  };
-
-  const handleBaixarParcela = async (id: string) => {
-    setIsSubmittingInteraction(true);
-    try {
-        const success = await FinanceService.liquidateInstallment(id, liquidationForm.data, 'PIX', currentUser);
-        if (success) {
-            setToast({ msg: 'PARCELA LIQUIDADA (VIA PIX)!', type: 'success' });
-            setLiquidatingInstallment(null);
-            const updatedDetails = await FinanceService.getSettlementDetails(viewingSettlement!.id);
-            setSettlementDetails(updatedDetails);
-        } else {
-            setToast({ msg: 'Erro ao liquidar parcela.', type: 'error' });
-        }
-    } catch (e) {
-        setToast({ msg: 'Erro de conexão.', type: 'error' });
-    } finally {
-        setIsSubmittingInteraction(false);
-    }
-  };
-
-  const handleFinalizarAcordoTotal = async () => {
-    if (!viewingSettlement) return;
-    if (!window.confirm("Todas as parcelas foram pagas. Deseja liquidar os títulos originais e finalizar o contrato?")) return;
-    
-    setIsSubmittingInteraction(true);
-    try {
-        const success = await FinanceService.finalizeSettlement(viewingSettlement.id, currentUser);
-        if (success) {
-            setToast({ msg: 'ACORDO FINALIZADO E TÍTULOS ORIGINAIS LIQUIDADOS!', type: 'success' });
-            setViewingSettlement(null);
-            setSettlementDetails(null);
-            fetchData();
-        } else {
-            setToast({ msg: 'Falha ao finalizar contrato.', type: 'error' });
-        }
-    } catch (e) {
-        setToast({ msg: 'Erro de conexão.', type: 'error' });
-    } finally {
-        setIsSubmittingInteraction(false);
     }
   };
 
@@ -295,849 +96,496 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     if (!dueDateStr) return 0;
     const due = new Date(dueDateStr);
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setHours(0,0,0,0);
     const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : 0;
+    return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
   };
 
-  const toggleTitleSelection = (id: string) => {
-    setSelectedForAgreement(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  const totalSelectedForAgreement = useMemo(() => {
-    return clientTitles
-      .filter(t => selectedForAgreement.includes(t.id))
-      .reduce((acc, curr) => acc + (curr.valor_documento || curr.saldo), 0);
-  }, [clientTitles, selectedForAgreement]);
-
-  const projectedInstallments = useMemo(() => {
-    const parts = [];
-    let dateRef = new Date(agreementConfig.dataPrimeira);
-    const valuePerPart = (agreementConfig.valorNegociado || totalSelectedForAgreement) / agreementConfig.parcelas;
-
-    for (let i = 1; i <= agreementConfig.parcelas; i++) {
-      parts.push({
-        num: i,
-        date: dateRef.toISOString().split('T')[0],
-        value: valuePerPart
-      });
-      if (agreementConfig.frequencia === 'Semanal') dateRef.setDate(dateRef.getDate() + 7);
-      else if (agreementConfig.frequencia === 'Quinzenal') dateRef.setDate(dateRef.getDate() + 15);
-      else dateRef.setMonth(dateRef.getMonth() + 1);
-    }
-    return parts;
-  }, [agreementConfig, totalSelectedForAgreement]);
-
-  const generateAgreementPDF = async (
-    agreementId: string,
-    clientName: string,
-    originalTotal: number,
-    agreedTotal: number,
-    parcelas: number,
-    frequencia: string,
-    firstDate: string,
-    titles: AccountsReceivable[]
-  ) => {
-    try {
-      const doc = new jsPDF();
-      const company = await DataService.getCompanySettings();
-      const today = new Date().toLocaleDateString('pt-BR');
-
-      // Título
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.text('TERMO DE CONFISSÃO DE DÍVIDA E ACORDO EXTRAJUDICIAL', 105, 20, { align: 'center' });
-
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`PROTOCOLO: ${agreementId} | DATA: ${today}`, 105, 28, { align: 'center' });
-
-      // Dados das Partes
-      let y = 40;
-      doc.setFont('helvetica', 'bold');
-      doc.text('CREDOR:', 20, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${company.name || 'NZERP - SISTEMA DE GESTÃO'} (CNPJ: ${company.cnpj || '---'})`, 50, y);
-      
-      y += 8;
-      doc.setFont('helvetica', 'bold');
-      doc.text('DEVEDOR:', 20, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(clientName, 50, y);
-
-      // Objeto (Dívida Original)
-      y += 15;
-      doc.setFont('helvetica', 'bold');
-      doc.text('1. DO OBJETO (DÍVIDA ORIGINAL):', 20, y);
-      y += 6;
-      doc.setFont('helvetica', 'normal');
-      const debtText = `O DEVEDOR reconhece e confessa a dívida no valor total original de R$ ${originalTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}, referente aos seguintes títulos vencidos:`;
-      const splitDebt = doc.splitTextToSize(debtText, 170);
-      doc.text(splitDebt, 20, y);
-      
-      y += 6 * splitDebt.length;
-      
-      // Lista de Títulos (Resumida)
-      doc.setFontSize(8);
-      titles.forEach((t, i) => {
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.text(`• Doc: ${t.numero_documento || t.id} - Venc: ${new Date(t.data_vencimento).toLocaleDateString('pt-BR')} - Valor: R$ ${t.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 25, y);
-        y += 4;
-      });
-      y += 4;
-
-      // Condições do Acordo
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('2. DAS CONDIÇÕES DE PAGAMENTO (ACORDO):', 20, y);
-      y += 6;
-      doc.setFont('helvetica', 'normal');
-      const agreeText = `As partes ajustam o pagamento do montante negociado de R$ ${agreedTotal.toLocaleString('pt-BR', {minimumFractionDigits: 2})}, a ser liquidado em ${parcelas} parcela(s) de periodicidade ${frequencia.toUpperCase()}, com início em ${new Date(firstDate).toLocaleDateString('pt-BR')}, conforme cronograma abaixo:`;
-      const splitAgree = doc.splitTextToSize(agreeText, 170);
-      doc.text(splitAgree, 20, y);
-      y += 6 * splitAgree.length + 4;
-
-      // Tabela de Parcelas
-      doc.setFillColor(240, 240, 240);
-      doc.rect(20, y, 170, 8, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('PARCELA', 25, y + 5);
-      doc.text('VENCIMENTO', 80, y + 5);
-      doc.text('VALOR', 150, y + 5);
-      y += 10;
-
-      doc.setFont('helvetica', 'normal');
-      const parts = [];
-      let dateRef = new Date(firstDate);
-      const valuePerPart = agreedTotal / parcelas;
-
-      for (let i = 1; i <= parcelas; i++) {
-        if (y > 270) { doc.addPage(); y = 20; }
-        doc.text(`${i}/${parcelas}`, 25, y);
-        doc.text(dateRef.toLocaleDateString('pt-BR'), 80, y);
-        doc.text(`R$ ${valuePerPart.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 150, y);
-        
-        if (frequencia === 'Semanal') dateRef.setDate(dateRef.getDate() + 7);
-        else if (frequencia === 'Quinzenal') dateRef.setDate(dateRef.getDate() + 15);
-        else dateRef.setMonth(dateRef.getMonth() + 1);
-        
-        y += 6;
-      }
-
-      // Disposições Finais
-      y += 10;
-      if (y > 250) { doc.addPage(); y = 20; }
-      doc.setFontSize(8);
-      doc.text('3. O não pagamento de qualquer parcela acarretará o vencimento antecipado das demais e o retorno da dívida ao valor original.', 20, y);
-      
-      // Assinaturas
-      y += 30;
-      if (y > 270) { doc.addPage(); y = 40; }
-      
-      doc.line(20, y, 90, y);
-      doc.line(110, y, 180, y);
-      doc.text('CREDOR (NZERP)', 35, y + 4);
-      doc.text('DEVEDOR', 135, y + 4);
-
-      doc.save(`ACORDO_${agreementId}_${clientName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
-
-    } catch (e) {
-      console.error("Erro ao gerar PDF:", e);
-      setToast({ msg: 'Erro ao gerar PDF do acordo.', type: 'error' });
-    }
-  };
-
-  const handleEfetivarAcordo = async () => {
+  const handleSimpleLog = async (acao: string, obs: string, date?: string) => {
     if (!selectedClient) return;
     setIsSubmittingInteraction(true);
     try {
-        const agreementId = `AC-${Date.now().toString().slice(-6)}`;
-        const res = await FinanceService.createSettlement({
-            id: agreementId,
-            cliente: selectedClient,
-            valorOriginal: totalSelectedForAgreement,
-            valorAcordo: agreementConfig.valorNegociado || totalSelectedForAgreement,
-            parcelas: agreementConfig.parcelas,
-            frequencia: agreementConfig.frequencia,
-            dataPrimeiraParcela: agreementConfig.dataPrimeira,
-            dataCriacao: new Date().toISOString(),
-            status: 'ATIVO',
-            usuario: currentUser.name,
-            intervaloDias: 30
-        }, selectedForAgreement, currentUser);
-
-        if (res) {
-            // Títulos originais para listar no PDF
-            const negotiatedTitles = clientTitles.filter(t => selectedForAgreement.includes(t.id));
-
-            // Gera o PDF
-            await generateAgreementPDF(
-                agreementId,
-                selectedClient,
-                totalSelectedForAgreement,
-                agreementConfig.valorNegociado || totalSelectedForAgreement,
-                agreementConfig.parcelas,
-                agreementConfig.frequencia,
-                agreementConfig.dataPrimeira,
-                negotiatedTitles
-            );
-
-            setToast({ msg: 'ACORDO EFETIVADO! PDF GERADO.', type: 'success' });
-            
-            await FinanceService.addCollectionHistory({
-                cliente: selectedClient,
-                acao_tomada: 'ACORDO',
-                observacao: `ACORDO FIRMADO: R$ ${totalSelectedForAgreement.toFixed(2)} EM ${agreementConfig.parcelas}X ${agreementConfig.frequencia.toUpperCase()}. TÍTULOS ORIGINAIS BLOQUEADOS.`,
-                data_proxima_acao: agreementConfig.dataPrimeira,
-                valor_devido: totalSelectedForAgreement,
-                dias_atraso: 0,
-                usuario: currentUser.name
-            });
-            
-            setIsReviewing(false);
-            setIsNegotiating(false);
-            setSelectedForAgreement([]);
-            setActiveMainTab('ACORDOS');
-            fetchData();
-            setSelectedClient(null);
-        }
-    } catch (e) {
-        setToast({ msg: 'Erro ao salvar acordo.', type: 'error' });
-    } finally {
-        setIsSubmittingInteraction(false);
-    }
-  };
-
-  const handleAddInteraction = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedClient) return;
-
-    // Validação de Data Obrigatória
-    const needsDate = ['Agendamento', 'Retorno', 'Tentativa'].includes(interactionForm.acao);
-    if (needsDate && !interactionForm.proximaAcao) {
-        setToast({ msg: 'A data de agendamento/retorno é obrigatória.', type: 'error' });
-        return;
-    }
-
-    setIsSubmittingInteraction(true);
-    try {
-      const totalDevido = clientTitles.reduce((acc, curr) => acc + curr.saldo, 0);
+      const totalDevido = clientTitles.reduce((acc, curr) => acc + (curr.saldo || 0), 0);
       const res = await FinanceService.addCollectionHistory({
         cliente: selectedClient,
-        acao_tomada: interactionForm.acao,
-        observacao: interactionForm.observacao,
-        data_proxima_acao: interactionForm.proximaAcao, // Envia a data selecionada
+        acao_tomada: acao,
+        observacao: obs.toUpperCase(),
+        data_proxima_acao: date || null,
         valor_devido: totalDevido,
         dias_atraso: clientTitles.length > 0 ? calculateDaysOverdue(clientTitles[0].data_vencimento) : 0, 
         usuario: currentUser.name
       });
-
       if (res.success) {
-        setToast({ msg: 'Interação registrada!', type: 'success' });
-        setInteractionForm({ acao: 'WhatsApp', observacao: '', proximaAcao: '' });
+        setToast({ msg: `Ação registrada!`, type: 'success' });
+        setActiveQuickAction(null);
+        setQuickActionData({ date: '', obs: '' });
         const updatedHistory = await FinanceService.getCollectionHistoryByClient(selectedClient);
         setClientHistory(updatedHistory);
-      } else {
-        setToast({ msg: res.error || 'Falha ao processar comando.', type: 'error' });
       }
-    } catch (e: any) {
-      setToast({ msg: 'Erro de conexão.', type: 'error' });
+    } catch (e) {
+      setToast({ msg: 'Erro ao registrar.', type: 'error' });
     } finally {
       setIsSubmittingInteraction(false);
     }
   };
 
-  // Separação em dois grupos: A Cobrar (Urgente) vs Em Dia (Agendados)
-  const { toCollect, upToDate } = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const filtered = debtors.filter(d => d.cliente.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const toCollectList: DebtorInfo[] = [];
-    const upToDateList: DebtorInfo[] = [];
-
-    filtered.forEach(d => {
-        // Se não tem data agendada OU se a data é hoje/passado -> A Cobrar
-        if (!d.nextActionDate || d.nextActionDate <= today) {
-            toCollectList.push(d);
-        } else {
-            // Se tem data futura -> Em Dia
-            upToDateList.push(d);
+  const handleNotaryActionExec = async () => {
+    if (!selectedClient) return;
+    if (selectedForAgreement.length === 0) {
+        setToast({ msg: 'Selecione os títulos para esta ação.', type: 'error' });
+        return;
+    }
+    const type = activeQuickAction === 'CARTORIO_IN' ? 'INCLUIR' : 'RETIRAR';
+    setIsSubmittingInteraction(true);
+    try {
+        const res = type === 'INCLUIR' 
+            ? await FinanceService.sendTitlesToNotary(selectedForAgreement, currentUser)
+            : await FinanceService.removeTitlesFromNotary(selectedForAgreement, currentUser);
+        if (res.success) {
+            await handleSimpleLog(type === 'INCLUIR' ? 'CARTORIO_INCLUSAO' : 'CARTORIO_RETIRADA', `${type === 'INCLUIR' ? 'INCLUSÃO' : 'RETIRADA'} EM CARTORIO: ${selectedForAgreement.join(', ')}`);
+            setToast({ msg: `Operação de Cartório efetuada.`, type: 'success' });
+            handleManageClient(selectedClient);
         }
-    });
+    } catch (e) {
+        setToast({ msg: 'Falha na comunicação.', type: 'error' });
+    } finally {
+        setIsSubmittingInteraction(false);
+    }
+  };
 
-    return { toCollect: toCollectList, upToDate: upToDateList };
-  }, [debtors, searchTerm]);
+  const toggleTitleSelection = (title: AccountsReceivable) => {
+    setSelectedForAgreement(prev => prev.includes(title.id) ? prev.filter(i => i !== title.id) : [...prev, title.id]);
+  };
 
-  const activeSettlements = useMemo(() => settlements.filter(s => s.status === 'ATIVO'), [settlements]);
-  const completedSettlements = useMemo(() => settlements.filter(s => s.status !== 'ATIVO'), [settlements]);
-  
-  const allInstallmentsPaid = useMemo(() => {
-    if (!settlementDetails || settlementDetails.installments.length === 0) return false;
-    return settlementDetails.installments.every(i => i.situacao === 'PAGO');
-  }, [settlementDetails]);
+  // Fix: Adicionado o handler para transição para o módulo de acordos
+  const handleGoToAgreement = () => {
+    setViewMode('SETTLEMENT');
+  };
 
-  // Filtragem para o Log Geral
-  const filteredLogs = useMemo(() => {
-    return globalLogs.filter(l => 
-        l.cliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        l.usuario.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        l.acao_tomada.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [globalLogs, searchTerm]);
-
-  // --- NOVA LÓGICA PARA LEMBRETES ---
-  const { pendingReminders, sentTodayReminders } = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const upcoming = allTitles
-      .map(t => {
-        if (!t.data_vencimento) return null;
-        const [year, month, day] = t.data_vencimento.split('-').map(Number);
-        const dueDate = new Date(year, month - 1, day);
-        dueDate.setHours(0, 0, 0, 0);
-
-        const diffTime = dueDate.getTime() - today.getTime();
-        const daysUntilDue = Math.round(diffTime / (1000 * 60 * 60 * 24));
-        
-        return { ...t, daysUntilDue };
-      })
-      .filter((t): t is AccountsReceivable & { daysUntilDue: number } => 
-        t !== null &&
-        (t.situacao === 'EM ABERTO' || t.situacao === 'ABERTO') &&
-        t.saldo > 0.01 &&
-        !t.id_acordo &&
-        t.daysUntilDue >= 0 && t.daysUntilDue <= 3
-      );
-
-    const pending = upcoming
-      .filter(t => !sentReminders.includes(t.id))
-      .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-      
-    const sent = upcoming
-      .filter(t => sentReminders.includes(t.id))
-      .sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-
-    return { pendingReminders: pending, sentTodayReminders: sent };
-  }, [allTitles, sentReminders]);
-
-  const handleSendReminder = async (title: AccountsReceivable & { daysUntilDue: number }) => {
-    setSentReminders(prev => [...prev, title.id]);
+  const handleSendReminderAction = async (title: AccountsReceivable) => {
+    // Adiciona log de lembrete
     try {
         await FinanceService.addCollectionHistory({
             cliente: title.cliente,
             acao_tomada: 'LEMBRETE_VENCIMENTO',
-            observacao: `LEMBRETE ENVIADO. TÍTULO ${title.numero_documento || title.id} VENCE EM ${title.daysUntilDue} DIA(S).`,
+            observacao: `LEMBRETE ENVIADO: TÍTULO ${title.numero_documento} VENCE EM ${new Date(title.data_vencimento).toLocaleDateString()}`,
             valor_devido: title.saldo,
             dias_atraso: 0,
             usuario: currentUser.name
         });
+        setSentReminders(prev => [...prev, title.id]);
         setToast({ msg: 'Lembrete registrado!', type: 'success' });
     } catch (e) {
-        setSentReminders(prev => prev.filter(id => id !== title.id));
-        setToast({ msg: 'Falha ao registrar lembrete.', type: 'error' });
+        setToast({ msg: 'Erro ao registrar lembrete.', type: 'error' });
     }
   };
 
-  const formatDaysUntilDue = (days: number) => {
-    if (days === 0) return { text: "VENCE HOJE", color: 'text-red-600', pulse: true };
-    if (days === 1) return { text: "VENCE AMANHÃ", color: 'text-amber-600', pulse: false };
-    return { text: `VENCE EM ${days} DIAS`, color: 'text-slate-500', pulse: false };
-  };
-
-  // --- NOVA LÓGICA PARA O BI ---
+  // --- LOGICA BI COBRANÇA ---
   const biData = useMemo(() => {
-    const totalEmAtraso = debtors.reduce((acc, d) => acc + d.totalVencido, 0);
-    const totalEmAcordo = activeSettlements.reduce((acc, s) => acc + s.valorAcordo, 0);
-    const totalCarteira = totalEmAtraso + totalEmAcordo;
-    const recoveryRate = totalCarteira > 0 ? (totalEmAcordo / totalCarteira) * 100 : 0;
-
-    const agingData = [
-      { name: '0-15 Dias', value: debtors.reduce((acc, d) => acc + d.vencidoAte15d, 0) },
-      { name: '15+ Dias', value: debtors.reduce((acc, d) => acc + d.vencidoMais15d, 0) },
-      { name: 'Em Cartório', value: debtors.reduce((acc, d) => acc + d.enviarCartorio, 0) },
+    const ageing = [
+      { name: '1-15 dias', value: debtors.reduce((acc, d) => acc + d.vencidoAte15d, 0) },
+      { name: '15+ dias', value: debtors.reduce((acc, d) => acc + d.vencidoMais15d, 0) },
+      { name: 'Cartório', value: debtors.reduce((acc, d) => acc + d.enviarCartorio, 0) }
     ];
 
-    const operatorMap: Record<string, number> = {};
-    globalLogs.forEach(log => {
-      const operator = log.usuario.split('@')[0].toUpperCase();
-      operatorMap[operator] = (operatorMap[operator] || 0) + 1;
+    const interactions = allLogs.slice(0, 30).reduce((acc: any, log) => {
+      const date = new Date(log.data_registro).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      const idx = acc.findIndex((i: any) => i.date === date);
+      if (idx > -1) acc[idx].count++;
+      else acc.push({ date, count: 1 });
+      return acc;
+    }, []).reverse();
+
+    return { ageing, interactions };
+  }, [debtors, allLogs]);
+
+  // --- LOGICA LEMBRETES (VENCENDO EM 0, 1, 2, 3 DIAS) ---
+  const reminderTitles = useMemo(() => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    const filtered = allAR.filter(t => {
+        // Filtrar apenas títulos em aberto
+        const situacao = (t.situacao || '').toUpperCase();
+        const isAberto = situacao === 'EM ABERTO' || situacao === 'ABERTO';
+        if (!isAberto || t.saldo <= 0.01) return false;
+
+        // Calcular dias até o vencimento
+        const dueDate = new Date(t.data_vencimento);
+        // Ajuste de fuso horário simples para comparação de datas
+        const diffTime = dueDate.getTime() - today.getTime();
+        // Diferença em dias (arredondado)
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        // Queremos: 0 (Hoje), 1, 2 ou 3 dias
+        return diffDays >= 0 && diffDays <= 3;
     });
-    const operatorPerformance = Object.entries(operatorMap)
-      .map(([name, actions]) => ({ name, actions }))
-      .sort((a, b) => b.actions - a.actions)
-      .slice(0, 10);
 
-    const actionMap: Record<string, number> = {};
-    globalLogs.forEach(log => {
-      const action = log.acao_tomada;
-      actionMap[action] = (actionMap[action] || 0) + 1;
-    });
-    const actionDistribution = Object.entries(actionMap)
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value);
+    // Separa em Pendentes e Enviados
+    const pending = filtered.filter(t => !sentReminders.includes(t.id));
+    const sent = filtered.filter(t => sentReminders.includes(t.id));
 
-    return {
-      totalEmAtraso,
-      totalEmAcordo,
-      recoveryRate,
-      debtorCount: debtors.length,
-      agingData,
-      operatorPerformance,
-      actionDistribution,
-    };
-  }, [debtors, activeSettlements, globalLogs]);
+    // Ordenar por vencimento (mais urgente primeiro)
+    pending.sort((a, b) => new Date(a.data_vencimento).getTime() - new Date(b.data_vencimento).getTime());
+    sent.sort((a, b) => new Date(a.data_vencimento).getTime() - new Date(b.data_vencimento).getTime());
 
+    return { pending, sent };
+  }, [allAR, sentReminders]);
 
-  const exportLogsToExcel = () => {
-    if (filteredLogs.length === 0) {
-      setToast({ msg: 'Nenhum log para exportar.', type: 'error' });
-      return;
-    }
+  const getDaysLabel = (dateStr: string) => {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const due = new Date(dateStr);
+    due.setHours(0,0,0,0); // Normaliza para comparar datas cheias
+    // Use getTime para evitar problemas de fuso horário
+    const diffMs = due.getTime() - today.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
-    const dataForExport = filteredLogs.map(log => ({
-      'Data/Hora': new Date(log.data_registro).toLocaleString('pt-BR'),
-      'Cliente': log.cliente,
-      'Ação Tomada': log.acao_tomada,
-      'Valor Devido (R$)': log.valor_devido,
-      'Operador': log.usuario,
-      'Detalhamento': log.observacao,
-      'Próxima Ação Agendada': log.data_proxima_acao ? new Date(log.data_proxima_acao).toLocaleDateString('pt-BR') : ''
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(dataForExport);
-    
-    ws['!cols'] = [
-      { wch: 20 }, { wch: 35 }, { wch: 20 }, { wch: 15 }, 
-      { wch: 15 }, { wch: 60 }, { wch: 25 }
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Log_Cobranca');
-    XLSX.writeFile(wb, `Log_Cobranca_NZERP_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    setToast({ msg: 'Log de cobrança exportado!', type: 'success' });
+    if (diffDays <= 0) return { text: 'VENCE HOJE', color: 'bg-red-500 text-white' };
+    if (diffDays === 1) return { text: 'AMANHÃ', color: 'bg-amber-500 text-white' };
+    return { text: `EM ${diffDays} DIAS`, color: 'bg-blue-500 text-white' };
   };
 
+  if (loading && !selectedClient) return <div className="py-24 text-center opacity-30 font-black uppercase text-xs animate-pulse">Sincronizando Carteira...</div>;
 
-  const DebtorCard: React.FC<{ d: DebtorInfo }> = ({ d }) => (
-    <div className="bg-white border border-slate-100 p-6 rounded-[2rem] shadow-sm hover:border-blue-300 transition-all group flex flex-col xl:flex-row justify-between items-center gap-6">
-       <div className="flex-1 w-full xl:w-auto">
-          <div className="flex items-center gap-3 mb-1">
-             <h3 className="font-black text-slate-900 uppercase italic text-lg tracking-tight">{d.cliente}</h3>
-             {d.vencidoMais15d > 0 && <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-widest animate-pulse border border-red-100">Risco Alto</span>}
-             {d.nextActionDate && d.nextActionDate > new Date().toISOString().split('T')[0] && (
-               <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-widest border border-blue-100">
-                 Agendado: {new Date(d.nextActionDate).toLocaleDateString('pt-BR')}
-               </span>
-             )}
-          </div>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos em aberto</p>
-       </div>
-       
-       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center items-center w-full xl:w-auto">
-          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[100px]">
-             <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Vencido</p>
-             <p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-          </div>
-          <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[100px]">
-             <p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p>
-             <p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-          </div>
-          <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[100px]">
-             <p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p>
-             <p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-          </div>
-          <div className="bg-slate-900 p-3 rounded-2xl border border-slate-800 min-w-[100px] text-white">
-             <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p>
-             <p className="text-sm font-black text-white italic">R$ {(d.enviarCartorio || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-          </div>
-          <button 
-            onClick={() => handleManageClient(d.cliente)}
-            className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg italic h-full"
-          >
-            Gerenciar
-          </button>
-       </div>
-    </div>
-  );
-
-  if (loading && !selectedClient && !viewingSettlement) return (
-    <div className="py-20 text-center opacity-30 font-black uppercase text-xs italic animate-pulse">
-      Sincronizando Sistema de Cobrança...
-    </div>
-  );
+  if (viewMode === 'SETTLEMENT' && selectedClient) {
+    return <SettlementModule currentUser={currentUser} initialClient={selectedClient} initialTitles={selectedForAgreement} onBack={() => { setViewMode('CRM'); handleManageClient(selectedClient); }} />;
+  }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-10">
+    <div className="space-y-8 animate-in fade-in duration-500 pb-10 flex flex-col h-full">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       
-      {!selectedClient && !viewingSettlement ? (
+      {!selectedClient ? (
         <>
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 shrink-0">
             <div>
               <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">Gestão de Cobrança</h2>
-              <div className="flex gap-4 mt-4">
-                 <button 
-                  onClick={() => setActiveMainTab('CARTEIRA')}
-                  className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeMainTab === 'CARTEIRA' ? 'bg-slate-900 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
-                 >
-                   Carteira em Atraso
-                 </button>
-                 <button 
-                  onClick={() => setActiveMainTab('ACORDOS')}
-                  className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeMainTab === 'ACORDOS' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
-                 >
-                   Gestão de Acordos
-                 </button>
-                 <button
-                    onClick={() => setActiveMainTab('LEMBRETES')}
-                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeMainTab === 'LEMBRETES' ? 'bg-amber-500 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
-                 >
-                    Lembretes
-                 </button>
-                 <button 
-                  onClick={() => setActiveMainTab('LOGS')}
-                  className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeMainTab === 'LOGS' ? 'bg-purple-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
-                 >
-                   Log Cobrança
-                 </button>
-                 <button
-                    onClick={() => setActiveMainTab('BI')}
-                    className={`px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${activeMainTab === 'BI' ? 'bg-teal-600 text-white shadow-lg' : 'bg-white border border-slate-200 text-slate-400 hover:text-slate-600'}`}
-                 >
-                    BI Cobrança
-                 </button>
+              <div className="flex flex-wrap gap-2 mt-4">
+                 {[
+                   { id: 'CARTEIRA', label: 'Carteira em Atraso' },
+                   { id: 'ACORDOS', label: 'Gestão de Acordos' },
+                   { id: 'LEMBRETES', label: 'Lembretes' },
+                   { id: 'LOGS', label: 'Log Cobrança' },
+                   { id: 'BI', label: 'BI Cobrança' }
+                 ].map(tab => (
+                   <button key={tab.id} onClick={() => setActiveMainTab(tab.id as MainTab)} className={`px-5 py-2.5 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all border ${activeMainTab === tab.id ? 'bg-slate-900 text-white border-slate-900 shadow-lg' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`}>
+                     {tab.label}
+                   </button>
+                 ))}
               </div>
             </div>
-            
-            <div className="flex items-center gap-3">
-              <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex-1 max-w-md flex items-center">
-                <svg className="w-5 h-5 text-slate-300 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="3"/></svg>
-                <input 
-                  type="text" 
-                  placeholder="LOCALIZAR..." 
-                  className="w-full px-4 py-3 bg-transparent outline-none font-black text-xs uppercase"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              {activeMainTab === 'LOGS' && (
-                <button 
-                  onClick={exportLogsToExcel}
-                  className="px-6 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center space-x-2 italic"
-                >
-                   <ICONS.Upload className="w-3.5 h-3.5 rotate-180" />
-                   <span>Exportar</span>
-                </button>
-              )}
+            <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm md:w-80 flex items-center">
+              <svg className="w-5 h-5 text-slate-300 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" strokeWidth="3"/></svg>
+              <input type="text" placeholder="LOCALIZAR..." className="w-full px-4 py-2 bg-transparent outline-none font-black text-xs uppercase" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
           </div>
 
-          {activeMainTab === 'CARTEIRA' ? (
-            <div className="space-y-12">
-              {/* SEÇÃO 1: A COBRAR (PRIORIDADE) */}
-              <section>
-                 <h3 className="text-sm font-black text-red-500 uppercase tracking-widest flex items-center gap-2 mb-4 italic">
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-                    Prioridade: A Cobrar / Atrasados
-                 </h3>
-                 <div className="grid grid-cols-1 gap-4">
-                    {toCollect.map(d => <DebtorCard key={d.cliente} d={d} />)}
-                    {toCollect.length === 0 && (
-                       <div className="py-8 text-center border-2 border-dashed border-slate-100 rounded-[2rem] opacity-30 font-black uppercase text-[10px]">
-                          Nenhum cliente na fila de cobrança imediata.
-                       </div>
+          <div className="flex-1 min-h-0">
+             {activeMainTab === 'CARTEIRA' && (
+                <div className="space-y-4 overflow-y-auto pr-2 custom-scrollbar">
+                   <p className="text-[10px] font-black text-red-500 uppercase tracking-widest italic flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                      Prioridade: A Cobrar / Atrasados
+                   </p>
+                   {debtors.filter(d => d.cliente.toLowerCase().includes(searchTerm.toLowerCase())).map(d => (
+                      <div key={d.cliente} className="bg-white border border-slate-100 p-6 rounded-[2.5rem] shadow-sm hover:border-blue-300 transition-all group flex flex-col xl:flex-row justify-between items-center gap-6">
+                         <div className="flex-1 w-full">
+                            <div className="flex items-center gap-3 mb-1">
+                               <h3 className="font-black text-slate-900 uppercase italic text-lg tracking-tight">{d.cliente}</h3>
+                               {d.vencidoMais15d > 0 && <span className="bg-red-50 text-red-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-red-100">Risco Alto</span>}
+                            </div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{d.qtdTitulos} Títulos em aberto</p>
+                         </div>
+                         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center items-center w-full xl:w-auto">
+                            <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p><p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                            <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                            <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[110px]"><p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p><p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                            <div className="bg-slate-900 p-3 rounded-2xl text-white min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p><p className="text-sm font-black italic text-white">R$ {d.enviarCartorio.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                            <button onClick={() => handleManageClient(d.cliente)} className="px-6 py-4 bg-blue-600 text-white rounded-2xl font-black text-[9px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-lg italic h-full">Gerenciar</button>
+                         </div>
+                      </div>
+                   ))}
+                </div>
+             )}
+
+             {activeMainTab === 'LEMBRETES' && (
+                <div className="space-y-8 overflow-y-auto pr-2 custom-scrollbar h-full">
+                   <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                      <ICONS.Alert className="w-5 h-5 text-blue-600" />
+                      <p className="text-[10px] font-black text-blue-800 uppercase tracking-wide">
+                         Títulos vencendo em até 3 dias. Clique em "Lembrar" para registrar o contato preventivo.
+                      </p>
+                   </div>
+
+                   {/* PENDENTES */}
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {reminderTitles.pending.map(t => {
+                         const status = getDaysLabel(t.data_vencimento);
+                         return (
+                            <div key={t.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative group overflow-hidden hover:border-blue-300 transition-all">
+                               <div className="flex justify-between items-start mb-4">
+                                  <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-sm ${status.color}`}>
+                                     {status.text}
+                                  </span>
+                                  <span className="text-[9px] font-black text-slate-300 uppercase">NF: {t.numero_documento}</span>
+                               </div>
+                               <h4 className="font-black text-slate-900 uppercase italic text-lg truncate mb-1" title={t.cliente}>{t.cliente}</h4>
+                               <p className="text-xl font-black text-slate-700 italic tracking-tighter mb-4">
+                                  R$ {t.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
+                               </p>
+                               <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4 flex justify-between items-center">
+                                  <span className="text-[9px] font-bold text-slate-400 uppercase">Vencimento</span>
+                                  <span className="text-[10px] font-black text-slate-900">{new Date(t.data_vencimento).toLocaleDateString('pt-BR')}</span>
+                               </div>
+                               <button 
+                                  onClick={() => handleSendReminderAction(t)} 
+                                  className="w-full py-3 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase tracking-[0.2em] hover:bg-blue-600 transition-all shadow-lg flex items-center justify-center gap-2"
+                               >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                                  Lembrar
+                               </button>
+                            </div>
+                         );
+                      })}
+                   </div>
+
+                   {reminderTitles.pending.length === 0 && (
+                      <div className="py-12 text-center opacity-30 font-black uppercase text-[10px] italic">Nenhum título próximo do vencimento pendente de aviso</div>
+                   )}
+
+                   {/* ENVIADOS (Descem para cá) */}
+                   {reminderTitles.sent.length > 0 && (
+                      <div className="pt-8 border-t border-slate-100 opacity-60">
+                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 italic">Enviados Recentemente</h4>
+                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {reminderTitles.sent.map(t => (
+                               <div key={t.id} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 relative grayscale transition-all hover:grayscale-0">
+                                  <div className="flex justify-between items-start mb-2">
+                                     <span className="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest">
+                                        ENVIADO
+                                     </span>
+                                     <span className="text-[9px] font-black text-slate-300 uppercase">NF: {t.numero_documento}</span>
+                                  </div>
+                                  <h4 className="font-black text-slate-700 uppercase italic text-sm truncate mb-1">{t.cliente}</h4>
+                                  <p className="text-sm font-black text-slate-500 italic">R$ {t.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                               </div>
+                            ))}
+                         </div>
+                      </div>
+                   )}
+                </div>
+             )}
+
+             {activeMainTab === 'BI' && (
+                <div className="space-y-8 h-full">
+                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col h-[400px]">
+                         <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-8 italic text-center">Exposição de Carteira por Faixa</h4>
+                         <div className="flex-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                               <PieChart>
+                                  <Pie data={biData.ageing} cx="50%" cy="50%" innerRadius={70} outerRadius={100} paddingAngle={5} dataKey="value">
+                                     {biData.ageing.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                                  </Pie>
+                                  <Tooltip />
+                               </PieChart>
+                            </ResponsiveContainer>
+                         </div>
+                         <div className="flex justify-center gap-6 mt-4">
+                            {biData.ageing.map((entry, i) => (
+                               <div key={i} className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
+                                  <span className="text-[9px] font-black text-slate-500 uppercase">{entry.name}</span>
+                               </div>
+                            ))}
+                         </div>
+                      </div>
+                      <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col h-[400px]">
+                         <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-8 italic text-center">Volume de Interações (30 dias)</h4>
+                         <div className="flex-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                               <BarChart data={biData.interactions}>
+                                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 700, fill: '#94a3b8' }} />
+                                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 9, fontWeight: 700, fill: '#94a3b8' }} />
+                                  <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }} />
+                               </BarChart>
+                            </ResponsiveContainer>
+                         </div>
+                      </div>
+                   </div>
+                </div>
+             )}
+
+             {activeMainTab === 'LOGS' && (
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col h-full overflow-hidden">
+                   <div className="flex-1 overflow-y-auto custom-scrollbar">
+                      <table className="w-full text-left">
+                         <thead className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest sticky top-0 z-10 shadow-sm">
+                            <tr>
+                               <th className="px-8 py-5">Data/Registro</th>
+                               <th className="px-8 py-5">Cliente</th>
+                               <th className="px-8 py-5">Ação Tomada</th>
+                               <th className="px-8 py-5">Observação</th>
+                               <th className="px-8 py-5 text-right">Agente</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-50 text-[11px]">
+                            {allLogs.filter(l => l.cliente.toLowerCase().includes(searchTerm.toLowerCase()) || l.acao_tomada.toLowerCase().includes(searchTerm.toLowerCase())).map(log => (
+                               <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-8 py-5 font-black text-slate-400">{new Date(log.data_registro).toLocaleString('pt-BR')}</td>
+                                  <td className="px-8 py-5 font-black text-slate-900 uppercase italic">{log.cliente}</td>
+                                  <td className="px-8 py-5">
+                                     <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[8px] font-black uppercase border border-blue-100">{log.acao_tomada.replace(/_/g, ' ')}</span>
+                                  </td>
+                                  <td className="px-8 py-5 text-slate-500 font-medium italic truncate max-w-xs" title={log.observacao}>"{log.observacao}"</td>
+                                  <td className="px-8 py-5 text-right font-black text-slate-400">@{log.usuario.split('@')[0]}</td>
+                               </tr>
+                            ))}
+                         </tbody>
+                      </table>
+                   </div>
+                </div>
+             )}
+
+             {activeMainTab === 'ACORDOS' && (
+                <div className="h-full">
+                   <SettlementModule currentUser={currentUser} />
+                </div>
+             )}
+          </div>
+        </>
+      ) : (
+        /* --- DOSSIÊ DO CLIENTE (MANTIDO E MELHORADO) --- */
+        <div className="animate-in slide-in-from-right-4 duration-500 space-y-8 flex flex-col h-full overflow-hidden">
+           <div className="flex items-center justify-between border-b border-slate-200 pb-8 shrink-0">
+              <div className="flex items-center gap-6">
+                 <button onClick={() => setSelectedClient(null)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm">
+                   <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M17 8l4 4m0 0l-4 4m4-4H3" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                 </button>
+                 <div>
+                    <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">{selectedClient}</h2>
+                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-2 italic">Dossiê CRM • Ações Rápidas</p>
+                 </div>
+              </div>
+              <div className="bg-slate-900 px-6 py-3 rounded-xl text-white shadow-xl">
+                 <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Total em Aberto</p>
+                 <p className="text-xl font-black italic">R$ {clientTitles.reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+              </div>
+           </div>
+
+           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0">
+              {/* COLUNA ESQUERDA: LISTA DE TÍTULOS */}
+              <div className="lg:col-span-7 space-y-6 flex flex-col min-h-0">
+                 <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col flex-1 min-h-0">
+                    <div className="flex justify-between items-center mb-6 shrink-0">
+                       <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest italic">Títulos Pendentes</h4>
+                       {selectedForAgreement.length > 0 && <span className="bg-blue-600 text-white px-4 py-1 rounded-xl text-[9px] font-black uppercase shadow-lg shadow-blue-100">{selectedForAgreement.length} selecionados</span>}
+                    </div>
+                    <div className="space-y-3 overflow-y-auto pr-2 custom-scrollbar flex-1">
+                       {clientTitles.map(t => {
+                          const isCurrentlyInNotary = t.situacao === 'EM CARTORIO';
+                          const hasAgreement = !!t.id_acordo;
+                          const isSelected = selectedForAgreement.includes(t.id);
+                          
+                          return (
+                            <div key={t.id} onClick={() => toggleTitleSelection(t)} className={`p-5 rounded-3xl border-2 transition-all cursor-pointer flex justify-between items-center group ${isSelected ? 'border-blue-600 bg-blue-50/50 shadow-md' : 'border-slate-50 bg-slate-50/30 hover:border-blue-200'}`}>
+                               <div className="flex items-center gap-4">
+                                  <div className={`w-6 h-6 rounded-lg border-2 transition-all flex items-center justify-center ${isSelected ? 'bg-blue-600 border-blue-600' : 'border-slate-200 group-hover:border-blue-300 bg-white'}`}>
+                                     {isSelected && <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                                  </div>
+                                  <div>
+                                     <p className="font-black text-slate-800 text-[11px] uppercase flex items-center gap-2">
+                                        NF: {t.numero_documento || t.id}
+                                        {isCurrentlyInNotary && <span className="bg-red-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter">EM CARTÓRIO</span>}
+                                        {hasAgreement && <span className="bg-purple-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter">EM ACORDO</span>}
+                                     </p>
+                                     <p className="text-[9px] font-bold text-slate-400 uppercase">Venc: {new Date(t.data_vencimento).toLocaleDateString('pt-BR')} • BOLETO</p>
+                                  </div>
+                               </div>
+                               <div className="text-right">
+                                  <p className={`font-black text-sm italic ${hasAgreement ? 'text-purple-600' : 'text-red-600'}`}>R$ {(t.valor_documento || t.saldo).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                                  <p className="text-[8px] font-black text-slate-400 uppercase">{calculateDaysOverdue(t.data_vencimento)} Dias em atraso</p>
+                               </div>
+                            </div>
+                          );
+                       })}
+                    </div>
+                    <div className="mt-8 pt-8 border-t border-slate-100 flex justify-between items-center shrink-0">
+                       <button onClick={handleGoToAgreement} disabled={selectedForAgreement.length === 0} className="px-10 py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-[10px] uppercase shadow-xl hover:bg-blue-700 disabled:opacity-20 transition-all italic active:scale-95">Ir para Mesa de Acordo →</button>
+                    </div>
+                 </div>
+              </div>
+
+              {/* COLUNA DIREITA: AÇÕES RÁPIDAS CRM */}
+              <div className="lg:col-span-5 space-y-6 flex flex-col min-h-0">
+                 <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm shrink-0">
+                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-6 italic">Ações Rápidas CRM</h4>
+                    {!activeQuickAction ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            <button onClick={() => setActiveQuickAction('AGENDAR')} className="flex flex-col items-center justify-center p-6 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-[1.5rem] hover:bg-emerald-100 transition-all group">
+                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2" strokeWidth="2.5"/></svg>
+                                <span className="text-[10px] font-black uppercase">Agendar Pagto</span>
+                            </button>
+                            <button onClick={() => setActiveQuickAction('RETORNO')} className="flex flex-col items-center justify-center p-6 bg-blue-50 text-blue-700 border border-blue-100 rounded-[1.5rem] hover:bg-blue-100 transition-all group">
+                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684" strokeWidth="2.5"/></svg>
+                                <span className="text-[10px] font-black uppercase">Agendar Retorno</span>
+                            </button>
+                            <button onClick={() => handleSimpleLog('TENTATIVA', 'TENTATIVA DE CONTATO SEM SUCESSO')} className="flex flex-col items-center justify-center p-6 bg-amber-50 text-amber-700 border border-amber-100 rounded-[1.5rem] hover:bg-amber-100 transition-all group">
+                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M18.364 5.636l-3.536 3.536" strokeWidth="2.5"/></svg>
+                                <span className="text-[10px] font-black uppercase">Sem Retorno</span>
+                            </button>
+                            <button onClick={() => setActiveQuickAction('CARTORIO_IN')} className="flex flex-col items-center justify-center p-6 bg-slate-950 text-white rounded-[1.5rem] hover:bg-slate-900 border border-slate-800 transition-all group">
+                                <svg className="w-8 h-8 mb-2 group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M3 6l3 1m0 0l-3 9" strokeWidth="2.5"/></svg>
+                                <span className="text-[10px] font-black uppercase">Incluir Cartório</span>
+                            </button>
+                            <button onClick={() => setActiveQuickAction('CARTORIO_OUT')} className="col-span-2 py-4 mt-2 bg-white border-2 border-slate-100 text-slate-400 font-black text-[10px] uppercase rounded-xl hover:text-blue-600 transition-all italic">Retirar do Cartório</button>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                            <div className="flex justify-between items-center mb-2">
+                                <p className="text-[9px] font-black text-blue-600 uppercase tracking-widest">{activeQuickAction.replace('_', ' ')}</p>
+                                <button onClick={() => setActiveQuickAction(null)} className="text-[9px] font-black text-slate-400 uppercase hover:text-red-500">Cancelar</button>
+                            </div>
+                            {(activeQuickAction === 'AGENDAR' || activeQuickAction === 'RETORNO') && (
+                                <div className="space-y-4">
+                                    <input type="date" value={quickActionData.date} onChange={e => setQuickActionData({...quickActionData, date: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl font-bold text-xs outline-none" />
+                                    <textarea value={quickActionData.obs} onChange={e => setQuickActionData({...quickActionData, obs: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl font-bold text-xs outline-none resize-none uppercase" rows={2} placeholder="OBSERVAÇÃO..." />
+                                    <button onClick={() => handleSimpleLog(activeQuickAction === 'AGENDAR' ? 'PROMESSA_PAGTO' : 'RECONTATO_AGENDADO', quickActionData.obs || 'Agendamento via CRM', quickActionData.date)} disabled={!quickActionData.date || isSubmittingInteraction} className="w-full py-5 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg hover:bg-blue-600 transition-all italic">Confirmar Agendamento</button>
+                                </div>
+                            )}
+                            {(activeQuickAction === 'CARTORIO_IN' || activeQuickAction === 'CARTORIO_OUT') && (
+                                <div className="space-y-6">
+                                    <button onClick={handleNotaryActionExec} disabled={selectedForAgreement.length === 0 || isSubmittingInteraction} className="w-full py-6 bg-emerald-600 text-white rounded-[1.5rem] font-black text-[11px] uppercase shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 italic">Confirmar Operação Cartório</button>
+                                </div>
+                            )}
+                        </div>
                     )}
                  </div>
-              </section>
 
-              {/* SEÇÃO 2: COBRANÇA EM DIA (AGENDADOS) */}
-              {upToDate.length > 0 && (
-                <section className="pt-8 border-t border-slate-200">
-                   <h3 className="text-sm font-black text-blue-500 uppercase tracking-widest flex items-center gap-2 mb-4 italic opacity-70">
-                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                      Cobrança em Dia / Agendados
-                   </h3>
-                   <div className="grid grid-cols-1 gap-4 opacity-80 hover:opacity-100 transition-opacity">
-                      {upToDate.map(d => <DebtorCard key={d.cliente} d={d} />)}
-                   </div>
-                </section>
-              )}
-            </div>
-          ) : activeMainTab === 'ACORDOS' ? (
-            <div className="space-y-12">
-               <section className="space-y-6">
-                  <h3 className="text-xl font-black text-slate-900 uppercase italic tracking-tighter flex items-center gap-3">
-                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                     Acordos em Vigência (Ativos)
-                  </h3>
-                  <div className="grid grid-cols-1 gap-4">
-                     {activeSettlements.filter(s => s.cliente.toLowerCase().includes(searchTerm.toLowerCase())).map(s => (
-                        <div key={s.id} className="bg-white border border-slate-100 p-8 rounded-[2.5rem] shadow-sm hover:border-blue-500 transition-all flex flex-col md:flex-row justify-between items-center gap-8">
-                           <div className="flex-1">
-                              <p className="text-[8px] font-black text-blue-600 uppercase tracking-widest mb-1">Protocolo #{s.id}</p>
-                              <h4 className="text-xl font-black text-slate-900 uppercase italic tracking-tight">{s.cliente}</h4>
-                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-2 italic">Criado em: {new Date(s.dataCriacao).toLocaleDateString('pt-BR')}</p>
-                           </div>
-                           <div className="grid grid-cols-2 md:grid-cols-3 gap-10 text-center md:text-right">
-                              <div>
-                                 <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Valor Acordado</p>
-                                 <p className="text-sm font-black text-emerald-600 italic">R$ {s.valorAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-                              </div>
-                              <div>
-                                 <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Parcelamento</p>
-                                 <p className="text-sm font-black text-slate-900 italic">{s.parcelas}x {s.frequencia}</p>
-                              </div>
-                              <button 
-                                onClick={() => handleViewSettlement(s)}
-                                className="px-6 py-3 bg-slate-100 text-slate-600 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-900 hover:text-white shadow-sm transition-all italic"
-                              >
-                                Gerenciar Acordo
-                              </button>
-                           </div>
-                        </div>
-                     ))}
-                  </div>
-               </section>
-
-               <section className="space-y-6 pt-6 border-t border-slate-200">
-                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-[0.3em] flex items-center gap-3">
-                     Histórico de Negociações
-                  </h3>
-                  <div className="table-container shadow-none border border-slate-100">
-                     <table className="w-full">
-                        <thead className="bg-slate-50">
-                           <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                              <th className="px-6 py-4 text-left">Protocolo</th>
-                              <th className="px-6 py-4 text-left">Cliente</th>
-                              <th className="px-6 py-4 text-right">Valor</th>
-                              <th className="px-6 py-4 text-center">Status</th>
-                              <th className="px-6 py-4 text-right">Ação</th>
-                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                           {completedSettlements.map(s => (
-                              <tr key={s.id} className="hover:bg-slate-50/50 transition-all opacity-70 grayscale hover:grayscale-0">
-                                 <td className="px-6 py-4 text-[10px] font-black text-slate-400">#{s.id}</td>
-                                 <td className="px-6 py-4 text-[11px] font-black text-slate-800 uppercase italic">{s.cliente}</td>
-                                 <td className="px-6 py-4 text-right font-black text-slate-900 text-xs">R$ {s.valorAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
-                                 <td className="px-6 py-4 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${s.status === 'CANCELADO' ? 'bg-red-50 text-red-500 border-red-100' : s.status === 'LIQUIDADO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-100 text-slate-500 border-slate-100'}`}>{s.status}</span>
-                                 </td>
-                                 <td className="px-6 py-4 text-right">
-                                    <button onClick={() => handleViewSettlement(s)} className="text-[9px] font-black text-blue-600 uppercase hover:underline">Visualizar</button>
-                                 </td>
-                              </tr>
-                           ))}
-                        </tbody>
-                     </table>
-                  </div>
-               </section>
-            </div>
-          ) : activeMainTab === 'LEMBRETES' ? (
-            <div className="space-y-12">
-                <section>
-                    <h3 className="text-sm font-black text-amber-500 uppercase tracking-widest flex items-center gap-2 mb-4 italic">
-                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                        Lembretes de Vencimento Pendentes
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {pendingReminders.length > 0 ? pendingReminders.map(t => {
-                            const { text, color, pulse } = formatDaysUntilDue(t.daysUntilDue);
-                            return (
-                                <div key={t.id} className="bg-white border border-slate-100 p-6 rounded-2xl shadow-sm hover:border-amber-300 transition-all flex justify-between items-center">
-                                    <div className="flex-1">
-                                        <div className={`text-[9px] font-black uppercase tracking-widest mb-1 ${color} ${pulse ? 'animate-pulse' : ''}`}>{text}</div>
-                                        <h4 className="text-sm font-black text-slate-900 uppercase italic truncate">{t.cliente}</h4>
-                                        <p className="text-[10px] font-bold text-slate-400">{t.data_vencimento.split('-').reverse().join('/')}</p>
-                                    </div>
-                                    <div className="text-right flex items-center gap-4">
-                                        <p className="text-sm font-black text-slate-800 italic">R$ {t.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-                                        <button 
-                                            onClick={() => handleSendReminder(t)}
-                                            className="px-6 py-3 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg italic"
-                                        >
-                                            Lembrar
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        }) : (
-                            <div className="md:col-span-2 py-8 text-center border-2 border-dashed border-slate-100 rounded-[2rem] opacity-30 font-black uppercase text-[10px]">
-                                Nenhum título com vencimento próximo.
-                            </div>
-                        )}
+                 <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex-1 flex flex-col min-h-0 overflow-hidden">
+                    <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-6 italic shrink-0">Histórico de Cobrança</h4>
+                    <div className="space-y-6 overflow-y-auto pr-2 custom-scrollbar flex-1">
+                       {clientHistory.map(log => (
+                          <div key={log.id} className="relative pl-6 border-l-2 border-slate-100 pb-2">
+                             <div className="absolute left-[-5px] top-0 w-2 h-2 rounded-full bg-blue-600"></div>
+                             <div className="flex justify-between items-start mb-1">
+                                <span className="text-[8px] font-black text-blue-600 uppercase bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{log.acao_tomada.replace(/_/g, ' ')}</span>
+                                <span className="text-[8px] font-bold text-slate-400 uppercase">{new Date(log.data_registro).toLocaleDateString('pt-BR')}</span>
+                             </div>
+                             <p className="text-[10px] font-bold text-slate-700 uppercase italic leading-relaxed">"{log.observacao}"</p>
+                             <div className="mt-2 flex items-center justify-between opacity-50">
+                                <span className="text-[8px] font-black text-slate-400 uppercase">Agente: @{log.usuario.split('@')[0]}</span>
+                             </div>
+                          </div>
+                       ))}
                     </div>
-                </section>
-
-                {sentTodayReminders.length > 0 && (
-                    <section className="pt-8 border-t border-slate-200">
-                        <h3 className="text-sm font-black text-emerald-500 uppercase tracking-widest flex items-center gap-2 mb-4 italic">
-                            Alertas Enviados Hoje
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 opacity-70">
-                            {sentTodayReminders.map(t => (
-                                <div key={t.id} className="bg-white border border-slate-100 p-6 rounded-2xl flex justify-between items-center">
-                                    <div className="flex-1">
-                                        <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{t.data_vencimento.split('-').reverse().join('/')}</div>
-                                        <h4 className="text-sm font-black text-slate-600 uppercase italic truncate">{t.cliente}</h4>
-                                    </div>
-                                    <div className="text-right flex items-center gap-4">
-                                        <p className="text-sm font-black text-slate-500 italic">R$ {t.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-                                        <button disabled className="px-6 py-3 bg-emerald-50 text-emerald-600 rounded-xl font-black text-[10px] uppercase tracking-widest border border-emerald-100">
-                                            Enviado
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </section>
-                )}
-            </div>
-          ) : activeMainTab === 'LOGS' ? (
-            <div className="space-y-6">
-                <div className="table-container shadow-none border border-slate-100 bg-white rounded-[2rem]">
-                    <table className="w-full">
-                        <thead className="bg-[#0F172A]">
-                            <tr className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                                <th className="px-6 py-5 text-left">Data / Hora</th>
-                                <th className="px-6 py-5 text-left">Cliente</th>
-                                <th className="px-6 py-5 text-center">Ação</th>
-                                <th className="px-6 py-5 text-right">Valor Negociado</th>
-                                <th className="px-6 py-5 text-left">Operador</th>
-                                <th className="px-6 py-5 text-left">Detalhamento</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {filteredLogs.length > 0 ? filteredLogs.map(log => {
-                                let actionClass = 'bg-slate-100 text-slate-500 border-slate-200';
-                                if (log.acao_tomada === 'ACORDO') actionClass = 'bg-emerald-50 text-emerald-600 border-emerald-100';
-                                else if (log.acao_tomada === 'CARTORIO') actionClass = 'bg-slate-900 text-white border-slate-900';
-                                else if (log.acao_tomada === 'Agendamento') actionClass = 'bg-blue-50 text-blue-600 border-blue-100';
-                                else if (log.acao_tomada === 'RETIRADA_CARTORIO') actionClass = 'bg-emerald-100 text-emerald-700 border-emerald-200';
-                                else if (['Tentativa', 'Sem Retorno'].includes(log.acao_tomada)) actionClass = 'bg-amber-50 text-amber-600 border-amber-100';
-
-                                return (
-                                    <tr key={log.id} className="hover:bg-slate-50 transition-all group">
-                                        <td className="px-6 py-4">
-                                            <div className="flex flex-col">
-                                                <span className="text-[11px] font-black text-slate-900 leading-none">{new Date(log.data_registro).toLocaleDateString('pt-BR')}</span>
-                                                <span className="text-[9px] font-bold text-slate-400 mt-1 uppercase">{new Date(log.data_registro).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <span className="text-[10px] font-black text-slate-800 uppercase italic truncate max-w-[200px] block">{log.cliente}</span>
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${actionClass}`}>
-                                                {log.acao_tomada}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            {log.valor_devido ? (
-                                                <span className="text-[11px] font-black text-slate-900 italic">R$ {Number(log.valor_devido).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
-                                            ) : <span className="text-slate-300">-</span>}
-                                        </td>
-                                        <td className="px-6 py-4 text-left">
-                                            <span className="text-[9px] font-black text-blue-600 uppercase">@{log.usuario.split('@')[0]}</span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <p className="text-[9px] font-medium text-slate-500 uppercase leading-relaxed max-w-sm italic">"{log.observacao}"</p>
-                                            {log.data_proxima_acao && (
-                                                <p className="text-[8px] font-black text-amber-600 uppercase mt-1">Próx. Ação: {new Date(log.data_proxima_acao).toLocaleDateString('pt-BR')}</p>
-                                            )}
-                                        </td>
-                                    </tr>
-                                );
-                            }) : (
-                                <tr>
-                                    <td colSpan={6} className="py-20 text-center opacity-30 font-black uppercase text-[10px] italic">Nenhuma ação registrada no histórico global.</td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-          ) : (
-            <div className="space-y-8 animate-in slide-in-from-right-4 duration-500">
-              {/* KPI Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total em Atraso</p><h3 className="text-2xl font-black text-red-600 italic tracking-tighter">R$ {biData.totalEmAtraso.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3></div>
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Total em Acordo</p><h3 className="text-2xl font-black text-blue-600 italic tracking-tighter">R$ {biData.totalEmAcordo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</h3></div>
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Taxa de Recuperação</p><h3 className="text-2xl font-black text-emerald-600 italic tracking-tighter">{biData.recoveryRate.toFixed(1)}%</h3></div>
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm"><p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Devedores Ativos</p><h3 className="text-2xl font-black text-slate-800 italic tracking-tighter">{biData.debtorCount}</h3></div>
+                 </div>
               </div>
-              
-              {/* Charts */}
-              <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                <div className="lg:col-span-3 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm h-96">
-                   <h4 className="text-sm font-black text-slate-600 uppercase mb-4 italic tracking-tight">Dívida por Faixa de Atraso (Aging)</h4>
-                   <ResponsiveContainer width="100%" height="90%">
-                      <BarChart data={biData.agingData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                         <XAxis dataKey="name" fontSize={10} fontWeight="bold" />
-                         <YAxis tickFormatter={(val) => `R$${(val/1000).toFixed(0)}k`} fontSize={10} />
-                         <Tooltip formatter={(val: number) => `R$ ${val.toLocaleString('pt-BR')}`} />
-                         <Bar dataKey="value" name="Valor" radius={[4, 4, 0, 0]}>
-                            {biData.agingData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={['#fbbf24', '#f87171', '#1f2937'][index % 3]} />
-                            ))}
-                         </Bar>
-                      </BarChart>
-                   </ResponsiveContainer>
-                </div>
-                
-                <div className="lg:col-span-2 bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm h-96">
-                   <h4 className="text-sm font-black text-slate-600 uppercase mb-4 italic tracking-tight">Distribuição de Ações</h4>
-                   <ResponsiveContainer width="100%" height="90%">
-                      <PieChart>
-                         <Pie data={biData.actionDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} labelLine={false} label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`}>
-                            {biData.actionDistribution.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
-                         </Pie>
-                         <Tooltip formatter={(val: number, name: string) => [`${val} ações`, name]} />
-                         <Legend iconType="circle" wrapperStyle={{fontSize: '10px'}} />
-                      </PieChart>
-                   </ResponsiveContainer>
-                </div>
-              </div>
-
-              <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm h-[450px]">
-                 <h4 className="text-sm font-black text-slate-600 uppercase mb-4 italic tracking-tight">Produtividade por Operador (Top 10)</h4>
-                 <ResponsiveContainer width="100%" height="90%">
-                    <BarChart layout="vertical" data={biData.operatorPerformance} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                       <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                       <XAxis type="number" />
-                       <YAxis dataKey="name" type="category" width={80} fontSize={10} />
-                       <Tooltip />
-                       <Legend />
-                       <Bar dataKey="actions" name="Ações Realizadas" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                    </BarChart>
-                 </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-        </>
-      ) : selectedClient ? (
-        /* CRM DO CLIENTE */
-        <div className="animate-in slide-in-from-right-4 duration-500 space-y-8">
-           {/* ... (CRM UI remains unchanged) ... */}
+           </div>
         </div>
-      ) : (
-        /* VISUALIZAÇÃO E GERENCIAMENTO DE ACORDO */
-        <div className="animate-in slide-in-from-bottom-4 duration-500 space-y-8">
-           {/* ... (Settlement Details UI remains unchanged) ... */}
-        </div>
-      )}
-
-      {/* --- TELA DE REVISÃO DE ACORDO (MODAL OVERLAY) --- */}
-      {isReviewing && (
-         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[300] flex items-center justify-center p-6 animate-in fade-in duration-300">
-            {/* ... (Review UI remains unchanged) ... */}
-         </div>
       )}
     </div>
   );

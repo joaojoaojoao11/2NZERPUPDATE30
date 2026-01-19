@@ -8,7 +8,14 @@ import Toast from './Toast';
 
 type SettlementStep = 'GESTAO' | 'SELECAO' | 'SIMULACAO' | 'REVISAO';
 
-const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
+interface SettlementModuleProps {
+  currentUser: User;
+  initialClient?: string | null;
+  initialTitles?: string[];
+  onBack?: () => void;
+}
+
+const SettlementModule: React.FC<SettlementModuleProps> = ({ currentUser, initialClient, initialTitles, onBack }) => {
   const [step, setStep] = useState<SettlementStep>('GESTAO');
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
@@ -18,8 +25,8 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [company, setCompany] = useState<CompanySettings | null>(null);
   
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedClient, setSelectedClient] = useState<string | null>(null);
-  const [selectedTitles, setSelectedTitles] = useState<string[]>([]);
+  const [selectedClient, setSelectedClient] = useState<string | null>(initialClient || null);
+  const [selectedTitles, setSelectedTitles] = useState<string[]>(initialTitles || []);
   
   const [config, setConfig] = useState({
     parcelas: 1,
@@ -43,6 +50,13 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
       setAr(Array.isArray(resAr) ? resAr : []);
       setSettlements(Array.isArray(resSet) ? resSet : []);
       setCompany(resComp);
+
+      if (initialClient && initialTitles && initialTitles.length > 0) {
+        const selectedAr = (Array.isArray(resAr) ? resAr : []).filter(t => initialTitles.includes(t.id));
+        const total = selectedAr.reduce((a, b) => a + (Number(b.saldo) || 0), 0);
+        setConfig(prev => ({ ...prev, totalAcordo: total }));
+        setStep('SIMULACAO');
+      }
     } catch (e) {
       console.error("NZSTOK Safe Loading Error:", e);
       setAr([]);
@@ -54,26 +68,31 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
 
   useEffect(() => { fetchData(); }, []);
 
-  const projections = useMemo(() => {
-    const parts = [];
-    const total = Number(config.totalAcordo) || 0;
-    const qtd = Math.max(1, Number(config.parcelas) || 1);
-    const val = total / qtd;
-    
-    // Fallback simples para evitar erros de data
-    for (let i = 0; i < qtd; i++) {
-      parts.push({ 
-        num: i + 1, 
-        date: config.dataPrimeira || new Date().toISOString().split('T')[0], 
-        value: val 
-      });
-    }
-    return parts;
-  }, [config]);
-
   const totalOriginalSelecionado = useMemo(() => {
     return (ar || []).filter(t => (selectedTitles || []).includes(t.id)).reduce((a, b) => a + (Number(b.saldo) || 0), 0);
   }, [ar, selectedTitles]);
+
+  const projectedInstallments = useMemo(() => {
+    if (config.parcelas <= 0 || config.totalAcordo <= 0) return [];
+    
+    const installments = [];
+    const valorParcela = config.totalAcordo / config.parcelas;
+    let dataRef = new Date(config.dataPrimeira);
+    dataRef.setMinutes(dataRef.getMinutes() + dataRef.getTimezoneOffset());
+
+    for (let i = 1; i <= config.parcelas; i++) {
+      installments.push({
+        numero: i,
+        vencimento: dataRef.toLocaleDateString('pt-BR'),
+        valor: valorParcela
+      });
+
+      if (config.frequencia === 'Semanal') dataRef.setDate(dataRef.getDate() + 7);
+      else if (config.frequencia === 'Quinzenal') dataRef.setDate(dataRef.getDate() + 15);
+      else dataRef.setMonth(dataRef.getMonth() + 1);
+    }
+    return installments;
+  }, [config]);
 
   const handleOpenDetails = async (s: Settlement) => {
     setLoading(true);
@@ -88,31 +107,85 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
     }
   };
 
-  if (loading && step === 'GESTAO') return <div className="py-40 text-center opacity-30 font-black uppercase text-[10px] animate-pulse">Sincronizando Mesa de Acordos...</div>;
+  const handleLiquidate = async (id: string, valor: number) => {
+    const method = window.prompt("Digite o meio de pagamento (PIX, BOLETO, DINHEIRO):", "PIX");
+    if (!method) return;
+
+    setLoading(true);
+    try {
+        const today = new Date().toISOString().split('T')[0];
+        const success = await FinanceService.liquidateInstallment(id, today, method.toUpperCase(), currentUser);
+        if (success) {
+            setToast({ msg: "Parcela liquidada com sucesso!", type: 'success' });
+            if (viewingSettlement) {
+                await handleOpenDetails(viewingSettlement); // Refresh details
+            }
+        } else {
+            setToast({ msg: "Erro ao liquidar parcela.", type: 'error' });
+        }
+    } catch (e) {
+        setToast({ msg: "Erro de comunicação.", type: 'error' });
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  const handleDeleteSettlement = async () => {
+    if (!viewingSettlement) return;
+    
+    const confirm = window.confirm(
+      `ATENÇÃO: EXCLUSÃO DE ACORDO\n\n` +
+      `Esta ação irá:\n` +
+      `1. Apagar todas as parcelas geradas.\n` +
+      `2. Destravar os títulos originais (voltando para 'EM ABERTO' ou 'VENCIDO').\n` +
+      `3. Remover o registro deste acordo.\n\n` +
+      `Deseja realmente cancelar este acordo?`
+    );
+
+    if (!confirm) return;
+
+    setLoading(true);
+    try {
+      const success = await FinanceService.deleteSettlement(viewingSettlement.id, currentUser);
+      if (success) {
+        setToast({ msg: "Acordo excluído e títulos restaurados!", type: 'success' });
+        setViewingSettlement(null);
+        setViewingDetails(null);
+        await fetchData(); // Atualiza a lista principal
+      } else {
+        setToast({ msg: "Erro ao excluir o acordo. Tente novamente.", type: 'error' });
+      }
+    } catch (e) {
+      setToast({ msg: "Erro crítico ao excluir.", type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading && step === 'GESTAO' && !viewingSettlement) return <div className="py-40 text-center opacity-30 font-black uppercase text-[10px] animate-pulse">Sincronizando Mesa de Acordos...</div>;
 
   return (
-    <div className="space-y-8 pb-20 animate-in fade-in duration-500">
+    <div className="space-y-8 pb-20 animate-in fade-in duration-500 h-full flex flex-col">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
       {step === 'GESTAO' && (
-        <div className="space-y-8">
-          <div className="flex justify-between items-end">
+        <div className="space-y-8 flex flex-col h-full">
+          <div className="flex justify-between items-end shrink-0">
             <div>
               <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">Mesa de Acordos</h2>
-              <p className="text-[10px] font-black text-blue-600 uppercase mt-3 italic tracking-widest">Recuperação de Crédito Resiliente</p>
+              <p className="text-[10px] font-black text-blue-600 uppercase mt-3 italic tracking-widest">Histórico de Negociações Efetivadas</p>
             </div>
-            <button 
-              onClick={() => { setStep('SELECAO'); setSelectedClient(null); setSelectedTitles([]); }}
-              className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-blue-600 transition-all flex items-center gap-3 italic"
-            >
-              <ICONS.Add className="w-4 h-4" /> Nova Negociação
-            </button>
+            {onBack && (
+              <button onClick={onBack} className="px-6 py-4 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase text-slate-400 hover:text-slate-600 transition-all italic shadow-sm">
+                ← Voltar CRM
+              </button>
+            )}
           </div>
 
-          <div className="table-container bg-white border border-slate-100 rounded-[2.5rem] overflow-hidden shadow-sm">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest">
+          <div className="table-container bg-white border border-slate-100 rounded-[2.5rem] overflow-hidden shadow-sm flex-1">
+            <table className="w-full text-left border-collapse">
+              <thead className="sticky top-0 z-10">
+                <tr className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest border-b border-slate-100">
                   <th className="px-8 py-5">Protocolo</th>
                   <th>Cliente</th>
                   <th className="text-right">Valor Acordo</th>
@@ -124,26 +197,25 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                 {(settlements || []).map(s => (
                   <tr key={s.id} className="hover:bg-slate-50 transition-all">
                     <td className="px-8 py-6 font-black text-blue-600 text-xs">#{s.id}</td>
-                    <td className="font-black text-slate-800 uppercase text-[11px] truncate max-w-[200px]">{s.cliente}</td>
+                    <td className="font-black text-slate-800 uppercase text-[11px] truncate max-w-[350px]">{s.cliente}</td>
                     <td className="text-right font-black text-slate-900">R$ {(Number(s.valorAcordo) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                     <td className="text-center">
-                       <span className={`px-2 py-0.5 rounded-lg text-[8px] font-black uppercase border ${s.status === 'ATIVO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>{s.status}</span>
+                       <span className={`px-3 py-1 rounded-xl text-[8px] font-black uppercase border ${s.status === 'ATIVO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>{s.status}</span>
                     </td>
                     <td className="text-right px-8">
-                       <button onClick={() => handleOpenDetails(s)} className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[9px] uppercase hover:bg-slate-900 hover:text-white transition-all italic">Ver Detalhes</button>
+                       <button onClick={() => handleOpenDetails(s)} className="px-5 py-2 bg-slate-100 text-slate-600 rounded-xl font-black text-[9px] uppercase hover:bg-slate-900 hover:text-white transition-all italic">Ver Detalhes</button>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             {(settlements || []).length === 0 && (
-              <div className="py-20 text-center opacity-20 font-black uppercase text-[10px] italic">Nenhum registro localizado</div>
+              <div className="py-32 text-center opacity-20 font-black uppercase text-[10px] italic">Nenhum acordo registrado na base</div>
             )}
           </div>
         </div>
       )}
 
-      {/* Navegação Wizard Simples */}
       {step === 'SELECAO' && (
         <div className="max-w-5xl mx-auto space-y-8 animate-in slide-in-from-right-4">
            <button onClick={() => setStep('GESTAO')} className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-2 hover:text-slate-900">← Voltar</button>
@@ -180,21 +252,67 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
       )}
 
       {step === 'SIMULACAO' && (
-        <div className="max-w-2xl mx-auto space-y-10 animate-in slide-in-from-right-4">
-           <button onClick={() => setStep('SELECAO')} className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-2 hover:text-slate-900">← Alterar Seleção</button>
-           <div className="bg-white p-10 rounded-[2.5rem] border border-slate-100 shadow-xl space-y-8">
-              <h3 className="text-2xl font-black italic uppercase tracking-tighter">2. Simulador de Parcelas</h3>
-              <div className="grid grid-cols-2 gap-6">
-                 <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Parcelas</label>
-                    <input type="number" min="1" max="60" className="w-full p-4 bg-slate-50 rounded-xl font-black text-lg outline-none" value={config.parcelas} onChange={e => setConfig({...config, parcelas: Number(e.target.value)})} />
-                 </div>
-                 <div className="space-y-1">
-                    <label className="text-[9px] font-black text-slate-400 uppercase ml-2">Valor Final</label>
-                    <input type="number" className="w-full p-4 bg-slate-50 rounded-xl font-black text-lg outline-none" value={config.totalAcordo} onChange={e => setConfig({...config, totalAcordo: Number(e.target.value)})} />
-                 </div>
+        <div className="max-w-4xl mx-auto space-y-10 animate-in slide-in-from-right-4">
+           <button onClick={() => initialClient ? (onBack ? onBack() : setStep('GESTAO')) : setStep('SELECAO')} className="text-[10px] font-black text-slate-400 uppercase flex items-center gap-2 hover:text-slate-900">← {initialClient ? 'Voltar para CRM' : 'Alterar Seleção'}</button>
+           
+           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              <div className="lg:col-span-5 space-y-6">
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl space-y-8">
+                    <h3 className="text-2xl font-black italic uppercase tracking-tighter">2. Simulador de Parcelas</h3>
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                                <label className="text-[9px] font-black text-slate-400 uppercase ml-2 italic">Nº Parcelas</label>
+                                <input type="number" min="1" max="60" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl font-black text-lg outline-none" value={config.parcelas} onChange={e => setConfig({...config, parcelas: Number(e.target.value)})} />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[9px] font-black text-slate-400 uppercase ml-2 italic">Valor Final</label>
+                                <input type="number" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl font-black text-lg outline-none" value={config.totalAcordo} onChange={e => setConfig({...config, totalAcordo: Number(e.target.value)})} />
+                            </div>
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[9px] font-black text-slate-400 uppercase ml-2 italic">Data 1ª Parcela</label>
+                            <input type="date" className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl font-black text-xs outline-none uppercase" value={config.dataPrimeira} onChange={e => setConfig({...config, dataPrimeira: e.target.value})} />
+                        </div>
+                        <div className="space-y-1">
+                            <label className="text-[9px] font-black text-slate-400 uppercase ml-2 italic">Frequência</label>
+                            <select className="w-full p-4 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl font-black text-xs outline-none uppercase cursor-pointer" value={config.frequencia} onChange={e => setConfig({...config, frequencia: e.target.value as any})}>
+                                <option value="Mensal">Mensal</option>
+                                <option value="Quinzenal">Quinzenal</option>
+                                <option value="Semanal">Semanal</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button onClick={() => setStep('REVISAO')} className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all italic shadow-xl">Revisar Confissão →</button>
+                </div>
               </div>
-              <button onClick={() => setStep('REVISAO')} className="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all italic shadow-xl">Revisar Confissão →</button>
+
+              <div className="lg:col-span-7 space-y-6">
+                <div className="bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl flex flex-col h-full border border-slate-800">
+                    <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
+                        <h4 className="text-[11px] font-black text-blue-400 uppercase tracking-widest italic">Projeção de Fluxo de Caixa</h4>
+                        <span className="bg-white/10 text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase">R$ {(config.totalAcordo / (config.parcelas || 1)).toLocaleString('pt-BR', {minimumFractionDigits: 2})} /m</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                        {projectedInstallments.map((inst) => (
+                            <div key={inst.numero} className="p-4 bg-white/5 border border-white/5 rounded-2xl flex justify-between items-center group hover:bg-white/10 transition-all">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 bg-blue-600/20 text-blue-400 rounded-xl flex items-center justify-center font-black text-xs italic">{inst.numero}º</div>
+                                    <div><p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-0.5">Vencimento</p><p className="text-sm font-black text-white italic">{inst.vencimento}</p></div>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-[8px] font-black text-emerald-400 uppercase tracking-widest mb-0.5">Valor Parcela</p>
+                                    <p className="text-sm font-black text-white italic">R$ {inst.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mt-6 pt-6 border-t border-white/10 flex justify-between items-center">
+                        <div className="text-[9px] font-bold text-slate-400 uppercase">Total do Acordo</div>
+                        <div className="text-2xl font-black text-white italic tracking-tighter">R$ {config.totalAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</div>
+                    </div>
+                </div>
+              </div>
            </div>
         </div>
       )}
@@ -223,8 +341,11 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
                     }, selectedTitles, currentUser);
                     if (res) {
                        setToast({ msg: "ACORDO EFETIVADO!", type: 'success' });
-                       setStep('GESTAO');
-                       fetchData();
+                       if (onBack) onBack();
+                       else {
+                         setStep('GESTAO');
+                         fetchData();
+                       }
                     }
                     setLoading(false);
                  }} className="flex-[2] py-5 bg-emerald-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 italic">Registrar Acordo</button>
@@ -233,27 +354,44 @@ const SettlementModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
         </div>
       )}
 
-      {/* Modal de Detalhes Detalhado */}
       {viewingSettlement && viewingDetails && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[200] flex items-center justify-center p-4">
            <div className="bg-white max-w-4xl w-full h-[80vh] rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
                  <div>
                     <h3 className="text-2xl font-black text-slate-900 uppercase italic tracking-tighter leading-none">{viewingSettlement.cliente}</h3>
                     <p className="text-[10px] font-black text-blue-600 uppercase mt-2 italic">Contrato: {viewingSettlement.id}</p>
                  </div>
-                 <button onClick={() => setViewingSettlement(null)} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-red-500 transition-all"><ICONS.Add className="w-5 h-5 rotate-45" /></button>
+                 <div className="flex gap-2">
+                    {/* Botão de Excluir Acordo */}
+                    <button 
+                        onClick={handleDeleteSettlement}
+                        className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 rounded-xl font-black text-[9px] uppercase transition-all flex items-center gap-2"
+                        title="Cancelar acordo e restaurar dívida original"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        Excluir Acordo
+                    </button>
+                    <button onClick={() => setViewingSettlement(null)} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-red-500 transition-all"><ICONS.Add className="w-5 h-5 rotate-45" /></button>
+                 </div>
               </div>
               <div className="flex-1 overflow-y-auto p-10 space-y-6">
                  {(viewingDetails.installments || []).map((inst, i) => (
-                    <div key={inst.id} className="p-5 bg-slate-50 border border-slate-100 rounded-2xl flex justify-between items-center">
-                       <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase italic">Parcela {i+1}</p>
-                          <p className="font-black text-slate-900 text-sm">Vencimento: {inst.data_vencimento || '---'}</p>
-                       </div>
-                       <div className="text-right">
-                          <p className="text-base font-black text-slate-900 italic">R$ {(Number(inst.valor_documento) || 0).toLocaleString('pt-BR')}</p>
-                          <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${inst.situacao === 'PAGO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>{inst.situacao}</span>
+                    <div key={inst.id} className="p-5 bg-slate-50 border border-slate-100 rounded-2xl flex justify-between items-center group">
+                       <div><p className="text-[10px] font-black text-slate-400 uppercase italic">Parcela {i+1}</p><p className="font-black text-slate-900 text-sm">Vencimento: {inst.data_vencimento || '---'}</p></div>
+                       <div className="flex items-center gap-4 text-right">
+                          <div>
+                            <p className="text-base font-black text-slate-900 italic">R$ {(Number(inst.valor_documento) || 0).toLocaleString('pt-BR')}</p>
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${inst.situacao === 'PAGO' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>{inst.situacao}</span>
+                          </div>
+                          {inst.situacao !== 'PAGO' && (
+                            <button 
+                                onClick={() => handleLiquidate(inst.id, Number(inst.valor_documento))} 
+                                className="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl font-black text-[9px] uppercase hover:bg-emerald-200 transition-all ml-2"
+                            >
+                                Baixar
+                            </button>
+                          )}
                        </div>
                     </div>
                  ))}
