@@ -484,6 +484,10 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
                 const now = new Date();
                 const diffTime = lastUpdateDate ? (now.getTime() - lastUpdateDate.getTime()) : Infinity;
                 const isUpdatedRecently = diffTime < (30 * 24 * 60 * 60 * 1000);
+                
+                // Validação de disponibilidade para o botão Simular (Apenas DROP)
+                const availableStock = stockMap[p.sku] || 0;
+                const isDrop = availableStock <= 0.01;
 
                 return (
                   <tr key={p.sku} className={`group hover:bg-indigo-50/20 transition-all ${p.active === false ? 'opacity-40 grayscale' : ''}`}>
@@ -518,7 +522,9 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
                     <td className="px-2 py-6 text-center bg-emerald-50/20 text-xs font-black text-emerald-700 italic border-x border-slate-100/50">R$ {(p.priceFracIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                     <td className="px-6 py-6 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => { setSimulatingProduct(p); setSimulationMeters('1'); }} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-green-600 hover:border-green-200 transition-all shadow-sm" title="Simular"><ICONS.Calculator className="w-4 h-4" /></button>
+                        {isDrop && (
+                            <button onClick={() => { setSimulatingProduct(p); setSimulationMeters('1'); }} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-green-600 hover:border-green-200 transition-all shadow-sm" title="Simular"><ICONS.Calculator className="w-4 h-4" /></button>
+                        )}
                         {isDiretoria && (
                           <>
                             <button onClick={() => handleToggleActive(p)} className={`p-2 border rounded-xl transition-all shadow-sm ${p.active === false ? 'text-emerald-500 border-emerald-100 bg-emerald-50 hover:bg-emerald-100' : 'text-slate-400 border-slate-200 bg-white hover:text-red-500 hover:border-red-200'}`} title={p.active === false ? "Ativar" : "Inativar"}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg></button>
