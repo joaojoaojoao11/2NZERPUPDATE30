@@ -70,11 +70,14 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         const formaPgto = (t.forma_pagamento || '').toUpperCase().trim();
         const vencimento = t.data_vencimento;
         
-        // 1. Filtro Base: Cliente e Boleto
+        // 1. Filtro Base: Cliente
         if (t.cliente !== cliente) return false;
-        if (formaPgto !== 'BOLETO') return false;
-
+        
         const hasAgreement = !!t.id_acordo;
+        
+        // Se NÃO tiver acordo, exige BOLETO. Se tiver acordo, aceita qualquer forma (ex: PIX das parcelas)
+        if (formaPgto !== 'BOLETO' && !hasAgreement) return false;
+
         const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
 
         // 2. Filtro de Saldo: Deve ter saldo positivo OU ser um acordo (que as vezes tem saldo zerado no original)

@@ -462,21 +462,18 @@ export class DataService {
       const validStatuses = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'EM CARTORIO', 'NEGOCIADO'];
       const isValidStatus = validStatuses.includes(situacao);
       
-      // CRITICAL FIX: Only treat as overdue if date is strictly in the past
       const isDateOverdue = dueDate && dueDate < today;
 
       // LÓGICA DE FILTRAGEM REFINADA:
-      // O item só entra no cálculo se for BOLETO e tiver Saldo > 0 (ou for acordo)
-      // E atender a UM dos critérios:
-      // 1. É um Acordo (hasAgreement)
-      // 2. Está em Cartório (isCartorio)
-      // 3. Está estritamente VENCIDO (isDateOverdue == true)
-      // Títulos apenas 'EM ABERTO' com data futura serão IGNORADOS nesta etapa.
-      
+      // Se tiver acordo, aceitamos qualquer forma de pagamento (pois as parcelas podem ser PIX)
+      // Se não tiver acordo, exigimos BOLETO (para a regra original de cobrança)
+      const isBoleto = formaPgto === 'BOLETO';
+      if (!isBoleto && !hasAgreement) return;
+
       const isEligibleForCollection = 
-          (formaPgto === 'BOLETO' && (t.saldo > 0.01 || hasAgreement)) && // Base filters
+          (t.saldo > 0.01 || hasAgreement) && 
           isValidStatus && 
-          (hasAgreement || isCartorio || isDateOverdue); // Condition trigger
+          (hasAgreement || isCartorio || isDateOverdue);
 
       if (!isEligibleForCollection) return;
   
