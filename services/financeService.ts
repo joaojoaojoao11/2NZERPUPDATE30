@@ -307,13 +307,11 @@ export class FinanceService {
       const today = new Date().toISOString().split('T')[0];
       
       for (const orig of originals) {
-        const dueDate = orig['Data Vencimento'];
-        // Verifica se está vencido hoje
-        const isOverdue = dueDate && dueDate < today;
         const wasInCartorio = orig.status_cobranca === 'BLOQUEADO_CARTORIO';
 
         await supabase.from('accounts_receivable').update({
-          "Situação": wasInCartorio ? 'EM CARTORIO' : (isOverdue ? 'VENCIDO' : 'EM ABERTO'), // Restaura para status correto (não NEGOCIADO/CANCELADO)
+          // ALTERAÇÃO: Força status 'EM ABERTO' ao invés de calcular vencido, para facilitar a gestão na carteira
+          "Situação": wasInCartorio ? 'EM CARTORIO' : 'EM ABERTO', 
           "Saldo": Number(orig['Valor documento']), // Restaura saldo total
           status_cobranca: wasInCartorio ? 'CARTORIO' : 'COBRAVEL', // Libera para cobrança
           id_acordo: null // Remove vínculo
