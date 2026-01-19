@@ -7,9 +7,9 @@ import Toast from './Toast';
 import ProductForm from './ProductForm';
 import * as XLSX from 'xlsx';
 
-interface SalesPriceTableProps {
-  user: User;
-}
+interface SalesPriceTableProps { user: User; }
+
+type SortKey = 'sku_nome' | 'categoria' | 'metragem' | 'estoque' | 'preco_rolo' | 'preco_frac';
 
 const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
   const [products, setProducts] = useState<MasterProduct[]>([]);
@@ -22,6 +22,7 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'warning' } | null>(null);
 
   const [activeTab, setActiveTab] = useState<'TABLE' | 'LOG'>('TABLE');
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>({ key: 'sku_nome', direction: 'asc' });
 
   const [editingItem, setEditingItem] = useState<MasterProduct | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -48,7 +49,6 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
       ]);
       setProducts(pData);
       setInventory(iData);
-      // Filtra logs comerciais/preços
       setLogs(lData.filter(l => l.acao === 'REAJUSTE_COMERCIAL' || l.acao === 'EDICAO_MASTER_COMERCIAL'));
     } catch (e) {
       console.error("Erro ao carregar dados comerciais:", e);
@@ -104,8 +104,16 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     return ['TODAS', ...Array.from(cats)].sort();
   }, [products]);
 
+  const handleSort = (key: SortKey) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    let result = products.filter(p => {
       const matchesSearch = 
         p.sku.toLowerCase().includes(searchTerm.toLowerCase()) || 
         p.nome.toLowerCase().includes(searchTerm.toLowerCase());
@@ -117,7 +125,49 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
 
       return matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [products, searchTerm, filterCategory, filterStatus]);
+
+    if (sortConfig) {
+      result.sort((a, b) => {
+        let valA: any;
+        let valB: any;
+
+        switch (sortConfig.key) {
+          case 'sku_nome':
+            valA = a.sku + a.nome;
+            valB = b.sku + b.nome;
+            break;
+          case 'categoria':
+            valA = a.categoria;
+            valB = b.categoria;
+            break;
+          case 'metragem':
+            valA = a.metragemPadrao || 0;
+            valB = b.metragemPadrao || 0;
+            break;
+          case 'estoque':
+            valA = (stockMap[a.sku] || 0) > 0 ? 1 : 0;
+            valB = (stockMap[b.sku] || 0) > 0 ? 1 : 0;
+            break;
+          case 'preco_rolo':
+            valA = (a.priceRoloIdeal || 0) * (a.metragemPadrao || 15);
+            valB = (b.priceRoloIdeal || 0) * (b.metragemPadrao || 15);
+            break;
+          case 'preco_frac':
+            valA = a.priceFracIdeal || 0;
+            valB = b.priceFracIdeal || 0;
+            break;
+          default:
+            return 0;
+        }
+
+        if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [products, searchTerm, filterCategory, filterStatus, sortConfig, stockMap]);
 
   const filteredLogs = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -242,6 +292,15 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     };
   }, [simulatingProduct, simulationMeters]);
 
+  const SortIndicator = ({ activeKey }: { activeKey: SortKey }) => {
+    const isActive = sortConfig?.key === activeKey;
+    return (
+      <span className={`ml-2 text-[10px] transition-all ${isActive ? 'text-indigo-400 opacity-100' : 'text-slate-600 opacity-30 group-hover:opacity-60'}`}>
+        {isActive && sortConfig?.direction === 'desc' ? '▼' : '▲'}
+      </span>
+    );
+  };
+
   if (loading) return (
     <div className="flex flex-col items-center justify-center py-32 opacity-30">
       <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
@@ -317,12 +376,32 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-30">
               <tr className="bg-slate-900 text-slate-400 text-[9px] font-black uppercase tracking-widest">
-                <th className="px-8 py-6 text-left sticky left-0 z-40 bg-slate-900">Produto / SKU</th>
-                <th className="px-4 py-6 text-center">Categoria</th>
-                <th className="px-4 py-6 text-center">Metragem</th>
-                <th className="px-4 py-6 text-center">Disponibilidade</th>
-                <th className="px-2 py-6 text-center bg-indigo-900/20 text-indigo-400 whitespace-nowrap w-24">Rolo Fechado (Ideal)</th>
-                <th className="px-2 py-6 text-center bg-emerald-900/30 text-emerald-200 whitespace-nowrap w-24">Frac. (Ideal/m)</th>
+                <th className="px-8 py-6 text-left sticky left-0 z-40 bg-slate-900 cursor-pointer group select-none" onClick={() => handleSort('sku_nome')}>
+                    <div className="flex items-center">Produto / SKU <SortIndicator activeKey="sku_nome" /></div>
+                </th>
+                <th className="px-4 py-6 text-center cursor-pointer group select-none" onClick={() => handleSort('categoria')}>
+                    <div className="flex items-center justify-center">Categoria <SortIndicator activeKey="categoria" /></div>
+                </th>
+                <th className="px-4 py-6 text-center cursor-pointer group select-none" onClick={() => handleSort('metragem')}>
+                    <div className="flex items-center justify-center">Metragem <SortIndicator activeKey="metragem" /></div>
+                </th>
+                <th className="px-4 py-6 text-center cursor-pointer group select-none" onClick={() => handleSort('estoque')}>
+                    <div className="flex items-center justify-center">Disponibilidade <SortIndicator activeKey="estoque" /></div>
+                </th>
+                {/* COLUNAS ROLO FECHADO */}
+                <th className="px-2 py-6 text-center bg-indigo-950/40 text-indigo-300 whitespace-nowrap w-24 select-none">
+                    Rolo Fechado (Mín)
+                </th>
+                <th className="px-2 py-6 text-center bg-indigo-900/20 text-indigo-400 whitespace-nowrap w-24 cursor-pointer group select-none" onClick={() => handleSort('preco_rolo')}>
+                    <div className="flex items-center justify-center">Rolo Fechado (Ideal) <SortIndicator activeKey="preco_rolo" /></div>
+                </th>
+                {/* COLUNAS FRACIONADO */}
+                <th className="px-2 py-6 text-center bg-emerald-950/40 text-emerald-300 whitespace-nowrap w-24 select-none">
+                    Frac. (Mín/m)
+                </th>
+                <th className="px-2 py-6 text-center bg-emerald-900/30 text-emerald-200 whitespace-nowrap w-24 cursor-pointer group select-none" onClick={() => handleSort('preco_frac')}>
+                    <div className="flex items-center justify-center">Frac. (Ideal/m) <SortIndicator activeKey="preco_frac" /></div>
+                </th>
                 <th className="px-6 py-6 text-right">Ação</th>
               </tr>
             </thead>
@@ -332,6 +411,7 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
                 const isInactive = p.active === false;
                 const metragem = p.metragemPadrao || 15;
                 const valorRoloIdeal = (p.priceRoloIdeal || 0) * metragem;
+                const valorRoloMin = (p.priceRoloMin || 0) * metragem;
 
                 const isRecentlyUpdated = p.updatedAt && (new Date().getTime() - new Date(p.updatedAt).getTime()) < (30 * 24 * 60 * 60 * 1000);
 
@@ -367,10 +447,16 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
                         <div className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 border-amber-100 rounded-lg font-black text-[8px] uppercase italic">DROP</div>
                       )}
                     </td>
-                    <td className="px-2 py-6 text-center bg-indigo-50/20">
+                    <td className="px-2 py-6 text-center bg-indigo-50/10">
+                      <p className="text-[11px] font-bold text-slate-400 italic">R$ {valorRoloMin.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </td>
+                    <td className="px-2 py-6 text-center bg-indigo-50/20 border-x border-slate-100/50">
                       <p className="text-xs font-black text-indigo-700 italic">R$ {valorRoloIdeal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                     </td>
-                    <td className="px-2 py-6 text-center bg-emerald-50/20">
+                    <td className="px-2 py-6 text-center bg-emerald-50/10">
+                      <p className="text-[11px] font-bold text-slate-400 italic">R$ {(p.priceFracMin || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    </td>
+                    <td className="px-2 py-6 text-center bg-emerald-50/20 border-x border-slate-100/50">
                       <p className="text-xs font-black text-emerald-700 italic">R$ {(p.priceFracIdeal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                     </td>
                     <td className="px-6 py-6 text-right">
@@ -542,7 +628,7 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase ml-1 italic">Custo Fracionado (m)</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Custo Fracionado (m)</label>
                           <input 
                             type="number" 
                             step="0.01" 
@@ -552,7 +638,7 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-black text-slate-400 uppercase ml-1 italic">Custo Rolo (m)</label>
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Custo Rolo (m)</label>
                           <input 
                             type="number" 
                             step="0.01" 
