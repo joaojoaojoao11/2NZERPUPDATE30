@@ -657,20 +657,26 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300">
            <div className="bg-white max-w-2xl w-full rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col border border-slate-100 animate-in zoom-in-95">
               <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                 <div><h3 className="text-xl font-black text-slate-900 uppercase italic">Simulador Comercial</h3><p className="text-blue-600 font-bold text-[10px] uppercase tracking-widest mt-1">{simulatingProduct.sku}</p></div>
+                 <div>
+                    <h3 className="text-xl font-black text-slate-900 uppercase italic">Simulador Comercial</h3>
+                    <p className="text-blue-600 font-bold text-[10px] uppercase tracking-widest mt-1">{simulatingProduct.sku}</p>
+                    <p className="text-slate-400 font-bold text-[9px] uppercase tracking-wide mt-0.5 truncate max-w-[350px]">{simulatingProduct.nome}</p>
+                 </div>
                  <button onClick={() => setSimulatingProduct(null)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-red-500 transition-all shadow-sm"><ICONS.Add className="w-5 h-5 rotate-45" /></button>
               </div>
               <div className="p-8 space-y-6">
                  <div className="space-y-2"><label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Metragem Solicitada (m)</label><input type="text" value={simulationMeters} onChange={e => setSimulationMeters(e.target.value)} className="w-full px-6 py-4 bg-slate-100 border-2 border-transparent focus:border-blue-600 rounded-2xl font-black text-3xl text-center text-slate-800 outline-none transition-all shadow-inner no-spinner" placeholder="0,00" autoFocus /></div>
                  {simulationResults && (
                    <div className="space-y-6 pt-6 border-t border-slate-100 animate-in fade-in">
-                      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-3">
-                         <div className="flex justify-between items-center mb-2"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Estrutura de Custos Externos</h4><span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${simulationResults.isVolumeDeRolo ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{simulationResults.isVolumeDeRolo ? 'Base: Rolo Fechado' : 'Base: Fracionado'}</span></div>
-                         <div className="flex justify-between text-[11px] font-bold text-slate-500 uppercase"><p>Custo Produto ({simulationResults.isVolumeDeRolo ? 'Rolo' : 'Frac'})</p><p>R$ {simulationResults.custoUnitarioProduto.toFixed(2)} /m</p></div>
-                         <div className="flex justify-between text-[11px] font-bold text-blue-600 uppercase border-t border-slate-200/50 pt-2"><p>(+) Custo Extra / Frete</p><p>R$ {simulationResults.custoExtraUnitario.toFixed(2)} /m</p></div>
-                         <div className="flex justify-between text-[11px] font-bold text-amber-600 uppercase"><p>(+) Impostos Incidência</p><p>{simulationResults.impostoPercent}%</p></div>
-                         <div className="flex justify-between text-xs font-black text-slate-800 uppercase border-t border-slate-300 pt-2"><p>Custo Real Total do Pedido</p><p>R$ {simulationResults.custoOperacionalTotal.toFixed(2)}</p></div>
-                      </div>
+                      {isDiretoria && (
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-3">
+                           <div className="flex justify-between items-center mb-2"><h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Estrutura de Custos Externos</h4><span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${simulationResults.isVolumeDeRolo ? 'bg-indigo-50 text-indigo-600 border-indigo-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{simulationResults.isVolumeDeRolo ? 'Base: Rolo Fechado' : 'Base: Fracionado'}</span></div>
+                           <div className="flex justify-between text-[11px] font-bold text-slate-500 uppercase"><p>Custo Produto ({simulationResults.isVolumeDeRolo ? 'Rolo' : 'Frac'})</p><p>R$ {simulationResults.custoUnitarioProduto.toFixed(2)} /m</p></div>
+                           <div className="flex justify-between text-[11px] font-bold text-blue-600 uppercase border-t border-slate-200/50 pt-2"><p>(+) Custo Extra / Frete</p><p>R$ {simulationResults.custoExtraUnitario.toFixed(2)} /m</p></div>
+                           <div className="flex justify-between text-[11px] font-bold text-amber-600 uppercase"><p>(+) Impostos Incidência</p><p>{simulationResults.impostoPercent}%</p></div>
+                           <div className="flex justify-between text-xs font-black text-slate-800 uppercase border-t border-slate-300 pt-2"><p>Custo Real Total do Pedido</p><p>R$ {simulationResults.custoOperacionalTotal.toFixed(2)}</p></div>
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-6">
                          <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 text-center"><p className="text-[9px] font-black text-emerald-700 uppercase tracking-widest mb-1">Preço Venda Ideal</p><p className="text-2xl font-black text-emerald-800 italic">R$ {simulationResults.valorTotalIdeal.toFixed(2)}</p><p className="text-[10px] font-bold text-emerald-600 mt-1">(R$ {simulationResults.precoMetroIdeal.toFixed(2)} / metro)</p></div>
                          <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100 text-center"><p className="text-[9px] font-black text-amber-700 uppercase tracking-widest mb-1">Preço Venda Mínimo</p><p className="text-2xl font-black text-amber-800 italic">R$ {simulationResults.valorTotalMinimo.toFixed(2)}</p><p className="text-[10px] font-bold text-emerald-600 mt-1">(R$ {simulationResults.precoMetroMinimo.toFixed(2)} / metro)</p></div>
