@@ -270,6 +270,10 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         const isAberto = situacao === 'EM ABERTO' || situacao === 'ABERTO';
         if (!isAberto || t.saldo <= 0.01) return false;
         
+        // Filtrar apenas BOLETO
+        const forma = (t.forma_pagamento || '').toUpperCase();
+        if (!forma.includes('BOLETO')) return false;
+
         if (!t.data_vencimento) return false;
 
         // Parse Manual da Data (YYYY-MM-DD) para evitar problemas de fuso horário
