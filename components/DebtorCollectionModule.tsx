@@ -257,23 +257,32 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   // --- LOGICA LEMBRETES (VENCENDO EM 0, 1, 2, 3 DIAS) ---
   const reminderTitles = useMemo(() => {
     const today = new Date();
-    today.setHours(0,0,0,0);
+    today.setHours(0, 0, 0, 0); // Define hoje 00:00:00
+
+    // Data limite (Hoje + 3 dias)
+    const limitDate = new Date(today);
+    limitDate.setDate(today.getDate() + 3);
+    limitDate.setHours(23, 59, 59, 999); // Final do 3º dia
 
     const filtered = allAR.filter(t => {
         // Filtrar apenas títulos em aberto
         const situacao = (t.situacao || '').toUpperCase();
         const isAberto = situacao === 'EM ABERTO' || situacao === 'ABERTO';
         if (!isAberto || t.saldo <= 0.01) return false;
+        
+        if (!t.data_vencimento) return false;
 
-        // Calcular dias até o vencimento
-        const dueDate = new Date(t.data_vencimento);
-        // Ajuste de fuso horário simples para comparação de datas
-        const diffTime = dueDate.getTime() - today.getTime();
-        // Diferença em dias (arredondado)
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        // Parse Manual da Data (YYYY-MM-DD) para evitar problemas de fuso horário
+        const [y, m, d] = t.data_vencimento.split('-').map(Number);
+        const dueDate = new Date(y, m - 1, d); // 00:00:00 local
+        
+        // 1. Excluir Passado (Estritamente menor que hoje)
+        if (dueDate.getTime() < today.getTime()) return false;
 
-        // Queremos: 0 (Hoje), 1, 2 ou 3 dias
-        return diffDays >= 0 && diffDays <= 3;
+        // 2. Incluir apenas até o limite de 3 dias
+        if (dueDate.getTime() > limitDate.getTime()) return false;
+
+        return true;
     });
 
     // Separa em Pendentes e Enviados
@@ -327,14 +336,20 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   const getDaysLabel = (dateStr: string) => {
     const today = new Date();
     today.setHours(0,0,0,0);
-    const due = new Date(dateStr);
-    due.setHours(0,0,0,0); // Normaliza para comparar datas cheias
-    // Use getTime para evitar problemas de fuso horário
+    
+    // Parse manual para evitar problemas de fuso horário
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const due = new Date(y, m - 1, d); // 00:00:00 local
+    
+    // Calcula a diferença em milissegundos
     const diffMs = due.getTime() - today.getTime();
+    
+    // Calcula a diferença em dias de forma precisa
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffDays <= 0) return { text: 'VENCE HOJE', color: 'bg-red-500 text-white' };
+    if (diffDays === 0) return { text: 'VENCE HOJE', color: 'bg-red-500 text-white' };
     if (diffDays === 1) return { text: 'AMANHÃ', color: 'bg-amber-500 text-white' };
+    if (diffDays < 0) return { text: 'VENCIDO', color: 'bg-gray-700 text-white' }; // Fallback de segurança
     return { text: `EM ${diffDays} DIAS`, color: 'bg-blue-500 text-white' };
   };
 
