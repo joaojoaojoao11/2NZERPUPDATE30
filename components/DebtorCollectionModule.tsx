@@ -71,7 +71,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().split('T')[0];
 
-    // IDs de títulos que já foram lembrados HOJE
+    // Identificação aprimorada dos IDs lembrados hoje
     const remindedTodayIds = new Set(
       allLogs
         .filter(log => 
@@ -79,7 +79,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
           log.data_registro.startsWith(todayStr)
         )
         .map(log => {
-          const match = log.observacao?.match(/DOC: ([\w-]+)/);
+          // Extraímos o ID usando a nova tag robusta [ID:...]
+          const match = log.observacao?.match(/\[ID:([\w.-]+)\]/);
           return match ? match[1] : null;
         })
         .filter(Boolean)
@@ -102,8 +103,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
       return diffDays >= 0 && diffDays <= 3;
     });
 
-    const pending = baseList.filter(t => !remindedTodayIds.has(t.numero_documento || t.id));
-    const finished = baseList.filter(t => remindedTodayIds.has(t.numero_documento || t.id));
+    const pending = baseList.filter(t => !remindedTodayIds.has(t.id));
+    const finished = baseList.filter(t => remindedTodayIds.has(t.id));
 
     return { 
       pending: pending.sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento)),
@@ -299,15 +300,19 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   const handleSendReminder = async (title: AccountsReceivable) => {
     setIsSubmittingInteraction(true);
     try {
+        // Tagging explícito [ID:...] na observação para garantir a extração no useMemo
         await FinanceService.addCollectionHistory({
             cliente: title.cliente,
             acao_tomada: 'LEMBRETE_PREVENTIVO',
-            observacao: `LEMBRETE DE VENCIMENTO ENVIADO (DOC: ${title.numero_documento || title.id})`,
+            observacao: `LEMBRETE DE VENCIMENTO ENVIADO (NF: ${title.numero_documento || 'S/N'}) [ID:${title.id}]`,
             valor_devido: title.saldo,
             dias_atraso: 0,
             usuario: currentUser.name
         });
+        
         setToast({ msg: 'Lembrete registrado!', type: 'success' });
+        
+        // Recarregar logs IMEDIATAMENTE para disparar a atualização do useMemo 'preventionGroups'
         const updatedLogs = await FinanceService.getAllCollectionLogs();
         setAllLogs(updatedLogs);
     } catch(e) {
@@ -417,7 +422,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                      </div>
                                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center items-center w-full xl:w-auto">
                                         <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p><p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
-                                        <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                                         <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[110px]"><p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p><p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                                         <div className="bg-slate-900 p-3 rounded-2xl text-white min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p><p className="text-sm font-black italic text-white">R$ {d.enviarCartorio.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                                         <div className="bg-purple-50 p-3 rounded-2xl border border-purple-100 min-w-[110px]"><p className="text-[7px] font-black text-purple-600 uppercase tracking-widest mb-1">Em Acordo</p><p className="text-sm font-black text-purple-700 italic">R$ {d.emAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
