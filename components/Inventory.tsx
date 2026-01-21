@@ -121,7 +121,7 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
       doc.setFontSize(6);
       doc.text('SCANEIE P/ HISTÓRICO', 161, 48);
 
-      // --- Resto do documento permanece igual (mas garantindo cores de texto corretas) ---
+      // --- DADOS TÉCNICOS ---
 
       doc.setTextColor(15, 23, 42); // Azul escuro padrão do sistema para títulos
       doc.setFontSize(14);
@@ -150,35 +150,22 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
       drawField('Descrição Completa do Material', item.nome, 0, 10);
       
       y += 20;
-      drawField('Fornecedor de Origem', item.fornecedor);
-      drawField('Nº do Lote', item.lote, 80);
-      drawField('NF / Documento', item.nfControle || '---', 140);
+      // Removido Fornecedor, Lote movido para esquerda
+      drawField('Nº do Lote', item.lote, 0);
+      drawField('NF / Documento', item.nfControle || '---', 80);
 
       y += 20;
-      drawField('Largura Nominal (L)', `${item.larguraL.toFixed(2)} Metros`);
-      drawField('Metragem Saldo (ML)', `${item.quantMl.toFixed(2)} ML`, 60);
-      drawField('Custo Unit. (R$)', `R$ ${item.custoUnitario.toFixed(2)}`, 120);
+      // Removido Custo, reajustado posições
+      drawField('Largura Nominal (L)', `${item.larguraL.toFixed(2)} Metros`, 0);
+      drawField('Metragem Saldo (ML)', `${item.quantMl.toFixed(2)} ML`, 80);
 
       y += 20;
-      drawField('Localização no Pátio', `COLUNA ${item.coluna} - NÍVEL ${item.prateleira}`);
+      // Alinhado Caixa Ref com a coluna do meio para consistência visual
+      drawField('Localização no Pátio', `COLUNA ${item.coluna} - NÍVEL ${item.prateleira}`, 0);
       drawField('Caixa Ref.', item.nCaixa || '---', 80);
       drawField('Status de Rolo', item.statusRolo, 140);
 
-      y += 30;
-      doc.setFontSize(14);
-      doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
-      doc.text('NOTAS DE AUDITORIA E OBSERVAÇÕES', 15, y);
-      doc.line(15, y + 2, 195, y + 2);
-
-      y += 12;
-      doc.setFontSize(10);
-      doc.setTextColor(0, 0, 0); // Preto
-      doc.setFont('helvetica', 'normal');
-      
-      const obsText = item.observacao || 'NENHUMA OBSERVAÇÃO REGISTRADA PARA ESTE VOLUME.';
-      const splitObs = doc.splitTextToSize(obsText.toUpperCase(), 170);
-      doc.text(splitObs, 20, y);
+      // Removido Seção de Observações
 
       doc.setFillColor(248, 250, 252); // Fundo cinza bem claro para rodapé
       doc.rect(0, 275, 210, 22, 'F');
