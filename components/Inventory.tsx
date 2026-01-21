@@ -164,8 +164,21 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
       drawField('Localização no Pátio', `COLUNA ${item.coluna} - NÍVEL ${item.prateleira}`, 0);
       drawField('Caixa Ref.', item.nCaixa || '---', 80);
       drawField('Status de Rolo', item.statusRolo, 140);
+      
+      // Re-adicionando Seção de Observações Internas
+      if (item.observacao && item.observacao.trim() !== '') {
+        y += 20;
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139); // Slate 500
+        doc.text('OBSERVAÇÕES INTERNAS', 15, y);
 
-      // Removido Seção de Observações
+        doc.setFontSize(10);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont('helvetica', 'normal');
+        
+        const observationText = doc.splitTextToSize(String(item.observacao).toUpperCase(), 180); // 180mm width
+        doc.text(observationText, 15, y + 6);
+      }
 
       doc.setFillColor(248, 250, 252); // Fundo cinza bem claro para rodapé
       doc.rect(0, 275, 210, 22, 'F');
@@ -589,16 +602,12 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
               </div>
 
               <div className="flex-1 overflow-y-auto p-10 space-y-12 custom-scrollbar bg-white">
-                 {/* ... (Seção 1 mantida igual) ... */}
-                 
-                 {/* Seção 2: Logística e Localização - AGORA TEXTO LIVRE */}
                  <div className="space-y-6">
                     <div className="flex items-center gap-3 mb-2">
                        <div className="w-1.5 h-6 bg-emerald-600 rounded-full"></div>
                        <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] italic">Logística e Pátio</h4>
                     </div>
-                    {/* ... (Lote, NF mantidos) ... */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        <div className="space-y-1.5">
                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Nº do Lote</label>
                           <input 
@@ -615,6 +624,16 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
                             className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" 
                           />
                        </div>
+                       <div className="space-y-1.5">
+                          <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Origem (Fornecedor)</label>
+                          <input 
+                            value={editingItem.fornecedor} 
+                            onChange={e => setEditingItem({...editingItem, fornecedor: e.target.value.toUpperCase()})} 
+                            className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" 
+                          />
+                       </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        <div className="space-y-1.5">
                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Coluna (Texto)</label>
                           <input 
@@ -633,9 +652,6 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
                             className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" 
                           />
                        </div>
-                    </div>
-                    {/* ... (Resto da Seção 2 mantida) ... */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                        <div className="space-y-1.5">
                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Metragem Atual (Saldo ML)</label>
                           <input 
@@ -646,6 +662,8 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
                             className="w-full px-5 py-3.5 bg-amber-50/50 border-2 border-transparent focus:border-amber-600 rounded-2xl text-sm font-black outline-none italic text-amber-700" 
                           />
                        </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                        <div className="space-y-1.5">
                           <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Largura (Metros)</label>
                           <input 
