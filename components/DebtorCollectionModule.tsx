@@ -71,7 +71,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     today.setHours(0, 0, 0, 0);
     const todayStr = today.toISOString().split('T')[0];
 
-    // Identificação aprimorada dos IDs lembrados hoje
+    // Identificação dos IDs lembrados hoje através de Tagging no Log
     const remindedTodayIds = new Set(
       allLogs
         .filter(log => 
@@ -79,8 +79,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
           log.data_registro.startsWith(todayStr)
         )
         .map(log => {
-          // Extraímos o ID usando a nova tag robusta [ID:...]
-          const match = log.observacao?.match(/\[ID:([\w.-]+)\]/);
+          // Regex mais permissiva para capturar IDs complexos
+          const match = log.observacao?.match(/\[ID:([^\]]+)\]/);
           return match ? match[1] : null;
         })
         .filter(Boolean)
@@ -298,25 +298,40 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   }, [debtors, searchTerm]);
 
   const handleSendReminder = async (title: AccountsReceivable) => {
+    // 1. Atualização Otimista: Cria o log localmente e atualiza o estado imediatamente
+    // Isso faz com que o useMemo detecte o novo ID e mova a linha para "Enviados" na hora
+    const optimisticLog: CollectionHistory = {
+        id: `temp-${Date.now()}`,
+        cliente: title.cliente,
+        acao_tomada: 'LEMBRETE_PREVENTIVO',
+        observacao: `LEMBRETE DE VENCIMENTO ENVIADO (NF: ${title.numero_documento || 'S/N'}) [ID:${title.id}]`,
+        valor_devido: title.saldo,
+        dias_atraso: 0,
+        usuario: currentUser.name,
+        data_registro: new Date().toISOString() 
+    };
+
+    setAllLogs(prev => [optimisticLog, ...prev]);
+    setToast({ msg: 'Lembrete registrado!', type: 'success' });
+
     setIsSubmittingInteraction(true);
     try {
-        // Tagging explícito [ID:...] na observação para garantir a extração no useMemo
         await FinanceService.addCollectionHistory({
             cliente: title.cliente,
             acao_tomada: 'LEMBRETE_PREVENTIVO',
-            observacao: `LEMBRETE DE VENCIMENTO ENVIADO (NF: ${title.numero_documento || 'S/N'}) [ID:${title.id}]`,
+            observacao: optimisticLog.observacao!,
             valor_devido: title.saldo,
             dias_atraso: 0,
             usuario: currentUser.name
         });
         
-        setToast({ msg: 'Lembrete registrado!', type: 'success' });
-        
-        // Recarregar logs IMEDIATAMENTE para disparar a atualização do useMemo 'preventionGroups'
+        // Sincronização em background para garantir consistência
         const updatedLogs = await FinanceService.getAllCollectionLogs();
         setAllLogs(updatedLogs);
     } catch(e) {
-        setToast({ msg: 'Erro ao registrar lembrete.', type: 'error' });
+        setToast({ msg: 'Erro ao salvar no banco (mas interface atualizada).', type: 'warning' });
+        // Em caso de erro real, poderíamos reverter o estado, mas para UX mantemos visualmente enviado
+        // setAllLogs(prev => prev.filter(l => l.id !== optimisticLog.id));
     } finally {
         setIsSubmittingInteraction(false);
     }
@@ -445,7 +460,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
 
              {activeMainTab === 'PREVENCAO' && (
                 <div className="space-y-6 overflow-y-auto pr-2 custom-scrollbar">
-                   {/* SEÇÃO 1: PENDENTES (BOTÃO PISCANTE) */}
+                   {/* SEÇÃO 1: PENDENTES (BOTÃO PISCANTE LARANJA) */}
                    <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
                       <div className="px-8 py-5 border-b border-slate-50 bg-indigo-50/50 flex justify-between items-center">
                          <div>
@@ -517,7 +532,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                       </table>
                    </div>
 
-                   {/* SEÇÃO 2: LEMBRADOS HOJE (BOTÃO AZUL) */}
+                   {/* SEÇÃO 2: LEMBRADOS HOJE (BOTÃO AZUL "ENVIADO") */}
                    {preventionGroups.finished.length > 0 && (
                      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden opacity-80 hover:opacity-100 transition-opacity">
                         <div className="px-8 py-5 border-b border-slate-50 bg-emerald-50/50 flex justify-between items-center">
@@ -549,7 +564,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                           disabled
                                           className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest opacity-90 shadow-md border border-blue-500"
                                        >
-                                          Lembrete Enviado
+                                          ENVIADO
                                        </button>
                                     </td>
                                  </tr>
