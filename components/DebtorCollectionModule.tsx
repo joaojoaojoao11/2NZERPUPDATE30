@@ -8,7 +8,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis
 import Toast from './Toast';
 import SettlementModule from './SettlementModule';
 
-type MainTab = 'CARTEIRA' | 'ACORDOS' | 'LEMBRETES' | 'LOGS' | 'BI';
+type MainTab = 'CARTEIRA' | 'PREVENCAO' | 'ACORDOS' | 'LOGS' | 'BI';
 type QuickAction = 'AGENDAR' | 'RETORNO' | 'CARTORIO_IN' | 'CARTORIO_OUT' | null;
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -34,9 +34,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   // Lista de IDs de acordos válidos para filtragem
   const [validSettlementIds, setValidSettlementIds] = useState<Set<string>>(new Set());
 
-  // Estado local para controlar lembretes enviados na sessão
-  const [sentReminders, setSentReminders] = useState<string[]>([]);
-
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -57,6 +54,35 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
 
   useEffect(() => { fetchData(); }, []);
 
+  // Lógica de Prevenção (Boletos a vencer em 0-3 dias)
+  const preventionList = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return allAR.filter(t => {
+      // 1. Filtra Boletos
+      if ((t.forma_pagamento || '').toUpperCase() !== 'BOLETO') return false;
+      
+      // 2. Filtra Saldo em Aberto
+      if (t.saldo <= 0.01) return false;
+      const status = (t.situacao || '').toUpperCase();
+      if (status === 'CANCELADO' || status === 'PAGO') return false;
+
+      // 3. Verifica Data (0 a 3 dias)
+      if (!t.data_vencimento) return false;
+      
+      const parts = t.data_vencimento.split('-').map(Number);
+      const dueDate = new Date(parts[0], parts[1] - 1, parts[2]);
+      dueDate.setHours(0, 0, 0, 0);
+
+      // Usando Math.round para garantir precisão com fusos horários
+      const diffTime = dueDate.getTime() - today.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+      return diffDays >= 0 && diffDays <= 3;
+    }).sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento));
+  }, [allAR]);
+
   const handleManageClient = async (cliente: string) => {
     setLoading(true);
     setSelectedClient(cliente);
@@ -70,7 +96,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         FinanceService.getSettlements()
       ]);
       
-      // CRITICAL FIX: Filtrar apenas acordos que NÃO estão cancelados
       const validIds = new Set(settlementsData.filter(s => s.status !== 'CANCELADO').map(s => s.id));
       setValidSettlementIds(validIds);
 
@@ -80,29 +105,19 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         const formaPgto = (t.forma_pagamento || '').toUpperCase().trim();
         const vencimento = t.data_vencimento;
         
-        // 1. Filtro Base: Cliente
         if (t.cliente !== cliente) return false;
         
-        // Validação Estrita de Acordo
         const hasValidAgreement = !!t.id_acordo && validIds.has(t.id_acordo);
-        // Título Órfão: Tem ID de acordo, mas o acordo não existe ou foi cancelado
         const isOrphaned = !!t.id_acordo && !hasValidAgreement;
         
-        // Se NÃO tiver acordo válido, exige BOLETO. Se tiver, aceita qualquer forma.
-        // Se for órfão (acordo cancelado), volta a ser tratado como pendência (deve aparecer)
         if (formaPgto !== 'BOLETO' && !hasValidAgreement && !isOrphaned) return false;
 
         const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
 
-        // 2. Filtro de Saldo: Deve ter saldo positivo OU ser um acordo
         if (t.saldo <= 0.01 && !hasValidAgreement) return false;
 
-        // 3. Regras de Exibição:
-        // Caso A: Títulos já em gestão (Acordo Válido ou Cartório)
         if (hasValidAgreement || isCartorio) return true;
 
-        // Caso B: Títulos "Soltos" OU "Órfãos" (Acordo Cancelado)
-        // Se for órfão e a situação ainda for 'NEGOCIADO', forçamos a exibição
         const effectiveStatus = isOrphaned && situacao === 'NEGOCIADO' ? 'EM ABERTO' : situacao;
         
         const isOpenStatus = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'NEGOCIADO'].includes(effectiveStatus);
@@ -150,9 +165,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         const updatedHistory = await FinanceService.getCollectionHistoryByClient(selectedClient);
         setClientHistory(updatedHistory);
 
-        // --- ATUALIZAÇÃO AUTOMÁTICA DE LISTA ---
-        // Se houve ação, move para "Em Dia / Agendados" visualmente
-        // Se não foi passada data, assume que está resolvido por hoje (joga para amanhã)
         const nextDateStr = date || new Date(Date.now() + 86400000).toISOString().split('T')[0]; 
         
         setDebtors(prev => prev.map(d => 
@@ -184,9 +196,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
             await handleSimpleLog(type === 'INCLUIR' ? 'CARTORIO_INCLUSAO' : 'CARTORIO_RETIRADA', `${type === 'INCLUIR' ? 'INCLUSÃO' : 'RETIRADA'} EM CARTORIO: ${selectedForAgreement.join(', ')}`);
             setToast({ msg: `Operação de Cartório efetuada.`, type: 'success' });
             
-            // Atualiza a vista detalhada para refletir o status imediatamente
             await handleManageClient(selectedClient);
-            // Atualiza a lista principal para que o card de resumo "Em Cartório" esteja correto
             fetchData();
         }
     } catch (e) {
@@ -204,30 +214,10 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     setViewMode('SETTLEMENT');
   };
 
-  const handleSendReminderAction = async (title: AccountsReceivable) => {
-    // Adiciona log de lembrete
-    try {
-        await FinanceService.addCollectionHistory({
-            cliente: title.cliente,
-            acao_tomada: 'LEMBRETE_VENCIMENTO',
-            observacao: `LEMBRETE ENVIADO: TÍTULO ${title.numero_documento} VENCE EM ${new Date(title.data_vencimento).toLocaleDateString()}`,
-            valor_devido: title.saldo,
-            dias_atraso: 0,
-            usuario: currentUser.name
-        });
-        setSentReminders(prev => [...prev, title.id]);
-        setToast({ msg: 'Lembrete registrado!', type: 'success' });
-    } catch (e) {
-        setToast({ msg: 'Erro ao registrar lembrete.', type: 'error' });
-    }
-  };
-
-  // --- LÓGICA DE BOTÃO DINÂMICO DE CARTÓRIO ---
   const isNotaryRemovalMode = useMemo(() => {
     if (selectedForAgreement.length === 0) return false;
     const selectedItems = clientTitles.filter(t => selectedForAgreement.includes(t.id));
     
-    // Se todos os selecionados estiverem em cartório (seja por 'situacao' ou 'statusCobranca'), o modo é REMOVER
     return selectedItems.length > 0 && selectedItems.every(t => 
         t.situacao === 'EM CARTORIO' || 
         t.statusCobranca === 'CARTORIO' || 
@@ -235,7 +225,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     );
   }, [selectedForAgreement, clientTitles]);
 
-  // --- LOGICA BI COBRANÇA ---
   const biData = useMemo(() => {
     const ageing = [
       { name: '1-15 dias', value: debtors.reduce((acc, d) => acc + d.vencidoAte15d, 0) },
@@ -254,53 +243,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     return { ageing, interactions };
   }, [debtors, allLogs]);
 
-  // --- LOGICA LEMBRETES (VENCENDO EM 0, 1, 2, 3 DIAS) ---
-  const reminderTitles = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Define hoje 00:00:00
-
-    // Data limite (Hoje + 3 dias)
-    const limitDate = new Date(today);
-    limitDate.setDate(today.getDate() + 3);
-    limitDate.setHours(23, 59, 59, 999); // Final do 3º dia
-
-    const filtered = allAR.filter(t => {
-        // Filtrar apenas títulos em aberto
-        const situacao = (t.situacao || '').toUpperCase();
-        const isAberto = situacao === 'EM ABERTO' || situacao === 'ABERTO';
-        if (!isAberto || t.saldo <= 0.01) return false;
-        
-        // Filtrar apenas BOLETO
-        const forma = (t.forma_pagamento || '').toUpperCase();
-        if (!forma.includes('BOLETO')) return false;
-
-        if (!t.data_vencimento) return false;
-
-        // Parse Manual da Data (YYYY-MM-DD) para evitar problemas de fuso horário
-        const [y, m, d] = t.data_vencimento.split('-').map(Number);
-        const dueDate = new Date(y, m - 1, d); // 00:00:00 local
-        
-        // 1. Excluir Passado (Estritamente menor que hoje)
-        if (dueDate.getTime() < today.getTime()) return false;
-
-        // 2. Incluir apenas até o limite de 3 dias
-        if (dueDate.getTime() > limitDate.getTime()) return false;
-
-        return true;
-    });
-
-    // Separa em Pendentes e Enviados
-    const pending = filtered.filter(t => !sentReminders.includes(t.id));
-    const sent = filtered.filter(t => sentReminders.includes(t.id));
-
-    // Ordenar por vencimento (mais urgente primeiro)
-    pending.sort((a, b) => new Date(a.data_vencimento).getTime() - new Date(b.data_vencimento).getTime());
-    sent.sort((a, b) => new Date(a.data_vencimento).getTime() - new Date(b.data_vencimento).getTime());
-
-    return { pending, sent };
-  }, [allAR, sentReminders]);
-
-  // --- PREPARAÇÃO DAS LISTAS PRIORITÁRIAS E EM DIA ---
   const { priorityList, upToDateList } = useMemo(() => {
     const filteredDebtors = debtors.filter(d => d.cliente.toLowerCase().includes(searchTerm.toLowerCase()));
     const todayStr = new Date().toISOString().split('T')[0];
@@ -309,19 +251,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     const upToDate: DebtorInfo[] = [];
 
     filteredDebtors.forEach(d => {
-        // Lógica de Risco: 
-        // 1. Tem dívida "solta" vencida (totalVencido > 0)
-        // 2. OU tem parcela de acordo vencida (acordoAtrasado > 0)
         const hasArrears = d.totalVencido > 0.01 || (d.acordoAtrasado || 0) > 0.01;
-        
-        // Lógica de Data de Ação:
-        // Está vencido o prazo de contato?
         const isActionDue = !d.nextActionDate || d.nextActionDate <= todayStr;
-
-        // Regra de Ouro:
-        // Se NÃO tem pendências (hasArrears == false), vai para "Em Dia / Agendados" automaticamente (mesmo que a data de ação tenha passado, pois não há o que cobrar urgentemente).
-        // Se TEM pendências (hasArrears == true), vai para "Prioridade" SE a data de ação chegou.
-        // Se TEM pendências mas a data é futura (ex: agendou para semana que vem), fica em "Em Dia / Agendados" (temporariamente sob controle).
 
         if (hasArrears && isActionDue) {
             priority.push(d);
@@ -330,31 +261,31 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
         }
     });
 
-    // Ordenação interna
     priority.sort((a, b) => b.totalVencido - a.totalVencido);
     upToDate.sort((a, b) => b.totalVencido - a.totalVencido);
 
     return { priorityList: priority, upToDateList: upToDate };
   }, [debtors, searchTerm]);
 
-  const getDaysLabel = (dateStr: string) => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    
-    // Parse manual para evitar problemas de fuso horário
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const due = new Date(y, m - 1, d); // 00:00:00 local
-    
-    // Calcula a diferença em milissegundos
-    const diffMs = due.getTime() - today.getTime();
-    
-    // Calcula a diferença em dias de forma precisa
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return { text: 'VENCE HOJE', color: 'bg-red-500 text-white' };
-    if (diffDays === 1) return { text: 'AMANHÃ', color: 'bg-amber-500 text-white' };
-    if (diffDays < 0) return { text: 'VENCIDO', color: 'bg-gray-700 text-white' }; // Fallback de segurança
-    return { text: `EM ${diffDays} DIAS`, color: 'bg-blue-500 text-white' };
+  // Função para enviar lembrete simples (Apenas log visual por enquanto)
+  const handleSendReminder = async (title: AccountsReceivable) => {
+    setIsSubmittingInteraction(true);
+    try {
+        await FinanceService.addCollectionHistory({
+            cliente: title.cliente,
+            acao_tomada: 'LEMBRETE_PREVENTIVO',
+            observacao: `LEMBRETE DE VENCIMENTO ENVIADO (DOC: ${title.numero_documento})`,
+            valor_devido: title.saldo,
+            dias_atraso: 0,
+            usuario: currentUser.name
+        });
+        setToast({ msg: 'Lembrete registrado no histórico!', type: 'success' });
+        // Opcional: Atualizar lista de logs se estiver visível
+    } catch(e) {
+        setToast({ msg: 'Erro ao registrar lembrete.', type: 'error' });
+    } finally {
+        setIsSubmittingInteraction(false);
+    }
   };
 
   if (loading && !selectedClient) return <div className="py-24 text-center opacity-30 font-black uppercase text-xs animate-pulse">Sincronizando Carteira...</div>;
@@ -375,8 +306,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
               <div className="flex flex-wrap gap-2 mt-4">
                  {[
                    { id: 'CARTEIRA', label: 'Carteira em Atraso' },
+                   { id: 'PREVENCAO', label: 'Prevenção de Inadimplência' },
                    { id: 'ACORDOS', label: 'Gestão de Acordos' },
-                   { id: 'LEMBRETES', label: 'Lembretes' },
                    { id: 'LOGS', label: 'Log Cobrança' },
                    { id: 'BI', label: 'BI Cobrança' }
                  ].map(tab => (
@@ -395,7 +326,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
           <div className="flex-1 min-h-0">
              {activeMainTab === 'CARTEIRA' && (
                 <div className="space-y-8 overflow-y-auto pr-2 custom-scrollbar">
-                   
                    {/* SEÇÃO 1: PRIORIDADE */}
                    {priorityList.length > 0 && (
                        <div>
@@ -480,71 +410,73 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                 </div>
              )}
 
-             {activeMainTab === 'LEMBRETES' && (
-                <div className="space-y-8 overflow-y-auto pr-2 custom-scrollbar h-full">
-                   <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-2xl border border-blue-100">
-                      <ICONS.Alert className="w-5 h-5 text-blue-600" />
-                      <p className="text-[10px] font-black text-blue-800 uppercase tracking-wide">
-                         Títulos vencendo em até 3 dias. Clique em "Lembrar" para registrar o contato preventivo.
-                      </p>
-                   </div>
-
-                   {/* PENDENTES */}
-                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {reminderTitles.pending.map(t => {
-                         const status = getDaysLabel(t.data_vencimento);
-                         return (
-                            <div key={t.id} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm relative group overflow-hidden hover:border-blue-300 transition-all">
-                               <div className="flex justify-between items-start mb-4">
-                                  <span className={`px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-sm ${status.color}`}>
-                                     {status.text}
-                                  </span>
-                                  <span className="text-[9px] font-black text-slate-300 uppercase">NF: {t.numero_documento}</span>
-                               </div>
-                               <h4 className="font-black text-slate-900 uppercase italic text-lg truncate mb-1" title={t.cliente}>{t.cliente}</h4>
-                               <p className="text-xl font-black text-slate-700 italic tracking-tighter mb-4">
-                                  R$ {t.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-                                </p>
-                                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4 flex justify-between items-center">
-                                  <span className="text-[9px] font-bold text-slate-400 uppercase">Vencimento</span>
-                                  <span className="text-[10px] font-black text-slate-900">{new Date(t.data_vencimento).toLocaleDateString('pt-BR')}</span>
-                               </div>
-                               <button 
-                                  onClick={() => handleSendReminderAction(t)} 
-                                  className="w-full py-3 bg-slate-900 text-white rounded-xl font-black text-[9px] uppercase tracking-[0.2em] hover:bg-blue-600 transition-all shadow-lg flex items-center justify-center gap-2"
-                               >
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
-                                  Lembrar
-                               </button>
-                            </div>
-                         );
-                      })}
-                   </div>
-
-                   {reminderTitles.pending.length === 0 && (
-                      <div className="py-12 text-center opacity-30 font-black uppercase text-[10px] italic">Nenhum título próximo do vencimento pendente de aviso</div>
-                   )}
-
-                   {/* ENVIADOS (Descem para cá) */}
-                   {reminderTitles.sent.length > 0 && (
-                      <div className="pt-8 border-t border-slate-100 opacity-60">
-                         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 italic">Enviados Recentemente</h4>
-                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {reminderTitles.sent.map(t => (
-                               <div key={t.id} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 relative grayscale transition-all hover:grayscale-0">
-                                  <div className="flex justify-between items-start mb-2">
-                                     <span className="bg-emerald-100 text-emerald-600 px-3 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest">
-                                        ENVIADO
-                                     </span>
-                                     <span className="text-[9px] font-black text-slate-300 uppercase">NF: {t.numero_documento}</span>
-                                  </div>
-                                  <h4 className="font-black text-slate-700 uppercase italic text-sm truncate mb-1">{t.cliente}</h4>
-                                  <p className="text-sm font-black text-slate-500 italic">R$ {t.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
-                               </div>
-                            ))}
-                         </div>
+             {activeMainTab === 'PREVENCAO' && (
+                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col h-full overflow-hidden">
+                   <div className="px-8 py-5 border-b border-slate-50 bg-indigo-50/50 flex justify-between items-center">
+                      <div>
+                         <h4 className="text-[11px] font-black text-indigo-700 uppercase tracking-widest italic">Boletos a Vencer (Próximos 3 Dias)</h4>
+                         <p className="text-[9px] text-indigo-400 font-bold uppercase mt-1">Ações preventivas reduzem a inadimplência em até 40%</p>
                       </div>
-                   )}
+                      <div className="bg-white px-4 py-2 rounded-xl border border-indigo-100 shadow-sm">
+                         <span className="text-[10px] font-black text-indigo-600">{preventionList.length} Títulos Encontrados</span>
+                      </div>
+                   </div>
+                   <div className="flex-1 overflow-y-auto custom-scrollbar">
+                      <table className="w-full text-left">
+                         <thead className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest sticky top-0 z-10 shadow-sm">
+                            <tr>
+                               <th className="px-8 py-5">Vencimento</th>
+                               <th className="px-8 py-5">Cliente</th>
+                               <th className="px-8 py-5 text-right">Valor</th>
+                               <th className="px-8 py-5 text-center">Dias Restantes</th>
+                               <th className="px-8 py-5 text-right">Ação</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-slate-50 text-[11px]">
+                            {preventionList.map(item => {
+                               const today = new Date();
+                               today.setHours(0,0,0,0);
+                               const parts = item.data_vencimento.split('-').map(Number);
+                               const dueDate = new Date(parts[0], parts[1]-1, parts[2]);
+                               dueDate.setHours(0,0,0,0);
+                               const diffTime = dueDate.getTime() - today.getTime();
+                               // Correção: Math.round em vez de ceil para evitar deslocamento de hora
+                               const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                               
+                               let statusColor = 'text-emerald-600 bg-emerald-50 border-emerald-100';
+                               if (diffDays === 0) statusColor = 'text-red-600 bg-red-50 border-red-100 animate-pulse';
+                               else if (diffDays === 1) statusColor = 'text-amber-600 bg-amber-50 border-amber-100';
+
+                               return (
+                               <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="px-8 py-5 font-black text-slate-700">{new Date(item.data_vencimento).toLocaleDateString('pt-BR')}</td>
+                                  <td className="px-8 py-5">
+                                     <p className="font-black text-slate-900 uppercase italic truncate max-w-[300px]">{item.cliente}</p>
+                                     <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">NF: {item.numero_documento || item.id}</p>
+                                  </td>
+                                  <td className="px-8 py-5 text-right font-black text-slate-900">R$ {item.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                  <td className="px-8 py-5 text-center">
+                                     <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${statusColor}`}>
+                                        {diffDays === 0 ? 'HOJE' : diffDays === 1 ? 'AMANHÃ' : `${diffDays} DIAS`}
+                                     </span>
+                                  </td>
+                                  <td className="px-8 py-5 text-right">
+                                     <button 
+                                        onClick={() => handleSendReminder(item)}
+                                        disabled={isSubmittingInteraction}
+                                        className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border border-indigo-100"
+                                     >
+                                        Registrar Lembrete
+                                     </button>
+                                  </td>
+                               </tr>
+                            )})}
+                            {preventionList.length === 0 && (
+                               <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-black uppercase text-[10px]">Nenhum boleto próximo do vencimento (3 dias)</td></tr>
+                            )}
+                         </tbody>
+                      </table>
+                   </div>
                 </div>
              )}
 
