@@ -79,7 +79,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
           log.data_registro.startsWith(todayStr)
         )
         .map(log => {
-          // Extraímos o ID do documento da observação (NF: XXX)
           const match = log.observacao?.match(/DOC: ([\w-]+)/);
           return match ? match[1] : null;
         })
@@ -309,7 +308,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
             usuario: currentUser.name
         });
         setToast({ msg: 'Lembrete registrado!', type: 'success' });
-        // Recarregar logs para atualizar interface dinamicamente
         const updatedLogs = await FinanceService.getAllCollectionLogs();
         setAllLogs(updatedLogs);
     } catch(e) {
@@ -419,7 +417,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                      </div>
                                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 text-center items-center w-full xl:w-auto">
                                         <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Total</p><p className="text-sm font-black text-slate-900 italic">R$ {d.totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
-                                        <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-amber-600 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
+                                        <div className="bg-amber-50 p-3 rounded-2xl border border-amber-100 min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">0 a 15 Dias</p><p className="text-sm font-black text-amber-700 italic">R$ {d.vencidoAte15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                                         <div className="bg-red-50 p-3 rounded-2xl border border-red-100 min-w-[110px]"><p className="text-[7px] font-black text-red-600 uppercase tracking-widest mb-1">15+ Dias</p><p className="text-sm font-black text-red-700 italic">R$ {d.vencidoMais15d.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                                         <div className="bg-slate-900 p-3 rounded-2xl text-white min-w-[110px]"><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Em Cartório</p><p className="text-sm font-black italic text-white">R$ {d.enviarCartorio.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
                                         <div className="bg-purple-50 p-3 rounded-2xl border border-purple-100 min-w-[110px]"><p className="text-[7px] font-black text-purple-600 uppercase tracking-widest mb-1">Em Acordo</p><p className="text-sm font-black text-purple-700 italic">R$ {d.emAcordo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p></div>
@@ -477,6 +475,12 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
                                const displayDate = item.data_vencimento.split('-').reverse().join('/');
                                
+                               let statusBadgeColor = 'bg-slate-50 text-slate-500 border-slate-200';
+                               if (diffDays === 0) statusBadgeColor = 'bg-red-50 text-red-600 border-red-100';
+                               else if (diffDays === 1) statusBadgeColor = 'bg-amber-50 text-amber-600 border-amber-100';
+                               else if (diffDays === 2) statusBadgeColor = 'bg-blue-50 text-blue-600 border-blue-100';
+                               else if (diffDays === 3) statusBadgeColor = 'bg-emerald-50 text-emerald-600 border-emerald-100';
+
                                return (
                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                                   <td className="px-8 py-5 font-black text-slate-700">{displayDate}</td>
@@ -486,7 +490,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                   </td>
                                   <td className="px-8 py-5 text-right font-black text-slate-900">R$ {item.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
                                   <td className="px-8 py-5 text-center">
-                                     <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${diffDays === 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                     <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${statusBadgeColor}`}>
                                         {diffDays === 0 ? 'HOJE' : diffDays === 1 ? 'AMANHÃ' : `${diffDays} DIAS`}
                                      </span>
                                   </td>
@@ -508,7 +512,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                       </table>
                    </div>
 
-                   {/* SEÇÃO 2: LEMBRADOS HOJE (BOTÃO VERDE) */}
+                   {/* SEÇÃO 2: LEMBRADOS HOJE (BOTÃO AZUL) */}
                    {preventionGroups.finished.length > 0 && (
                      <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden opacity-80 hover:opacity-100 transition-opacity">
                         <div className="px-8 py-5 border-b border-slate-50 bg-emerald-50/50 flex justify-between items-center">
@@ -519,26 +523,29 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                               </h4>
                               <p className="text-[9px] text-emerald-500 font-bold uppercase mt-1">Estes títulos já foram notificados por nossa equipe hoje</p>
                            </div>
+                           <div className="bg-white px-4 py-2 rounded-xl border border-emerald-100 shadow-sm">
+                            <span className="text-[10px] font-black text-emerald-600">{preventionGroups.finished.length} Concluídos</span>
+                         </div>
                         </div>
                         <table className="w-full text-left">
                            <tbody className="divide-y divide-slate-50 text-[11px]">
                               {preventionGroups.finished.map(item => {
                                  const displayDate = item.data_vencimento.split('-').reverse().join('/');
                                  return (
-                                 <tr key={item.id} className="bg-emerald-50/20 grayscale-0">
+                                 <tr key={item.id} className="bg-emerald-50/10 grayscale-0">
                                     <td className="px-8 py-4 font-black text-slate-400">{displayDate}</td>
-                                    <td className="px-8 py-4 flex-1">
+                                    <td className="px-8 py-4">
                                        <p className="font-black text-slate-600 uppercase italic truncate max-w-[250px]">{item.cliente}</p>
                                        <p className="text-[9px] text-slate-400 font-bold uppercase">NF: {item.numero_documento || item.id}</p>
                                     </td>
                                     <td className="px-8 py-4 text-right font-black text-slate-500 italic">R$ {item.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
                                     <td className="px-8 py-4 text-right">
-                                       <div className="flex items-center justify-end gap-2 text-emerald-600 font-black text-[9px] uppercase tracking-widest">
-                                          <span>Aviso Enviado</span>
-                                          <div className="w-7 h-7 bg-emerald-600 text-white rounded-full flex items-center justify-center shadow-lg">
-                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg>
-                                          </div>
-                                       </div>
+                                       <button 
+                                          disabled
+                                          className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest opacity-90 shadow-md border border-blue-500"
+                                       >
+                                          Lembrete Enviado
+                                       </button>
                                     </td>
                                  </tr>
                               )})}
