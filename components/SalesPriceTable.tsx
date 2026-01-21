@@ -295,29 +295,46 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     if (meters <= 0) return null;
 
     const isVolumeDeRolo = meters >= (simulatingProduct.metragemPadrao || 15);
+    
     const custoUnitarioProduto = isVolumeDeRolo 
         ? (simulatingProduct.custoUnitarioRolo ?? simulatingProduct.custoUnitario ?? 0)
         : (simulatingProduct.custoUnitarioFrac ?? simulatingProduct.custoUnitario ?? 0);
     
-    const custoExtraUnitario = simulatingProduct.costExtraValue || 0;
+    // Mantém o cálculo de custo operacional para exibição, como estava
+    const custoExtraUnitario_ForCostDisplay = simulatingProduct.costExtraValue || 0;
     const impostoPercent = simulatingProduct.costTaxPercent || 0;
-    
-    const custoBaseTotal = (custoUnitarioProduto + custoExtraUnitario) * meters;
-    const custoOperacionalTotal = custoBaseTotal * (1 + (impostoPercent / 100));
+    const custoOperacionalTotal = ((custoUnitarioProduto + custoExtraUnitario_ForCostDisplay) * meters) * (1 + (impostoPercent / 100));
 
-    const precoMetroIdeal = isVolumeDeRolo ? (simulatingProduct.priceRoloIdeal || 0) : (simulatingProduct.priceFracIdeal || 0);
-    const precoMetroMinimo = isVolumeDeRolo ? (simulatingProduct.priceRoloMin || 0) : (simulatingProduct.priceFracMin || 0);
+    // Pega os preços base (com markup, sem custo extra)
+    const precoMetroIdeal_base = isVolumeDeRolo ? (simulatingProduct.priceRoloIdeal || 0) : (simulatingProduct.priceFracIdeal || 0);
+    const precoMetroMinimo_base = isVolumeDeRolo ? (simulatingProduct.priceRoloMin || 0) : (simulatingProduct.priceFracMin || 0);
+
+    // Pega o custo extra/frete. Este valor será diluído na simulação.
+    const custoExtraPorMetro = simulatingProduct.costExtraValue || 0;
+    
+    // Nova Lógica: O custo extra é dividido pela metragem simulada para encontrar o "acréscimo por metro"
+    const custoExtraDiluidoPorMetro = meters > 0 ? (custoExtraPorMetro / meters) : custoExtraPorMetro;
+    
+    // O novo preço por metro é o preço base + o custo extra diluído
+    const precoMetroIdeal_final = precoMetroIdeal_base + custoExtraDiluidoPorMetro;
+    const precoMetroMinimo_final = precoMetroMinimo_base + custoExtraDiluidoPorMetro;
+
+    // O valor total é o novo preço por metro multiplicado pela metragem
+    const valorTotalIdeal_final = precoMetroIdeal_final * meters;
+    const valorTotalMinimo_final = precoMetroMinimo_final * meters;
 
     return {
         isVolumeDeRolo,
+        // Mantém para exibição da estrutura de custos
         custoUnitarioProduto,
-        custoExtraUnitario,
+        custoExtraUnitario: custoExtraUnitario_ForCostDisplay,
         impostoPercent,
         custoOperacionalTotal,
-        valorTotalIdeal: precoMetroIdeal * meters,
-        valorTotalMinimo: precoMetroMinimo * meters,
-        precoMetroIdeal,
-        precoMetroMinimo
+        // Novos valores finais para preço de venda
+        valorTotalIdeal: valorTotalIdeal_final,
+        valorTotalMinimo: valorTotalMinimo_final,
+        precoMetroIdeal: precoMetroIdeal_final,
+        precoMetroMinimo: precoMetroMinimo_final
     };
   }, [simulatingProduct, simulationMeters]);
 
@@ -692,7 +709,7 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
       {editingItem && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md z-[200] flex items-center justify-center p-6 animate-in fade-in duration-300">
           <div className="bg-white max-w-5xl w-full rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col h-fit animate-in zoom-in-95 border border-slate-300">
-              <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/30">
+              <div className="p-10 border-b border-slate-50 flex justify-between items-center bg-slate-50/50">
                   <div><h3 className="text-2xl font-black text-slate-900 uppercase italic">Gestão Comercial de SKU</h3><p className="text-indigo-600 font-bold text-[10px] uppercase tracking-widest mt-1">{editingItem.sku}</p></div>
                   <button onClick={() => setEditingItem(null)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-red-500 transition-all"><ICONS.Add className="w-6 h-6 rotate-45" /></button>
               </div>
