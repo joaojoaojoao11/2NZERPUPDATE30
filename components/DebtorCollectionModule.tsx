@@ -13,6 +13,18 @@ type QuickAction = 'AGENDAR' | 'RETORNO' | 'CARTORIO_IN' | 'CARTORIO_OUT' | null
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
+// Estilo para o botão piscante
+const pulseOrangeStyle = `
+  @keyframes orange-alert {
+    0% { background-color: #f97316; box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.7); }
+    50% { background-color: #fb923c; box-shadow: 0 0 0 10px rgba(249, 115, 22, 0); }
+    100% { background-color: #f97316; box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+  }
+  .animate-orange-alert {
+    animation: orange-alert 1.5s infinite;
+  }
+`;
+
 const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('CARTEIRA');
   const [debtors, setDebtors] = useState<DebtorInfo[]>([]);
@@ -31,7 +43,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
   const [activeQuickAction, setActiveQuickAction] = useState<QuickAction>(null);
   const [quickActionData, setQuickActionData] = useState({ date: '', obs: '' });
 
-  // Lista de IDs de acordos válidos para filtragem
   const [validSettlementIds, setValidSettlementIds] = useState<Set<string>>(new Set());
 
   const fetchData = async () => {
@@ -54,34 +65,52 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
 
   useEffect(() => { fetchData(); }, []);
 
-  // Lógica de Prevenção (Boletos a vencer em 0-3 dias)
-  const preventionList = useMemo(() => {
+  // Listas de Prevenção (Separadas entre Pendentes e Lembrados Hoje)
+  const preventionGroups = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
 
-    return allAR.filter(t => {
-      // 1. Filtra Boletos
+    // IDs de títulos que já foram lembrados HOJE
+    const remindedTodayIds = new Set(
+      allLogs
+        .filter(log => 
+          log.acao_tomada === 'LEMBRETE_PREVENTIVO' && 
+          log.data_registro.startsWith(todayStr)
+        )
+        .map(log => {
+          // Extraímos o ID do documento da observação (NF: XXX)
+          const match = log.observacao?.match(/DOC: ([\w-]+)/);
+          return match ? match[1] : null;
+        })
+        .filter(Boolean)
+    );
+
+    const baseList = allAR.filter(t => {
       if ((t.forma_pagamento || '').toUpperCase() !== 'BOLETO') return false;
-      
-      // 2. Filtra Saldo em Aberto
       if (t.saldo <= 0.01) return false;
       const status = (t.situacao || '').toUpperCase();
       if (status === 'CANCELADO' || status === 'PAGO') return false;
-
-      // 3. Verifica Data (0 a 3 dias)
       if (!t.data_vencimento) return false;
       
       const parts = t.data_vencimento.split('-').map(Number);
       const dueDate = new Date(parts[0], parts[1] - 1, parts[2]);
       dueDate.setHours(0, 0, 0, 0);
 
-      // Usando Math.round para garantir precisão com fusos horários
       const diffTime = dueDate.getTime() - today.getTime();
       const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
       return diffDays >= 0 && diffDays <= 3;
-    }).sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento));
-  }, [allAR]);
+    });
+
+    const pending = baseList.filter(t => !remindedTodayIds.has(t.numero_documento || t.id));
+    const finished = baseList.filter(t => remindedTodayIds.has(t.numero_documento || t.id));
+
+    return { 
+      pending: pending.sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento)),
+      finished: finished.sort((a, b) => a.data_vencimento.localeCompare(b.data_vencimento))
+    };
+  }, [allAR, allLogs]);
 
   const handleManageClient = async (cliente: string) => {
     setLoading(true);
@@ -137,7 +166,8 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
 
   const calculateDaysOverdue = (dueDateStr: string) => {
     if (!dueDateStr) return 0;
-    const due = new Date(dueDateStr);
+    const parts = dueDateStr.split('-').map(Number);
+    const due = new Date(parts[0], parts[1] - 1, parts[2]);
     const today = new Date();
     today.setHours(0,0,0,0);
     const diffTime = today.getTime() - due.getTime();
@@ -267,20 +297,21 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
     return { priorityList: priority, upToDateList: upToDate };
   }, [debtors, searchTerm]);
 
-  // Função para enviar lembrete simples (Apenas log visual por enquanto)
   const handleSendReminder = async (title: AccountsReceivable) => {
     setIsSubmittingInteraction(true);
     try {
         await FinanceService.addCollectionHistory({
             cliente: title.cliente,
             acao_tomada: 'LEMBRETE_PREVENTIVO',
-            observacao: `LEMBRETE DE VENCIMENTO ENVIADO (DOC: ${title.numero_documento})`,
+            observacao: `LEMBRETE DE VENCIMENTO ENVIADO (DOC: ${title.numero_documento || title.id})`,
             valor_devido: title.saldo,
             dias_atraso: 0,
             usuario: currentUser.name
         });
-        setToast({ msg: 'Lembrete registrado no histórico!', type: 'success' });
-        // Opcional: Atualizar lista de logs se estiver visível
+        setToast({ msg: 'Lembrete registrado!', type: 'success' });
+        // Recarregar logs para atualizar interface dinamicamente
+        const updatedLogs = await FinanceService.getAllCollectionLogs();
+        setAllLogs(updatedLogs);
     } catch(e) {
         setToast({ msg: 'Erro ao registrar lembrete.', type: 'error' });
     } finally {
@@ -296,6 +327,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-10 flex flex-col h-full">
+      <style>{pulseOrangeStyle}</style>
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       
       {!selectedClient ? (
@@ -326,7 +358,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
           <div className="flex-1 min-h-0">
              {activeMainTab === 'CARTEIRA' && (
                 <div className="space-y-8 overflow-y-auto pr-2 custom-scrollbar">
-                   {/* SEÇÃO 1: PRIORIDADE */}
                    {priorityList.length > 0 && (
                        <div>
                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest italic flex items-center gap-2 mb-4 sticky top-0 bg-white/80 backdrop-blur-sm p-2 z-10 rounded-xl border border-amber-100/50">
@@ -360,7 +391,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                        </div>
                    )}
 
-                   {/* SEÇÃO 2: EM DIA / AGENDADOS */}
                    {upToDateList.length > 0 && (
                        <div className="mt-8 pt-8 border-t border-slate-100">
                            <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest italic flex items-center gap-2 mb-4">
@@ -381,7 +411,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                               </span>
                                            ) : (
                                               <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest border border-blue-100">
-                                                 Retorno: {d.nextActionDate ? new Date(d.nextActionDate).toLocaleDateString('pt-BR') : '-'}
+                                                 Retorno: {d.nextActionDate ? d.nextActionDate.split('-').reverse().join('/') : '-'}
                                               </span>
                                            )}
                                         </div>
@@ -411,52 +441,52 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
              )}
 
              {activeMainTab === 'PREVENCAO' && (
-                <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col h-full overflow-hidden">
-                   <div className="px-8 py-5 border-b border-slate-50 bg-indigo-50/50 flex justify-between items-center">
-                      <div>
-                         <h4 className="text-[11px] font-black text-indigo-700 uppercase tracking-widest italic">Boletos a Vencer (Próximos 3 Dias)</h4>
-                         <p className="text-[9px] text-indigo-400 font-bold uppercase mt-1">Ações preventivas reduzem a inadimplência em até 40%</p>
+                <div className="space-y-6 overflow-y-auto pr-2 custom-scrollbar">
+                   {/* SEÇÃO 1: PENDENTES (BOTÃO PISCANTE) */}
+                   <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+                      <div className="px-8 py-5 border-b border-slate-50 bg-indigo-50/50 flex justify-between items-center">
+                         <div>
+                            <h4 className="text-[11px] font-black text-indigo-700 uppercase tracking-widest italic flex items-center gap-2">
+                               <span className="w-2 h-2 rounded-full bg-indigo-600 animate-ping"></span>
+                               Pendentes de Lembrete (Boletos 0-3 dias)
+                            </h4>
+                            <p className="text-[9px] text-indigo-400 font-bold uppercase mt-1">Acione o cliente antes do vencimento para garantir o fluxo</p>
+                         </div>
+                         <div className="bg-white px-4 py-2 rounded-xl border border-indigo-100 shadow-sm">
+                            <span className="text-[10px] font-black text-indigo-600">{preventionGroups.pending.length} Pendentes</span>
+                         </div>
                       </div>
-                      <div className="bg-white px-4 py-2 rounded-xl border border-indigo-100 shadow-sm">
-                         <span className="text-[10px] font-black text-indigo-600">{preventionList.length} Títulos Encontrados</span>
-                      </div>
-                   </div>
-                   <div className="flex-1 overflow-y-auto custom-scrollbar">
                       <table className="w-full text-left">
                          <thead className="bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest sticky top-0 z-10 shadow-sm">
                             <tr>
                                <th className="px-8 py-5">Vencimento</th>
                                <th className="px-8 py-5">Cliente</th>
                                <th className="px-8 py-5 text-right">Valor</th>
-                               <th className="px-8 py-5 text-center">Dias Restantes</th>
+                               <th className="px-8 py-5 text-center">Dias</th>
                                <th className="px-8 py-5 text-right">Ação</th>
                             </tr>
                          </thead>
                          <tbody className="divide-y divide-slate-50 text-[11px]">
-                            {preventionList.map(item => {
+                            {preventionGroups.pending.map(item => {
                                const today = new Date();
                                today.setHours(0,0,0,0);
                                const parts = item.data_vencimento.split('-').map(Number);
                                const dueDate = new Date(parts[0], parts[1]-1, parts[2]);
                                dueDate.setHours(0,0,0,0);
                                const diffTime = dueDate.getTime() - today.getTime();
-                               // Correção: Math.round em vez de ceil para evitar deslocamento de hora
                                const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+                               const displayDate = item.data_vencimento.split('-').reverse().join('/');
                                
-                               let statusColor = 'text-emerald-600 bg-emerald-50 border-emerald-100';
-                               if (diffDays === 0) statusColor = 'text-red-600 bg-red-50 border-red-100 animate-pulse';
-                               else if (diffDays === 1) statusColor = 'text-amber-600 bg-amber-50 border-amber-100';
-
                                return (
                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                                  <td className="px-8 py-5 font-black text-slate-700">{new Date(item.data_vencimento).toLocaleDateString('pt-BR')}</td>
+                                  <td className="px-8 py-5 font-black text-slate-700">{displayDate}</td>
                                   <td className="px-8 py-5">
-                                     <p className="font-black text-slate-900 uppercase italic truncate max-w-[300px]">{item.cliente}</p>
+                                     <p className="font-black text-slate-900 uppercase italic truncate max-w-[250px]">{item.cliente}</p>
                                      <p className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">NF: {item.numero_documento || item.id}</p>
                                   </td>
                                   <td className="px-8 py-5 text-right font-black text-slate-900">R$ {item.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
                                   <td className="px-8 py-5 text-center">
-                                     <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${statusColor}`}>
+                                     <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase border ${diffDays === 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
                                         {diffDays === 0 ? 'HOJE' : diffDays === 1 ? 'AMANHÃ' : `${diffDays} DIAS`}
                                      </span>
                                   </td>
@@ -464,19 +494,58 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                      <button 
                                         onClick={() => handleSendReminder(item)}
                                         disabled={isSubmittingInteraction}
-                                        className="px-4 py-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border border-indigo-100"
+                                        className="px-4 py-2 bg-orange-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all animate-orange-alert border border-orange-400 shadow-lg shadow-orange-200"
                                      >
                                         Registrar Lembrete
                                      </button>
                                   </td>
                                </tr>
                             )})}
-                            {preventionList.length === 0 && (
-                               <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-black uppercase text-[10px]">Nenhum boleto próximo do vencimento (3 dias)</td></tr>
+                            {preventionGroups.pending.length === 0 && (
+                               <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-black uppercase text-[10px]">Tudo em dia! Sem novos boletos pendentes de aviso.</td></tr>
                             )}
                          </tbody>
                       </table>
                    </div>
+
+                   {/* SEÇÃO 2: LEMBRADOS HOJE (BOTÃO VERDE) */}
+                   {preventionGroups.finished.length > 0 && (
+                     <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden opacity-80 hover:opacity-100 transition-opacity">
+                        <div className="px-8 py-5 border-b border-slate-50 bg-emerald-50/50 flex justify-between items-center">
+                           <div>
+                              <h4 className="text-[11px] font-black text-emerald-700 uppercase tracking-widest italic flex items-center gap-2">
+                                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                                 Clientes Lembrados / Avisos Enviados Hoje
+                              </h4>
+                              <p className="text-[9px] text-emerald-500 font-bold uppercase mt-1">Estes títulos já foram notificados por nossa equipe hoje</p>
+                           </div>
+                        </div>
+                        <table className="w-full text-left">
+                           <tbody className="divide-y divide-slate-50 text-[11px]">
+                              {preventionGroups.finished.map(item => {
+                                 const displayDate = item.data_vencimento.split('-').reverse().join('/');
+                                 return (
+                                 <tr key={item.id} className="bg-emerald-50/20 grayscale-0">
+                                    <td className="px-8 py-4 font-black text-slate-400">{displayDate}</td>
+                                    <td className="px-8 py-4 flex-1">
+                                       <p className="font-black text-slate-600 uppercase italic truncate max-w-[250px]">{item.cliente}</p>
+                                       <p className="text-[9px] text-slate-400 font-bold uppercase">NF: {item.numero_documento || item.id}</p>
+                                    </td>
+                                    <td className="px-8 py-4 text-right font-black text-slate-500 italic">R$ {item.saldo.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</td>
+                                    <td className="px-8 py-4 text-right">
+                                       <div className="flex items-center justify-end gap-2 text-emerald-600 font-black text-[9px] uppercase tracking-widest">
+                                          <span>Aviso Enviado</span>
+                                          <div className="w-7 h-7 bg-emerald-600 text-white rounded-full flex items-center justify-center shadow-lg">
+                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg>
+                                          </div>
+                                       </div>
+                                    </td>
+                                 </tr>
+                              )})}
+                           </tbody>
+                        </table>
+                     </div>
+                   )}
                 </div>
              )}
 
@@ -561,9 +630,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
           </div>
         </>
       ) : (
-        /* --- DOSSIÊ DO CLIENTE (MANTIDO E MELHORADO) --- */
         <div className="animate-in slide-in-from-right-4 duration-500 space-y-8 flex flex-col h-full overflow-hidden">
-           {/* ... (Conteúdo do Dossiê mantido sem alterações na lógica, apenas visualização) ... */}
            <div className="flex items-center justify-between border-b border-slate-200 pb-8 shrink-0">
               <div className="flex items-center gap-6">
                  <button onClick={() => setSelectedClient(null)} className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm">
@@ -581,7 +648,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                      <p className="text-xl font-black italic">R$ {clientTitles.reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
                   </div>
                   
-                  {/* NOVO CARD: Em Acordo - Soma dinâmica com validação */}
                   <div className="bg-purple-900 px-6 py-3 rounded-xl text-white shadow-xl border border-purple-800">
                      <p className="text-[8px] font-black text-purple-200 uppercase mb-1">Em Acordo</p>
                      <p className="text-xl font-black italic">
@@ -589,7 +655,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                      </p>
                   </div>
 
-                  {/* CARD: Em Cartório - Soma dinâmica */}
                   <div className="bg-red-900 px-6 py-3 rounded-xl text-white shadow-xl border border-red-800">
                      <p className="text-[8px] font-black text-red-200 uppercase mb-1">Em Cartório</p>
                      <p className="text-xl font-black italic">R$ {clientTitles.filter(t => t.situacao === 'EM CARTORIO').reduce((acc, t) => acc + (t.saldo || 0), 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}</p>
@@ -598,7 +663,6 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
            </div>
 
            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0">
-              {/* COLUNA ESQUERDA: LISTA DE TÍTULOS */}
               <div className="lg:col-span-7 space-y-6 flex flex-col min-h-0">
                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm flex flex-col flex-1 min-h-0">
                     <div className="flex justify-between items-center mb-6 shrink-0 h-12">
@@ -623,6 +687,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                           const isCurrentlyInNotary = t.situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO' || t.statusCobranca === 'BLOQUEADO_CARTORIO';
                           const hasAgreement = !!t.id_acordo && validSettlementIds.has(t.id_acordo);
                           const isSelected = selectedForAgreement.includes(t.id);
+                          const displayVenc = t.data_vencimento.split('-').reverse().join('/');
                           
                           return (
                             <div key={t.id} onClick={() => toggleTitleSelection(t)} className={`p-5 rounded-3xl border-2 transition-all cursor-pointer flex justify-between items-center group ${isSelected ? 'border-blue-600 bg-blue-50/50 shadow-md' : 'border-slate-50 bg-slate-50/30 hover:border-blue-200'}`}>
@@ -636,7 +701,7 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                                         {isCurrentlyInNotary && <span className="bg-red-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter">EM CARTÓRIO</span>}
                                         {hasAgreement && <span className="bg-purple-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter">EM ACORDO</span>}
                                      </div>
-                                     <p className="text-[9px] font-bold text-slate-400 uppercase">Venc: {new Date(t.data_vencimento).toLocaleDateString('pt-BR')} • BOLETO</p>
+                                     <p className="text-[9px] font-bold text-slate-400 uppercase">Venc: {displayVenc} • BOLETO</p>
                                   </div>
                                </div>
                                <div className="text-right">
@@ -647,12 +712,10 @@ const DebtorCollectionModule: React.FC<{ currentUser: User }> = ({ currentUser }
                           );
                        })}
                     </div>
-                    {/* FOOTER REMOVIDO PARA LIMPEZA VISUAL (Botão movido para o topo) */}
                     <div className="mt-4 border-t border-slate-50"></div>
                  </div>
               </div>
 
-              {/* COLUNA DIREITA: AÇÕES RÁPIDAS CRM */}
               <div className="lg:col-span-5 space-y-6 flex flex-col min-h-0">
                  <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm shrink-0">
                     <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest mb-6 italic">Ações Rápidas CRM</h4>
