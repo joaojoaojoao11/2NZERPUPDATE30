@@ -50,7 +50,7 @@ const InboundForm: React.FC<{ user: User, onSuccess: () => void }> = ({ user, on
 
   const downloadTemplate = () => {
     const headers = "sku;quantMl;lote;nfControle;coluna;prateleira;nCaixa;observacao;motivoEntrada";
-    const example = "\nNZW01;15.50;LOTE-ABC;NF-1234;A;1;CX-81;OK;Compra";
+    const example = "\nNZW01;15.50;LOTE-ABC;NF-12345;A;1;CX-81;OK;Compra";
     const blob = new Blob(["\ufeff" + headers + example], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -267,56 +267,59 @@ const InboundForm: React.FC<{ user: User, onSuccess: () => void }> = ({ user, on
                 </div>
               )}
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-1.5">
+            
+            <div className="space-y-1.5">
                 <label className="text-[9px] font-black text-blue-600 uppercase ml-2 tracking-widest italic">2. Metragem Entrada (ML) *</label>
                 <input type="number" step="0.01" value={formData.quantMl || ''} onChange={e => setFormData({...formData, quantMl: parseFloat(e.target.value)})} className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-2xl text-center shadow-inner italic outline-none" placeholder="0.00" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">3. Identificação do Lote *</label>
-                <input value={formData.lote} onChange={e => setFormData({...formData, lote: e.target.value.toUpperCase()})} className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-lg uppercase shadow-inner text-center italic outline-none" placeholder="LOTE FABRICANTE" />
-              </div>
             </div>
 
-            {/* CAMPOS DE LOCALIZAÇÃO TEXTO LIVRE */}
+            {/* Nova Seção: Pátio e Logística */}
+            <div className="space-y-6">
+                <div className="flex items-center gap-3">
+                   <div className="w-1.5 h-6 bg-emerald-600 rounded-full"></div>
+                   <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-[0.2em] italic">Pátio e Logística</h4>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Lote *</label>
+                      <input value={formData.lote} onChange={e => setFormData({...formData, lote: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" placeholder="LOTE FABRICANTE" />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">NF / Controle *</label>
+                      <input value={formData.nfControle} onChange={e => setFormData({...formData, nfControle: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" placeholder="Nº NF..." />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Origem (Fornecedor)</label>
+                      <input value={formData.fornecedor} onChange={e => setFormData({...formData, fornecedor: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" placeholder="FORNECEDOR" />
+                   </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Coluna</label>
+                      <input type="text" value={formData.coluna} onChange={e => setFormData({...formData, coluna: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" placeholder="EX: A, B, Z1..." />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Nível / Prateleira</label>
+                      <input type="text" value={formData.prateleira} onChange={e => setFormData({...formData, prateleira: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" placeholder="EX: 1, 2, CHÃO..." />
+                   </div>
+                   <div className="space-y-1.5">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 italic">Nº Caixa</label>
+                      <input value={formData.nCaixa} onChange={e => setFormData({...formData, nCaixa: e.target.value.toUpperCase()})} className="w-full px-5 py-3.5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-2xl text-xs font-black outline-none italic uppercase" placeholder="EX: 81" />
+                   </div>
+                </div>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                <div className="space-y-1.5">
-                 <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Localização (Texto Livre)</label>
-                 <input 
-                    type="text"
-                    value={formData.coluna} 
-                    onChange={e => setFormData({...formData, coluna: e.target.value.toUpperCase()})} 
-                    className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-xs outline-none shadow-inner uppercase italic"
-                    placeholder="DIGITE A COLUNA / ZONA..."
-                 />
+                  <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Motivo da Entrada *</label>
+                  <select value={formData.motivoEntrada} onChange={e => setFormData({...formData, motivoEntrada: e.target.value})} className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-xs uppercase shadow-inner italic outline-none cursor-pointer">
+                    {INBOUND_REASONS.map(r => <option key={r} value={r}>{r.toUpperCase()}</option>)}
+                  </select>
                </div>
                <div className="space-y-1.5">
-                 <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Nível / Prateleira (Texto Livre)</label>
-                 <input 
-                    type="text"
-                    value={formData.prateleira} 
-                    onChange={e => setFormData({...formData, prateleira: e.target.value.toUpperCase()})} 
-                    className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-xs outline-none shadow-inner uppercase italic"
-                    placeholder="DIGITE O NÍVEL..."
-                 />
+                  <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Observações</label>
+                  <input value={formData.observacao} onChange={e => setFormData({...formData, observacao: e.target.value.toUpperCase()})} className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-xs outline-none shadow-inner italic" placeholder="EMBALAGEM DANIFICADA..." />
                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-               <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Nº Nota Fiscal / Controle *</label>
-                  <input value={formData.nfControle} onChange={e => setFormData({...formData, nfControle: e.target.value.toUpperCase()})} className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-xs outline-none shadow-inner uppercase italic" placeholder="Nº NF..." />
-               </div>
-               <div className="space-y-1.5">
-                  <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Nº Caixa / Posição</label>
-                  <input value={formData.nCaixa} onChange={e => setFormData({...formData, nCaixa: e.target.value.toUpperCase()})} className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-xs outline-none shadow-inner uppercase italic" placeholder="EX: 81" />
-               </div>
-            </div>
-
-            <div className="space-y-1.5">
-               <label className="text-[9px] font-black text-slate-400 uppercase ml-2 tracking-widest italic">Observações do Volume</label>
-               <input value={formData.observacao} onChange={e => setFormData({...formData, observacao: e.target.value.toUpperCase()})} className="w-full px-8 py-5 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-[1.8rem] font-black text-xs outline-none shadow-inner italic" placeholder="EX: EMBALAGEM DANIFICADA..." />
             </div>
 
             <button type="submit" className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black text-sm hover:bg-blue-600 transition-all uppercase tracking-widest shadow-2xl active:scale-95 italic">Lançar Entrada</button>

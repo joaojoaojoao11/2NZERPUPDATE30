@@ -35,7 +35,7 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
   const [filterColumn, setFilterColumn] = useState('');
   const [filterShelf, setFilterShelf] = useState('');
   
-  const [showEmptyRolls, setShowEmptyRolls] = useState(true);
+  const [showEmptyRolls, setShowEmptyRolls] = useState(false);
 
   const canEditItem = currentUser.role === 'DIRETORIA' || currentUser.permissions?.includes('CAN_EDIT');
 
