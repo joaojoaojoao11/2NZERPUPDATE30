@@ -102,11 +102,9 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
       return {
         SKU: p.sku,
         NOME: p.nome,
-        'DISPONIBILIDADE (Ref)': (stockMap[p.sku] || 0).toFixed(2), // Adicionado conforme solicitação (Apenas Referência)
         'CUSTO_FRAC_M (R$)': cFrac,
         'CUSTO_ROLO_M (R$)': cRolo,
         'CUSTO_EXTRA_FRETE_M (R$)': p.costExtraValue || 0,
-        'IMPOSTO_SOBRE_CUSTO (%)': p.costTaxPercent || 0,
         'MARKUP_ROLO_MIN (%)': getMarkup(p.priceRoloMin, cRolo),
         'MARKUP_ROLO_IDEAL (%)': getMarkup(p.priceRoloIdeal, cRolo),
         'MARKUP_FRAC_MIN (%)': getMarkup(p.priceFracMin, cFrac),
@@ -118,8 +116,8 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Gestao_Comercial");
     ws['!cols'] = [
-      { wch: 12 }, { wch: 35 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, 
-      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
+      { wch: 12 }, { wch: 35 }, { wch: 15 }, { wch: 15 }, 
+      { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }
     ];
     XLSX.writeFile(wb, `NZ_Gabarito_Comercial_${new Date().toISOString().slice(0, 10)}.xlsx`);
     setToast({ msg: 'Gabarito comercial gerado!', type: 'success' });
@@ -157,7 +155,6 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
           const nCFrac = parseFloat(row['CUSTO_FRAC_M (R$)']) || 0;
           const nCRolo = parseFloat(row['CUSTO_ROLO_M (R$)']) || 0;
           const nExtra = parseFloat(row['CUSTO_EXTRA_FRETE_M (R$)']) || 0;
-          const nImposto = parseFloat(row['IMPOSTO_SOBRE_CUSTO (%)']) || 0;
           
           // Normaliza Markups (converte 0.3 para 30)
           const nMRoloMin = normalizeMarkup(row['MARKUP_ROLO_MIN (%)']);
@@ -175,7 +172,6 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
             Math.abs(nCFrac - (product.custoUnitarioFrac ?? product.custoUnitario ?? 0)) > 0.001 ||
             Math.abs(nCRolo - (product.custoUnitarioRolo ?? product.custoUnitario ?? 0)) > 0.001 ||
             Math.abs(nExtra - (product.costExtraValue || 0)) > 0.001 ||
-            Math.abs(nImposto - (product.costTaxPercent || 0)) > 0.001 ||
             Math.abs(nPRoloMin - (product.priceRoloMin || 0)) > 0.01 ||
             Math.abs(nPRoloIdeal - (product.priceRoloIdeal || 0)) > 0.01 ||
             Math.abs(nPFracMin - (product.priceFracMin || 0)) > 0.01 ||
@@ -189,7 +185,6 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
               custoUnitarioFrac: nCFrac,
               custoUnitarioRolo: nCRolo,
               costExtraValue: nExtra,
-              costTaxPercent: nImposto,
               priceRoloMin: nPRoloMin,
               priceRoloIdeal: nPRoloIdeal,
               priceFracMin: nPFracMin,

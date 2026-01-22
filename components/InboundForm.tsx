@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { DataService } from '../services/dataService';
-import { User, StockItem, MasterProduct } from '../types';
+import { User, StockItem, MasterProduct, CompanySettings } from '../types';
 import { ICONS, INBOUND_REASONS } from '../constants';
 import Toast from './Toast';
 import { jsPDF } from 'jspdf';
@@ -28,6 +28,7 @@ const InboundForm: React.FC<{ user: User, onSuccess: () => void }> = ({ user, on
   const [isSubmitting, setIsSubmitting] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
 
   const generateRandomLpn = () => {
     // Formato solicitado: NZ-XXXX (4 dígitos numéricos)
@@ -38,8 +39,12 @@ const InboundForm: React.FC<{ user: User, onSuccess: () => void }> = ({ user, on
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const currentCatalog = await DataService.getMasterCatalog();
+        const [currentCatalog, settings] = await Promise.all([
+          DataService.getMasterCatalog(),
+          DataService.getCompanySettings()
+        ]);
         setCatalog(currentCatalog);
+        setCompanySettings(settings);
       } catch (e) {
         console.error("Error fetching initial data for InboundForm:", e);
         setToast({ msg: "Erro ao carregar catálogo.", type: 'error' });
@@ -47,6 +52,102 @@ const InboundForm: React.FC<{ user: User, onSuccess: () => void }> = ({ user, on
     };
     fetchData();
   }, []);
+
+  const generateInboundChecklistPDF = (items: StockItem[]) => {
+    if (items.length === 0) return;
+    try {
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const margin = 15;
+        let y = 20;
+        
+        const colPositions = {
+            lpn: margin + 2,
+            sku: margin + 25,
+            desc: margin + 55,
+            lote: margin + 115,
+            local: margin + 140,
+            qtd: pageWidth - margin - 2,
+        };
+
+        const drawHeader = (isContinuation = false) => {
+            doc.setFontSize(18);
+            doc.setFont('helvetica', 'bold');
+            doc.text(isContinuation ? 'ROMANEIRO DE CONFERÊNCIA (Continuação)' : 'ROMANEIRO DE CONFERÊNCIA - ENTRADA', pageWidth / 2, y, { align: 'center' });
+            y += 10;
+            if (!isContinuation) {
+              doc.setFontSize(9);
+              doc.setFont('helvetica', 'normal');
+              doc.text(`DATA: ${new Date().toLocaleString('pt-BR')}`, margin, y);
+              doc.text(`OPERADOR: ${user.name.toUpperCase()}`, pageWidth - margin, y, { align: 'right' });
+              y += 5;
+              doc.text(`TOTAL DE VOLUMES: ${items.length}`, margin, y);
+            }
+            y += 15;
+
+            // Table Header
+            doc.setFillColor(241, 245, 249); // slate-100
+            doc.rect(margin, y - 5, pageWidth - (margin * 2), 8, 'F');
+            doc.setFontSize(8);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(100, 116, 139); // slate-500
+            
+            doc.text('LPN', colPositions.lpn, y);
+            doc.text('SKU', colPositions.sku, y);
+            doc.text('DESCRIÇÃO', colPositions.desc, y);
+            doc.text('LOTE', colPositions.lote, y);
+            doc.text('LOCAL', colPositions.local, y);
+            doc.text('QTD (ML)', colPositions.qtd, y, { align: 'right' });
+            
+            y += 8;
+        };
+
+        drawHeader();
+
+        // Table Body
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(15, 23, 42); // slate-900
+
+        items.forEach((item, index) => {
+            if (y > 275) {
+                doc.addPage();
+                y = 20;
+                drawHeader(true);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(15, 23, 42);
+            }
+
+            const isEven = index % 2 === 0;
+            if (isEven) {
+                doc.setFillColor(248, 250, 252); // slate-50
+                doc.rect(margin, y - 4, pageWidth - (margin * 2), 7, 'F');
+            }
+
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'bold');
+            doc.text(item.lpn, colPositions.lpn, y);
+            
+            doc.setFont('helvetica', 'normal');
+            doc.text(item.sku, colPositions.sku, y);
+            
+            doc.setFontSize(8);
+            const truncatedDesc = item.nome.length > 35 ? item.nome.substring(0, 35) + '...' : item.nome;
+            doc.text(truncatedDesc, colPositions.desc, y);
+            
+            doc.setFontSize(9);
+            doc.text(item.lote, colPositions.lote, y);
+            doc.text(`${item.coluna}-${item.prateleira}`, colPositions.local, y);
+            doc.text(Number(item.quantMl).toFixed(2), colPositions.qtd, y, { align: 'right' });
+            
+            y += 7; // Fixed row height for single-line layout
+        });
+
+        doc.save(`Romaneiro_Entrada_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e) {
+        console.error("PDF Generation Error:", e);
+        setToast({ msg: 'ERRO AO GERAR PDF.', type: 'error' });
+    }
+  };
 
   const downloadTemplate = () => {
     const headers = "sku;quantMl;lote;nfControle;coluna;prateleira;nCaixa;observacao;motivoEntrada";
@@ -214,9 +315,10 @@ const InboundForm: React.FC<{ user: User, onSuccess: () => void }> = ({ user, on
     try {
       const res = await DataService.processInboundBatch(draftItems, user);
       if (res.success) {
-        setToast({ msg: 'SINCRONIZAÇÃO CONCLUÍDA!', type: 'success' });
+        setToast({ msg: 'CARGA REGISTRADA! GERANDO ROMANEIRO...', type: 'success' });
+        generateInboundChecklistPDF(draftItems);
         setDraftItems([]);
-        setTimeout(onSuccess, 1500);
+        setTimeout(onSuccess, 2000);
       } else throw new Error(res.message);
     } catch (e: any) {
       setToast({ msg: `ERRO AO SALVAR: ${e.message}`, type: 'error' });
