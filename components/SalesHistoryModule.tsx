@@ -71,22 +71,23 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     setIsSyncing(true);
     setToast({ msg: 'Iniciando sincronização com Olist...', type: 'info' });
     try {
-      // 1. Invoca a Edge Function 'sync-olist' para buscar e salvar os dados no backend.
-      const { data, error } = await supabase.functions.invoke('sync-olist');
+      // CORREÇÃO: Invoca a Edge Function correta 'olist-integration'.
+      const { data, error } = await supabase.functions.invoke('olist-integration');
 
       if (error) {
-        // O erro genérico "Failed to send a request" acontece aqui se o nome da função estiver errado.
-        throw new Error(`Falha na Edge Function: ${error.message}`);
+        // O erro "Failed to send a request" geralmente acontece se o nome da função estiver errado ou a função não estiver implantada (deployed).
+        throw new Error(`Falha na comunicação com a Edge Function: ${error.message}`);
       }
 
       const syncCount = data?.upserted_count || 0;
       const readCount = data?.orders_read || 0;
       
+      // A lógica de salvar foi removida. O frontend apenas reage ao resultado.
       if (syncCount > 0) {
-        setToast({ msg: `${syncCount} pedidos novos salvos com sucesso!`, type: 'success' });
-        await fetchData(); // Recarrega a tabela para mostrar os dados novos
+        setToast({ msg: `${syncCount} pedidos novos foram salvos com sucesso!`, type: 'success' });
+        await fetchData(); // Recarrega a tabela para mostrar os dados novos que o robô salvou.
       } else {
-        setToast({ msg: `Leitura concluída (${readCount} analisados), nenhum pedido novo para salvar.`, type: 'info' });
+        setToast({ msg: `Sincronização concluída. ${readCount} pedidos analisados, nenhum novo para salvar.`, type: 'info' });
       }
 
     } catch (err: any) {
