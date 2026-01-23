@@ -1,34 +1,27 @@
-// 1. Importação APENAS do cliente Supabase (usando esm.sh para compatibilidade máxima)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
-// 2. Configuração de CORS
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// 3. Usando Deno.serve (Nativo e Moderno - Sem importação externa de servidor)
 Deno.serve(async (req) => {
-  // Tratamento de Preflight (OPTIONS)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Validação de Chaves
     const OLIST_API_KEY = Deno.env.get('OLIST_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
     if (!OLIST_API_KEY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração incompleta (Verifique os Secrets no Painel).');
+      throw new Error('Configuração incompleta: Verifique se OLIST_API_KEY e SERVICE_ROLE_KEY estão nos Secrets.');
     }
 
-    // Inicializa Supabase
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    // Busca na Olist
-    console.log("Buscando Olist...");
+    console.log("1. Buscando dados na Olist...");
     const olistRes = await fetch('https://api.olist.com/v1/orders', {
       headers: { 
         'Authorization': `Bearer ${OLIST_API_KEY}`,
@@ -38,13 +31,15 @@ Deno.serve(async (req) => {
 
     if (!olistRes.ok) {
       const txt = await olistRes.text();
-      throw new Error(`Erro API Olist (${olistRes.status}): ${txt}`);
+      // Isso vai aparecer no log se a senha da Olist estiver errada
+      console.error("ERRO OLIST:", txt); 
+      throw new Error(`Erro na API Olist (${olistRes.status}): ${txt}`);
     }
 
     const data = await olistRes.json();
-    const orders = data.data || []; // Ajuste conforme resposta real da Olist
+    const orders = data.data || []; 
+    console.log(`2. Pedidos encontrados: ${orders.length}`);
 
-    // Se não tiver pedidos
     if (orders.length === 0) {
       return new Response(
         JSON.stringify({ message: 'Nenhum pedido novo', upserted_count: 0 }),
@@ -52,32 +47,34 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Processamento Simples
-    const rows = [];
-    for (const order of orders) {
+    const rows = orders.flatMap((order: any) => {
         const items = order.items || [];
-        for (const item of items) {
-            rows.push({
-                external_id: `${order.id}-${item.sku}`,
-                order_number: String(order.id),
-                contact_name: order.customer?.name || 'Cliente',
-                sku: item.sku,
-                total_amount: Number(item.price || 0),
-                sales_rep: 'OLIST',
-                imported_at: new Date().toISOString()
-            });
-        }
-    }
+        return items.map((item: any) => ({
+            external_id: `${order.id}-${item.sku}`,
+            order_number: String(order.id),
+            sale_date: order.created_at,
+            status: order.status?.name || 'DESCONHECIDO', // Garante status
+            contact_name: order.customer?.name || 'Cliente',
+            sku: item.sku,
+            description: item.name,
+            quantity: Number(item.quantity || 1),
+            unit_price: Number(item.price || 0),
+            total_amount: Number(item.price || 0) * Number(item.quantity || 1),
+            sales_rep: 'OLIST',
+            imported_at: new Date().toISOString()
+        }));
+    });
 
-    // Salvar no Banco
-    let count = 0;
-    if (rows.length > 0) {
-        const { error, count: upsertCount } = await supabase
-            .from('sales_history')
-            .upsert(rows, { onConflict: 'external_id', count: 'exact' });
-        
-        if (error) throw error;
-        count = upsertCount || 0;
+    console.log(`3. Tentando salvar ${rows.length} itens no banco...`);
+    
+    const { error, count } = await supabase
+        .from('sales_history')
+        .upsert(rows, { onConflict: 'external_id', count: 'exact' });
+    
+    if (error) {
+        // Isso vai aparecer no log se for erro de permissão ou tabela
+        console.error("ERRO BANCO DE DADOS:", JSON.stringify(error));
+        throw error;
     }
 
     return new Response(
@@ -86,6 +83,9 @@ Deno.serve(async (req) => {
     );
 
   } catch (err: any) {
+    // AQUI ESTÁ O SEGREDO: Imprime o erro no painel do Supabase
+    console.error("ERRO FATAL:", err.message);
+    
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
