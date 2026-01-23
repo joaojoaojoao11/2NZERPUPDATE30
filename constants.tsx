@@ -6,6 +6,8 @@ export const CATEGORIES = ['PPF', 'PPF FUME', 'ENVELOPAMENTO', 'SPEED WRAPPING',
 export const REASONS = ['Venda', 'Troca', 'Defeito', 'Ajuste'];
 export const INBOUND_REASONS = ['Compra', 'Devolução de Cliente', 'Ajuste de Inventário', 'Retorno de Demonstração', 'Outros'];
 
+export const SALES_TEAM = ['Joy Victor', 'Erick Clemente', 'João Vitor', 'Danillo Britto'];
+
 export const SYSTEM_FEATURES: { id: ViewType | string; label: string; group: string }[] = [
   { id: 'INVENTARIO', label: 'Estoque / Pátio', group: 'LOGÍSTICA' },
   { id: 'BI_ESTOQUE', label: 'BI Estoque', group: 'LOGÍSTICA' },
@@ -21,8 +23,9 @@ export const SYSTEM_FEATURES: { id: ViewType | string; label: string; group: str
   { id: 'BI_CAIXA', label: 'Fluxo de Caixa Diário', group: 'FINANCEIRO' },
   { id: 'BI_DESPESAS', label: 'BI Despesas', group: 'FINANCEIRO' }, 
   { id: 'SALES_PRICETABLE', label: 'Tabela de Preços', group: 'COMERCIAL' },
-  { id: 'SALES_BI', label: 'BI Vendas', group: 'COMERCIAL' }, // Novo Item
+  { id: 'SALES_BI', label: 'BI Vendas', group: 'COMERCIAL' },
   { id: 'SALES_HISTORY', label: 'Histórico de Vendas', group: 'COMERCIAL' },
+  { id: 'CRM', label: 'CRM / Pipeline', group: 'COMERCIAL' },
   { id: 'GESTAO_USUARIOS', label: 'Administrar Usuários', group: 'SISTEMA' },
   { id: 'CONFIGURACOES', label: 'Parâmetros Globais', group: 'SISTEMA' },
   { id: 'CAN_EDIT', label: 'Permitir Edição Cadastral', group: 'AÇÕES' },
@@ -82,5 +85,11 @@ export const ICONS = {
   ),
   Edit: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+  ),
+  Phone: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+  ),
+  Instagram: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
   )
 };

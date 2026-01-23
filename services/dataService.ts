@@ -1,557 +1,532 @@
 
-// ... imports (mantidos)
 import { supabaseClient as supabase } from './core';
 import { InventoryService } from './inventoryService';
-import { FinanceService } from './financeService';
 import { UserService } from './userService';
+import { FinanceService } from './financeService';
 import { 
-  StockItem, AuditLog, User, MasterProduct, CompanySettings, 
-  InventoryUpdateStaging, InventorySession, AccountsReceivable, 
-  DebtorInfo, WarehouseLayout, ApprovalCase, InboundRequest, 
-  AccountsPayable, Settlement, APStagingItem, ARStagingItem, SalesHistoryItem 
+  StockItem, User, MasterProduct, AuditLog, 
+  InventoryUpdateStaging, WithdrawalReason, 
+  ApprovalCase, InboundRequest, DebtorInfo, 
+  SalesHistoryItem, CRMOpportunity, CompanySettings, InventorySession, CRMInteraction
 } from '../types';
 
 export class DataService {
-  // ... (métodos anteriores mantidos até getDebtorsSummary)
-  static async getInventory() { return InventoryService.getInventory(); }
-  static async updateStockItem(item: StockItem, user: User) { return InventoryService.updateStockItem(item, user); }
-  static async saveInventory(items: StockItem[]) { return InventoryService.saveInventory(items); }
-  static async getLogs() { return InventoryService.getLogs(); }
-  static async getLogsByLpn(lpn: string) { return InventoryService.getLogsByLpn(lpn); }
-  
-  static async addLog(user: User, action: string, sku: string = '', lpn: string = '', qty: number = 0, details: string, lote?: string, name?: string, valorOperacao?: number, nfControle?: string, tipo: string = 'LOGISTICA', category?: string, motivo?: string, cliente?: string) {
+  // --- INVENTORY DELEGATION ---
+  static async getInventory(): Promise<StockItem[]> {
+    return InventoryService.getInventory();
+  }
+
+  static async getLogsByLpn(lpn: string): Promise<AuditLog[]> {
+    return InventoryService.getLogsByLpn(lpn);
+  }
+
+  static async updateStockItem(item: StockItem, user: User): Promise<{success: boolean, message?: string}> {
+    return InventoryService.updateStockItem(item, user);
+  }
+
+  static async addLog(user: User, action: string, sku: string, lpn: string, qty: number, details: string, lote?: string, name?: string, valorOperacao?: number, nfControle?: string, tipo?: string, category?: string, motivo?: string, cliente?: string) {
     return InventoryService.addLog(user, action, sku, lpn, qty, details, lote, name, valorOperacao, nfControle, tipo, category, motivo, cliente);
   }
-  static async getLayout() { return InventoryService.getLayout(); }
-  static async saveLayout(layout: WarehouseLayout) { return InventoryService.saveLayout(layout); }
-  static async getInventorySessions() { return InventoryService.getInventorySessions(); }
-  static async saveInventorySession(session: InventorySession) { return InventoryService.saveInventorySession(session); }
+
+  static async getLogs(): Promise<AuditLog[]> {
+    return InventoryService.getLogs();
+  }
+
+  static async getLayout() {
+    return InventoryService.getLayout();
+  }
+
+  static async saveLayout(layout: any) {
+    return InventoryService.saveLayout(layout);
+  }
+
+  static async processInboundBatch(items: StockItem[], user: User, filename?: string) {
+    return InventoryService.processInboundBatchAtomic(items, user);
+  }
+
+  static async processWithdrawalBatch(items: any[], user: User) {
+    return InventoryService.processWithdrawalBatchAtomic(items, user);
+  }
   
+  static async registerWithdrawalBatch(items: any[], user: User) {
+    return this.processWithdrawalBatch(items, user);
+  }
+
+  static async processInventoryUpdateStaging(items: any[]) {
+    return InventoryService.processInventoryUpdateStaging(items);
+  }
+
   static async commitInventoryBatch(staging: InventoryUpdateStaging[], user: User) {
     return InventoryService.commitInventoryBatch(staging, user);
   }
 
-  static async addProduct(item: any, user: User) { return InventoryService.addProduct(item, user); }
-  static async processInboundBatch(items: StockItem[], user: User, fileName?: string) {
-    const res = await InventoryService.processInboundBatchAtomic(items, user);
-    if (res.success && fileName) {
-      await FinanceService.saveFinancialLog(user, 'IMPORTACAO_ESTOQUE', 'N/A', `Importação: ${fileName}`, items.length);
-    }
-    return res;
+  static async saveInventorySession(session: InventorySession) {
+    return InventoryService.saveInventorySession(session);
   }
 
-  static async getInboundRequests(): Promise<InboundRequest[]> {
-    const { data, error } = await supabase.from('inbound_requests').select('*').order('timestamp', { ascending: false });
-    if (error) throw error;
-    return data;
+  static async getInventorySessions() {
+    return InventoryService.getInventorySessions();
   }
 
-  static async processInboundRequest(id: string, action: 'APROVAR' | 'RECUSAR', admin: User, relato: string, costs: Record<string, number>) {
-    const { data: request, error: fetchErr } = await supabase.from('inbound_requests').select('*').eq('id', id).single();
-    if (fetchErr) throw fetchErr;
-
-    if (action === 'APROVAR' && request.items) {
-      const itemsToProcess = request.items.map((it: any, idx: number) => ({
-        ...it,
-        custoUnitario: costs[`${it.sku}_${idx}`] || it.custoUnitario || 0
-      }));
-      await InventoryService.processInboundBatchAtomic(itemsToProcess, admin);
+  static async setAuditLock(lock: any) {
+    if (lock) {
+       localStorage.setItem('nz_audit_lock', JSON.stringify(lock));
+    } else {
+       localStorage.removeItem('nz_audit_lock');
     }
+    return true;
+  }
 
-    const { error } = await supabase.from('inbound_requests').update({ 
-      status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO', 
-      aprovador: admin.name, 
-      relato: relato 
-    }).eq('id', id);
-    
+  // --- USER / SETTINGS DELEGATION ---
+  static async login(email: string, pass: string) {
+    return UserService.login(email, pass);
+  }
+
+  static async getUsers() {
+    return UserService.getUsers();
+  }
+
+  static async saveUser(user: User, admin: User) {
+    return UserService.saveUser(user);
+  }
+
+  static async deleteUser(id: string, admin: User) {
+    if (!supabase) return false;
+    const { error } = await supabase.from('users').delete().eq('id', id);
     return !error;
   }
 
-  static async getNextLPN() { return InventoryService.getNextLPN(); }
-  static async processInventoryUpdateStaging(items: any[]) { return InventoryService.processInventoryUpdateStaging(items); }
+  static async getCompanySettings() {
+    return UserService.getCompanySettings();
+  }
 
+  static async saveCompanySettings(settings: CompanySettings) {
+    return UserService.saveCompanySettings(settings);
+  }
+
+  // --- FINANCE DELEGATION ---
+  static async getAccountsPayable() {
+    return FinanceService.getAccountsPayable();
+  }
+
+  static async getLastAPImport() {
+    return FinanceService.getLastAPImport();
+  }
+
+  static async processAPStaging(items: any[]) {
+    return FinanceService.processAPStaging(items);
+  }
+
+  static async commitAPBatch(staging: any[], user: User, fileName?: string) {
+    return FinanceService.commitAPBatch(staging, user, fileName);
+  }
+
+  // --- MASTER CATALOG ---
   static async getMasterCatalog(): Promise<MasterProduct[]> {
+    if (!supabase) return [];
     const { data, error } = await supabase.from('master_catalog').select('*').order('sku', { ascending: true });
-    if (error) throw error; 
+    if (error) throw error;
     return (data || []).map(p => ({
-      sku: p.sku,
-      nome: p.nome,
-      categoria: p.categoria,
-      marca: p.marca,
-      fornecedor: p.fornecedor,
-      larguraL: Number(p.largura_l ?? p.larguraL ?? 1.52), 
-      metragemPadrao: Number(p.metragem_padrao ?? p.metragemPadrao ?? 15),
-      estoqueMinimo: Number(p.estoque_minimo ?? p.estoqueMinimo ?? 0), 
-      custoUnitario: Number(p.custo_unitario ?? 0), 
-      custoUnitarioFrac: Number(p.custo_unitario_frac ?? p.custoUnitarioFrac ?? p.custo_unitario ?? 0),
-      custoUnitarioRolo: Number(p.custo_unitario_rolo ?? p.custoUnitarioRolo ?? p.custo_unitario ?? 0),
-      costTaxPercent: Number(p.cost_tax_percent ?? p.costTaxPercent ?? 0),
-      costExtraValue: Number(p.cost_extra_value ?? p.costExtraValue ?? 0),
-      precoVenda: Number(p.preco_venda ?? p.precoVenda ?? 0),
-      ncmCode: p.ncm_code || p.ncmCode,
-      taxOrigin: p.tax_origin !== undefined ? Number(p.tax_origin) : (p.taxOrigin !== undefined ? Number(p.taxOrigin) : undefined),
-      supplierState: p.supplier_state || p.supplierState,
-      costUnit: p.cost_unit || p.costUnit,
-      priceRoloMin: Number(p.price_rolo_min ?? p.priceRoloMin ?? 0),
-      priceRoloIdeal: Number(p.price_rolo_ideal ?? p.priceRoloIdeal ?? 0),
-      priceFracMin: Number(p.price_frac_min ?? p.priceFracMin ?? 0),
-      priceFracIdeal: Number(p.price_frac_ideal ?? p.priceFracIdeal ?? 0),
-      active: p.active ?? true,
-      updatedAt: p.updated_at || p.created_at
+        sku: p.sku,
+        nome: p.nome,
+        categoria: p.categoria,
+        marca: p.marca,
+        fornecedor: p.fornecedor,
+        larguraL: Number(p.largura_l),
+        metragemPadrao: Number(p.metragem_padrao),
+        estoqueMinimo: Number(p.estoque_minimo),
+        custoUnitario: Number(p.custo_unitario),
+        precoVenda: Number(p.preco_venda),
+        custoUnitarioFrac: Number(p.custo_unitario_frac ?? p.custo_unitario),
+        custoUnitarioRolo: Number(p.custo_unitario_rolo ?? p.custo_unitario),
+        costExtraValue: Number(p.cost_extra_value),
+        costTaxPercent: Number(p.cost_tax_percent),
+        priceRoloMin: Number(p.price_rolo_min),
+        priceRoloIdeal: Number(p.price_rolo_ideal),
+        priceFracMin: Number(p.price_frac_min),
+        priceFracIdeal: Number(p.price_frac_ideal),
+        active: p.active,
+        updatedAt: p.updated_at,
+        taxOrigin: p.tax_origin,
+        ncmCode: p.ncm_code,
+        supplierState: p.supplier_state
     }));
   }
 
-  static async updateMasterProduct(product: MasterProduct, user: User, oldSku: string): Promise<{ success: boolean; warning?: string }> {
-    const fullPayload = {
-      sku: product.sku,
-      nome: product.nome, 
-      categoria: product.categoria, 
-      marca: product.marca, 
-      fornecedor: product.fornecedor,
-      largura_l: Number(product.larguraL || 0), 
-      metragem_padrao: Number(product.metragemPadrao || 0), 
-      estoque_minimo: Number(product.estoqueMinimo || 0), 
-      custo_unitario: Number(product.custoUnitario || 0), 
-      custo_unitario_frac: Number(product.custoUnitarioFrac || 0),
-      custo_unitario_rolo: Number(product.custoUnitarioRolo || 0),
-      cost_tax_percent: Number(product.costTaxPercent || 0),
-      cost_extra_value: Number(product.costExtraValue || 0),
-      preco_venda: Number(product.precoVenda || 0),
-      ncm_code: product.ncmCode,
-      tax_origin: product.taxOrigin !== undefined ? Number(product.taxOrigin) : null,
-      supplier_state: product.supplierState,
-      cost_unit: product.costUnit,
-      price_rolo_min: Number(product.priceRoloMin || 0),
-      price_rolo_ideal: Number(product.priceRoloIdeal || 0),
-      price_frac_min: Number(product.priceFracMin || 0),
-      price_frac_ideal: Number(product.priceFracIdeal || 0),
-      active: product.active ?? true,
-      updated_at: new Date().toISOString()
+  static async updateMasterProduct(product: Partial<MasterProduct>, user: User, originalSku: string): Promise<{ success: boolean; message?: string; warning?: string }> {
+    if (!supabase) return { success: false, message: 'Offline' };
+    
+    const payload = {
+        sku: product.sku,
+        nome: product.nome,
+        categoria: product.categoria,
+        marca: product.marca,
+        fornecedor: product.fornecedor,
+        largura_l: product.larguraL,
+        metragem_padrao: product.metragemPadrao,
+        estoque_minimo: product.estoqueMinimo,
+        custo_unitario: product.custoUnitario,
+        preco_venda: product.precoVenda,
+        active: product.active,
+        custo_unitario_frac: product.custoUnitarioFrac,
+        custo_unitario_rolo: product.custoUnitarioRolo,
+        cost_extra_value: product.costExtraValue,
+        cost_tax_percent: product.costTaxPercent,
+        price_rolo_min: product.priceRoloMin,
+        price_rolo_ideal: product.priceRoloIdeal,
+        price_frac_min: product.priceFracMin,
+        price_frac_ideal: product.priceFracIdeal,
+        updated_at: new Date().toISOString(),
+        ncm_code: product.ncmCode,
+        tax_origin: product.taxOrigin,
+        supplier_state: product.supplierState,
+        cost_unit: product.costUnit
     };
 
-    const { error } = await supabase
-      .from('master_catalog')
-      .update(fullPayload)
-      .eq('sku', oldSku);
-    
-    if (error) {
-        if (error.code === 'PGRST204' || error.code === '42703' || (error.message && error.message.includes('column'))) {
-            const basicPayload = {
-                sku: product.sku,
-                nome: product.nome,
-                categoria: product.categoria,
-                largura_l: Number(product.larguraL || 1.52),
-                metragem_padrao: Number(product.metragemPadrao || 15),
-                custo_unitario: Number(product.custoUnitario || 0),
-                updated_at: new Date().toISOString()
-            };
+    const { error } = await supabase.from('master_catalog').update(payload).eq('sku', originalSku);
+    if (error) return { success: false, message: error.message };
 
-            const { error: retryError } = await supabase
-                .from('master_catalog')
-                .update(basicPayload)
-                .eq('sku', oldSku);
-
-            if (retryError) throw new Error(`Falha crítica: ${retryError.message}`);
-            
-            return { 
-                success: true, 
-                warning: "SUCESSO PARCIAL: O custo foi salvo no campo principal. Para custos independentes (Rolo vs Frac), aplique o script SQL em 'Parâmetros Globais'." 
-            };
-        }
-        throw new Error(`Erro: ${error.message}`);
-    }
-    
-    await this.addLog(user, 'REAJUSTE_COMERCIAL', product.sku, '', 0, `Atualização de preços: Rolo (R$ ${product.priceRoloIdeal}) | Frac (R$ ${product.priceFracIdeal})`, undefined, product.nome, product.custoUnitario, undefined, 'COMERCIAL');
-    
+    await this.addLog(user, 'EDICAO_MASTER_COMERCIAL', product.sku!, '', 0, 'Atualização de parâmetros comerciais/cadastrais.');
     return { success: true };
+  }
+
+  static async addProduct(product: any, user: User) {
+    return InventoryService.addProduct(product, user);
   }
 
   static async importMasterProducts(items: MasterProduct[], user: User) {
     return InventoryService.importMasterProducts(items);
   }
 
-  static async getSalesHistory(limit = 100): Promise<SalesHistoryItem[]> {
+  // --- SALES & CRM ---
+  static async getSalesHistory(limit: number = 500): Promise<SalesHistoryItem[]> {
+    if (!supabase) return [];
     const { data, error } = await supabase.from('sales_history').select('*').order('sale_date', { ascending: false }).limit(limit);
     if (error) throw error;
-    return (data || []).map(row => ({
-      id: row.id,
-      externalId: row.external_id,
-      orderNumber: row.order_number,
-      saleDate: row.sale_date,
-      expectedDate: row.expected_date,
-      status: row.status,
-      notes: row.notes,
-      contactId: row.contact_id,
-      contactName: row.contact_name,
-      personType: row.person_type,
-      cpfCnpj: row.cpf_cnpj,
-      rgIe: row.rg_ie,
-      email: row.email,
-      phone: row.phone,
-      mobile: row.mobile,
-      zipCode: row.zip_code,
-      address: row.address,
-      addressNumber: row.address_number,
-      complement: row.complement,
-      neighborhood: row.neighborhood,
-      city: row.city,
-      state: row.state,
-      productIdExternal: row.product_id_external,
-      sku: row.sku,
-      description: row.description,
-      quantity: Number(row.quantity || 0),
-      unitPrice: Number(row.unit_price || 0),
-      itemDiscount: Number(row.item_discount || 0),
-      orderDiscount: Number(row.order_discount || 0),
-      orderFreight: Number(row.order_freight || 0),
-      orderExpenses: Number(row.order_expenses || 0),
-      proratedDiscount: Number(row.prorated_discount || 0),
-      proratedFreight: Number(row.prorated_freight || 0),
-      proratedExpenses: Number(row.prorated_expenses || 0),
-      trackingCode: row.tracking_code,
-      salesRep: row.sales_rep,
-      purchaseOrderNumber: row.purchase_order_number,
-      recipientName: row.recipient_name,
-      recipientCpfCnpj: row.recipient_cpf_cnpj,
-      recipientZipCode: row.recipient_zip_code,
-      recipientAddress: row.recipient_address,
-      recipientAddressNumber: row.recipient_address_number,
-      recipientComplement: row.recipient_complement,
-      recipientNeighborhood: row.recipient_neighborhood,
-      recipientCity: row.recipient_city,
-      recipientState: row.recipient_state,
-      recipientPhone: row.recipient_phone,
-      importedAt: row.imported_at,
-      totalAmount: Number(row.unit_price || 0) * Number(row.quantity || 0),
-      totalFreight: Number(row.order_freight || 0)
+    return (data || []).map(s => ({
+        id: s.id,
+        externalId: s.external_id,
+        orderNumber: s.order_number,
+        saleDate: s.sale_date,
+        status: s.status,
+        contactName: s.contact_name,
+        sku: s.sku,
+        description: s.description,
+        quantity: Number(s.quantity),
+        unitPrice: Number(s.unit_price),
+        totalAmount: Number(s.total_amount),
+        salesRep: s.sales_rep,
+        trackingCode: s.tracking_code
     }));
   }
 
   static async getSalesByIds(ids: string[]): Promise<SalesHistoryItem[]> {
-    if (ids.length === 0) return [];
+    if (!supabase || ids.length === 0) return [];
     const { data, error } = await supabase.from('sales_history').select('*').in('external_id', ids);
-    if (error) return [];
-    return (data || []).map(row => ({
-      id: row.id,
-      externalId: row.external_id,
-      orderNumber: row.order_number,
-      saleDate: row.sale_date,
-      expectedDate: row.expected_date,
-      status: row.status,
-      notes: row.notes,
-      contactId: row.contact_id,
-      contactName: row.contact_name,
-      personType: row.person_type,
-      cpfCnpj: row.cpf_cnpj,
-      rgIe: row.rg_ie,
-      email: row.email,
-      phone: row.phone,
-      mobile: row.mobile,
-      zipCode: row.zip_code,
-      address: row.address,
-      addressNumber: row.address_number,
-      complement: row.complement,
-      neighborhood: row.neighborhood,
-      city: row.city,
-      state: row.state,
-      productIdExternal: row.product_id_external,
-      sku: row.sku,
-      description: row.description,
-      quantity: Number(row.quantity || 0),
-      unitPrice: Number(row.unit_price || 0),
-      itemDiscount: Number(row.item_discount || 0),
-      orderDiscount: Number(row.order_discount || 0),
-      orderFreight: Number(row.order_freight || 0),
-      orderExpenses: Number(row.order_expenses || 0),
-      proratedDiscount: Number(row.prorated_discount || 0),
-      proratedFreight: Number(row.prorated_freight || 0),
-      proratedExpenses: Number(row.prorated_expenses || 0),
-      trackingCode: row.tracking_code,
-      salesRep: row.sales_rep,
-      purchaseOrderNumber: row.purchase_order_number,
-      recipientName: row.recipient_name,
-      recipientCpfCnpj: row.recipient_cpf_cnpj,
-      recipientZipCode: row.recipient_zip_code,
-      recipientAddress: row.recipient_address,
-      recipientAddressNumber: row.recipient_address_number,
-      recipientComplement: row.recipient_complement,
-      recipientNeighborhood: row.recipient_neighborhood,
-      recipientCity: row.recipient_city,
-      recipientState: row.recipient_state,
-      recipientPhone: row.recipient_phone,
-      importedAt: row.imported_at
+    if (error) throw error;
+    return (data || []).map(s => ({
+        id: s.id,
+        externalId: s.external_id,
+        status: s.status
     }));
   }
 
-  static async importSalesHistoryBatch(items: SalesHistoryItem[], user: User): Promise<{ success: boolean, count: number }> {
-    // ... (mesma implementação do método importSalesHistoryBatch existente)
-    const buildPayload = (item: SalesHistoryItem, includeUser: boolean) => {
-        const payload: any = {
-            external_id: item.externalId,
-            order_number: item.orderNumber,
-            sale_date: item.saleDate ? item.saleDate : null,
-            expected_date: item.expectedDate ? item.expectedDate : null,
-            status: item.status,
-            notes: item.notes,
-            contact_id: item.contactId,
-            contact_name: item.contactName,
-            person_type: item.personType,
-            cpf_cnpj: item.cpfCnpj,
-            rg_ie: item.rgIe,
-            email: item.email,
-            phone: item.phone,
-            mobile: item.mobile,
-            zip_code: item.zipCode,
-            address: item.address,
-            address_number: item.addressNumber,
-            complement: item.complement,
-            neighborhood: item.neighborhood,
-            city: item.city,
-            state: item.state,
-            product_id_external: item.productIdExternal,
-            sku: item.sku,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-            item_discount: item.itemDiscount,
-            order_discount: item.orderDiscount,
-            order_freight: item.orderFreight,
-            order_expenses: item.orderExpenses,
-            prorated_discount: item.proratedDiscount,
-            prorated_freight: item.proratedFreight,
-            prorated_expenses: item.proratedExpenses,
-            tracking_code: item.trackingCode,
-            sales_rep: item.salesRep,
-            purchase_order_number: item.purchaseOrderNumber,
-            recipient_name: item.recipientName,
-            recipient_cpf_cnpj: item.recipientCpfCnpj,
-            recipient_zip_code: item.recipientZipCode,
-            recipient_address: item.recipientAddress,
-            recipient_address_number: item.recipientAddressNumber,
-            recipient_complement: item.recipientComplement,
-            recipient_neighborhood: item.recipientNeighborhood,
-            recipient_city: item.recipientCity,
-            recipient_state: item.recipientState,
-            recipient_phone: item.recipientPhone,
-            imported_at: new Date().toISOString()
-        };
-
-        if (includeUser) payload.imported_by = user.id;
-        if (item.id) payload.id = item.id;
-        
-        return payload;
-    };
-
-    const itemsToUpdate = items.filter(i => !!i.id);
-    const itemsToInsert = items.filter(i => !i.id);
+  static async importSalesHistoryBatch(items: SalesHistoryItem[], user: User): Promise<{ success: boolean; count: number }> {
+    if (!supabase) return { success: false, count: 0 };
     
-    if (itemsToUpdate.length > 0) {
-        const uniqueItemsToUpdate = Array.from(new Map(itemsToUpdate.map(item => [item.id, item])).values());
-        let updatePayloads = uniqueItemsToUpdate.map(i => buildPayload(i, true));
-        
-        let { error: updateError } = await supabase.from('sales_history').upsert(updatePayloads, { onConflict: 'id' });
-        
-        if (updateError && (updateError.code === '23503' || updateError.message.includes('imported_by'))) {
-            updatePayloads = uniqueItemsToUpdate.map(i => buildPayload(i, false));
-            const { error: retryError } = await supabase.from('sales_history').upsert(updatePayloads, { onConflict: 'id' });
-            if (retryError) throw retryError;
-        } else if (updateError) {
-            throw updateError;
-        }
-    }
+    const dbItems = items.map(i => ({
+        external_id: i.externalId,
+        order_number: i.orderNumber,
+        sale_date: i.saleDate,
+        status: i.status,
+        contact_name: i.contactName,
+        sku: i.sku,
+        description: i.description,
+        quantity: i.quantity,
+        unit_price: i.unitPrice,
+        total_amount: (i.quantity || 0) * (i.unitPrice || 0),
+        sales_rep: i.salesRep,
+        tracking_code: i.trackingCode
+    }));
 
-    if (itemsToInsert.length > 0) {
-        const uniqueItemsToInsert = Array.from(new Map(itemsToInsert.map(item => [item.externalId, item])).values());
-        
-        const insertPayloads = uniqueItemsToInsert.map(item => {
-            const payload = buildPayload(item, true);
-            if (!payload.id) {
-              payload.id = crypto.randomUUID();
-            }
-            return payload;
-        });
-
-        let { error: insertError } = await supabase.from('sales_history').insert(insertPayloads);
-        
-        if (insertError && (insertError.code === '23503' || insertError.message.includes('imported_by'))) {
-            const retryPayloads = uniqueItemsToInsert.map(item => {
-                const payload = buildPayload(item, false);
-                if (!payload.id) {
-                  payload.id = crypto.randomUUID();
-                }
-                return payload;
-            });
-            const { error: retryError } = await supabase.from('sales_history').insert(retryPayloads);
-            if (retryError) throw retryError;
-        } else if (insertError) {
-            throw insertError;
-        }
-    }
-    
+    const { error } = await supabase.from('sales_history').upsert(dbItems, { onConflict: 'external_id' });
+    if (error) throw error;
     return { success: true, count: items.length };
   }
 
-  static async getAccountsReceivable() { return FinanceService.getAccountsReceivable(); }
-  static async getAccountsPayable() { return FinanceService.getAccountsPayable(); }
-  static async getLastAPImport() { return FinanceService.getLastAPImport(); }
-
-  static async processAPStaging(items: AccountsPayable[]): Promise<APStagingItem[]> {
-    return FinanceService.processAPStaging(items);
+  // --- CRM: Opportunities ---
+  static async getCRMOpportunities(): Promise<CRMOpportunity[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase.from('crm_opportunities').select('*').order('created_at', { ascending: false });
+    if (error) {
+        if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
+        throw error;
+    }
+    return (data || []).map(d => ({
+        id: d.id,
+        clientName: d.client_name,
+        companyName: d.company_name,
+        phone: d.phone,
+        status: d.status,
+        nextFollowUp: d.next_follow_up,
+        notes: d.notes,
+        createdAt: d.created_at,
+        ownerId: d.owner_id,
+        // New Fields
+        instagramLink: d.instagram_link,
+        prospector: d.prospector,
+        attendant: d.attendant
+    }));
   }
 
-  static async commitAPBatch(staging: APStagingItem[], user: User, fileName?: string) {
-    return FinanceService.commitAPBatch(staging, user, fileName);
+  static async saveCRMOpportunity(opp: CRMOpportunity): Promise<{ success: boolean; message?: string; id?: string }> {
+    if (!supabase) return { success: false, message: 'Offline' };
+    const payload: any = {
+        client_name: opp.clientName,
+        company_name: opp.companyName,
+        phone: opp.phone,
+        status: opp.status,
+        next_follow_up: opp.nextFollowUp || null,
+        notes: opp.notes || null,
+        updated_at: new Date().toISOString(),
+        owner_id: opp.ownerId, // Preserve owner
+        // New Fields
+        instagram_link: opp.instagramLink || null,
+        prospector: opp.prospector || null,
+        attendant: opp.attendant || null
+    };
+    if (opp.id) payload.id = opp.id;
+
+    const { data, error } = await supabase.from('crm_opportunities').upsert(payload, { onConflict: 'id' }).select('id').single();
+    if (error) throw error;
+    return { success: true, id: data.id };
   }
 
-  static async login(email: string, pass: string) { return UserService.login(email, pass); }
-  static async getUsers() { return UserService.getUsers(); }
-  static async saveUser(user: User, admin: User) { return UserService.saveUser(user); }
-  static async deleteUser(id: string, admin: User) { 
-    const { error } = await supabase.from('users').delete().eq('id', id);
+  static async deleteCRMOpportunity(id: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase.from('crm_opportunities').delete().eq('id', id);
     return !error;
   }
-  static async getCompanySettings() { return UserService.getCompanySettings(); }
-  static async saveCompanySettings(settings: CompanySettings) { return UserService.saveCompanySettings(settings); }
 
-  static async registerWithdrawalBatch(items: any[], user: User) {
-    return InventoryService.processWithdrawalBatchAtomic(items, user);
+  // --- CRM: Interactions / Feed ---
+  
+  static async getCRMInteractions(opportunityId: string): Promise<CRMInteraction[]> {
+    if (!supabase) return [];
+    // Busca interações de um card específico
+    const { data, error } = await supabase
+      .from('crm_interactions')
+      .select('*')
+      .eq('opportunity_id', opportunityId)
+      .order('created_at', { ascending: false });
+      
+    if (error) {
+       // Silent fail if table doesn't exist yet
+       if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
+       return [];
+    }
+
+    return (data || []).map(i => ({
+      id: i.id,
+      opportunityId: i.opportunity_id,
+      userName: i.user_name,
+      content: i.content,
+      createdAt: i.created_at
+    }));
   }
 
+  static async saveCRMInteraction(opportunityId: string, userName: string, content: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase.from('crm_interactions').insert({
+      opportunity_id: opportunityId,
+      user_name: userName,
+      content: content,
+      created_at: new Date().toISOString()
+    });
+    return !error;
+  }
+
+  // Feed Global: Traz as últimas interações de TODOS os cards (Dashboard)
+  static async getGlobalCRMFeed(limit = 50): Promise<any[]> {
+    if (!supabase) return [];
+    // Join com crm_opportunities para pegar o nome do cliente
+    const { data, error } = await supabase
+      .from('crm_interactions')
+      .select('*, crm_opportunities(client_name)')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+       if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
+       return [];
+    }
+
+    return (data || []).map(i => ({
+      id: i.id,
+      opportunityId: i.opportunity_id,
+      userName: i.user_name,
+      content: i.content,
+      createdAt: i.created_at,
+      clientName: i.crm_opportunities?.client_name || 'Cliente Removido'
+    }));
+  }
+
+  // --- APPROVAL & INBOUND REQUESTS ---
+  static async getInboundRequests(): Promise<InboundRequest[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase.from('inbound_requests').select('*').order('created_at', { ascending: false });
+    if (error) return [];
+    return data.map(r => ({
+        id: r.id,
+        timestamp: r.created_at,
+        solicitante: r.solicitante,
+        status: r.status,
+        items: r.items, // JSONB
+        aprovador: r.aprovador,
+        relato: r.relato
+    }));
+  }
+
+  static async processInboundRequest(id: string, action: 'APROVAR' | 'RECUSAR', admin: User, relato: string, costs: Record<string, number>): Promise<boolean> {
+    if (!supabase) return false;
+    
+    // 1. Update request
+    const { error } = await supabase.from('inbound_requests').update({
+        status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO',
+        aprovador: admin.name,
+        relato: relato,
+        updated_at: new Date().toISOString()
+    }).eq('id', id);
+    
+    if (error) return false;
+
+    // 2. If approved, create inventory
+    if (action === 'APROVAR') {
+        const { data: req } = await supabase.from('inbound_requests').select('items').eq('id', id).single();
+        if (req && req.items) {
+            const items: StockItem[] = req.items.map((it: any, idx: number) => ({
+                ...it,
+                custoUnitario: costs[`${it.sku}_${idx}`] || 0,
+                responsavel: admin.name,
+                dataEntrada: new Date().toISOString()
+            }));
+            await this.processInboundBatch(items, admin);
+        }
+    }
+    return true;
+  }
+
+  static async getApprovalCases(): Promise<ApprovalCase[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase.from('approval_cases').select('*').order('created_at', { ascending: false });
+    if (error) return [];
+    return data.map(c => ({
+        id: c.id,
+        timestamp: c.created_at,
+        status: c.status,
+        sku: c.sku,
+        motivo: c.motivo,
+        lpn: c.lpn,
+        solicitante: c.solicitante,
+        cliente: c.cliente,
+        quantidade: Number(c.quantidade),
+        pedido: c.pedido,
+        aprovador: c.aprovador,
+        parecer: c.parecer
+    }));
+  }
+
+  static async processCase(id: string, action: 'APROVAR' | 'RECUSAR', admin: User, relato: string): Promise<{ success: boolean; message?: string }> {
+    if (!supabase) return { success: false, message: 'Offline' };
+    
+    const { data: caseItem } = await supabase.from('approval_cases').select('*').eq('id', id).single();
+    if (!caseItem) return { success: false, message: 'Caso não encontrado' };
+
+    const { error } = await supabase.from('approval_cases').update({
+        status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO',
+        aprovador: admin.name,
+        parecer: relato,
+        updated_at: new Date().toISOString()
+    }).eq('id', id);
+
+    if (error) return { success: false, message: error.message };
+
+    if (action === 'APROVAR') {
+        const item = {
+            lpn: caseItem.lpn,
+            sku: caseItem.sku,
+            quantidade: caseItem.quantidade,
+            motivo: caseItem.motivo,
+            relato: `Aprovado por ${admin.name}: ${relato}`,
+            extra: { pedido: caseItem.pedido, cliente: caseItem.cliente }
+        };
+        if (caseItem.lpn) {
+            await this.processWithdrawalBatch([item], admin);
+        }
+    }
+
+    return { success: true };
+  }
+
+  // --- UTILS & AGGREGATIONS ---
   static async isOrderIdUsed(orderId: string): Promise<boolean> {
+    if (!supabase) return false;
     const { data } = await supabase.from('audit_logs').select('id').eq('nfControle', orderId).limit(1);
-    return !!data && data.length > 0;
+    return (data && data.length > 0);
   }
-
-  static async setAuditLock(lock: any): Promise<void> { }
 
   static async getDebtorsSummary(): Promise<DebtorInfo[]> {
-    const [ar, { data: historyData }, { data: settlementsData }] = await Promise.all([
-      this.getAccountsReceivable(),
-      supabase.from('collection_history').select('cliente, data_proxima_acao').order('data_registro', { ascending: false }),
-      supabase.from('settlements').select('id, status')
-    ]);
-  
-    // CRITICAL FIX: Filtrar apenas acordos ATIVOS ou LIQUIDADOS (ignorar CANCELADOS)
-    const validSettlementIds = new Set((settlementsData || [])
-        .filter(s => s.status !== 'CANCELADO')
-        .map(s => s.id));
+    if (!supabase) return [];
+    
+    const { data: arData, error } = await supabase.from('accounts_receivable').select('*');
+    if (error) return [];
 
-    const nextActionMap: Record<string, string> = {};
-    if (historyData) {
-      historyData.forEach((h: any) => {
-        if (!nextActionMap[h.cliente] && h.data_proxima_acao) {
-          nextActionMap[h.cliente] = h.data_proxima_acao;
+    const map = new Map<string, DebtorInfo>();
+    const today = new Date().toISOString().split('T')[0];
+
+    arData.forEach((item: any) => {
+        const cliente = item.Cliente;
+        if (!cliente) return;
+
+        if (!map.has(cliente)) {
+            map.set(cliente, {
+                cliente,
+                totalVencido: 0,
+                vencidoAte15d: 0,
+                vencidoMais15d: 0,
+                enviarCartorio: 0,
+                emAcordo: 0,
+                qtdTitulos: 0,
+                statusCobranca: 'REGULAR',
+                protocoloAtual: '',
+                enviadoCartorio: false,
+                acordoAtrasado: 0
+            });
         }
-      });
-    }
-  
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); 
-    const debtorsMap: Record<string, DebtorInfo> = {};
-  
-    ar.forEach(t => {
-      const situacao = (t.situacao || '').toUpperCase().trim();
-      const formaPgto = (t.forma_pagamento || '').toUpperCase().trim();
-      
-      let dueDate: Date | null = null;
-      if (t.data_vencimento) {
-        const parts = t.data_vencimento.split('-').map(Number);
-        if (parts.length === 3) {
-            dueDate = new Date(parts[0], parts[1] - 1, parts[2]);
+
+        const info = map.get(cliente)!;
+        const saldo = Number(item.Saldo || 0);
+        
+        if (item.situacao === 'EM CARTORIO' || item.status_cobranca === 'CARTORIO') {
+            info.enviadoCartorio = true;
+            info.enviarCartorio += saldo;
+            info.statusCobranca = 'CARTORIO';
+        } else if (item.id_acordo) {
+            info.emAcordo += saldo;
+            if (item['Data Vencimento'] < today && saldo > 0) {
+                info.acordoAtrasado = (info.acordoAtrasado || 0) + saldo;
+            }
+        } else if (saldo > 0.01 && item['Data Vencimento'] < today) {
+            info.totalVencido += saldo;
+            info.qtdTitulos++;
+            
+            const diffDays = (new Date(today).getTime() - new Date(item['Data Vencimento']).getTime()) / (1000 * 3600 * 24);
+            if (diffDays <= 15) info.vencidoAte15d += saldo;
+            else info.vencidoMais15d += saldo;
+            
+            if (info.statusCobranca !== 'CARTORIO') info.statusCobranca = 'COBRANCA';
         }
-      }
-
-      // Validação Estrita de Acordo: deve ter ID e existir na lista de IDs VÁLIDOS
-      const hasAgreement = !!t.id_acordo && validSettlementIds.has(t.id_acordo);
-      const isCartorio = situacao === 'EM CARTORIO' || t.statusCobranca === 'CARTORIO';
-      
-      const validStatuses = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'EM CARTORIO', 'NEGOCIADO'];
-      const isValidStatus = validStatuses.includes(situacao);
-      
-      const isDateOverdue = dueDate && dueDate < today;
-
-      // LÓGICA DE FILTRAGEM REFINADA:
-      const isBoleto = formaPgto === 'BOLETO';
-      if (!isBoleto && !hasAgreement) return;
-
-      const isEligibleForCollection = 
-          (t.saldo > 0.01 || hasAgreement) && 
-          isValidStatus && 
-          (hasAgreement || isCartorio || isDateOverdue);
-
-      if (!isEligibleForCollection) return;
-  
-      if (!debtorsMap[t.cliente]) {
-        debtorsMap[t.cliente] = {
-          cliente: t.cliente,
-          totalVencido: 0,
-          vencidoAte15d: 0,
-          vencidoMais15d: 0,
-          enviarCartorio: 0,
-          emAcordo: 0,
-          acordoAtrasado: 0, // Inicia zerado
-          qtdTitulos: 0,
-          statusCobranca: 'PENDENTE',
-          protocoloAtual: `COB-${Date.now().toString().slice(-6)}`,
-          enviadoCartorio: false,
-          nextActionDate: nextActionMap[t.cliente]
-        };
-      }
-  
-      const info = debtorsMap[t.cliente];
-      
-      // Lógica de Acordo (Novo Bucket)
-      if (hasAgreement) {
-          info.emAcordo += t.saldo;
-          info.qtdTitulos += 1;
-          
-          // CRITICAL FIX: Se for uma parcela de acordo VENCIDA, soma no novo contador
-          if (isDateOverdue && t.saldo > 0.01) {
-              info.acordoAtrasado = (info.acordoAtrasado || 0) + t.saldo;
-          }
-          return; 
-      }
-
-      // Se tinha ID de acordo mas não é válido (cancelado/inexistente), conta como dívida comum
-      info.totalVencido += t.saldo;
-      info.qtdTitulos += 1;
-  
-      // 2. Lógica de Cartório (Bucket específico - apenas flag)
-      if (isCartorio) {
-        info.enviarCartorio += t.saldo;
-        info.enviadoCartorio = true;
-      }
-      
-      // 3. Lógica de Dias de Atraso (Bucket de Aging)
-      if (dueDate && isDateOverdue) {
-        const diffDays = Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays <= 15) {
-          info.vencidoAte15d += t.saldo;
-        } else {
-          info.vencidoMais15d += t.saldo;
-        }
-      }
     });
-  
-    // Filtra apenas clientes que tenham alguma pendência (Vencido, Acordo ou Cartório)
-    return Object.values(debtorsMap)
-        .filter(d => d.totalVencido > 0 || d.emAcordo > 0 || d.enviarCartorio > 0)
-        .sort((a, b) => b.totalVencido - a.totalVencido);
-  }
 
-  static async sendToNotary(cliente: string, user: User): Promise<boolean> {
-    return true; 
-  }
-
-  static async getApprovalCases() {
-    const { data, error } = await supabase.from('approval_cases').select('*').order('timestamp', { ascending: false });
-    if (error) throw error; 
-    return data;
-  }
-
-  static async processCase(id: string, action: 'APROVAR' | 'RECUSAR', admin: User, relato: string) {
-    const { error } = await supabase.from('approval_cases').update({ status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO', aprovador: admin.name, parecer: relato }).eq('id', id);
-    if (error) throw error; 
-    return { success: !error, message: error?.message };
+    return Array.from(map.values());
   }
 }

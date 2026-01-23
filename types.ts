@@ -22,7 +22,8 @@ export type ViewType =
   | 'RH_SERVICE_ORDERS'
   | 'SALES_PRICETABLE' 
   | 'SALES_HISTORY'   
-  | 'SALES_BI'        // Nova View
+  | 'SALES_BI'
+  | 'CRM'
   | 'CONFIGURACOES'
   | 'MOVEMENTS_LIST';
 
@@ -393,4 +394,30 @@ export interface SalesHistoryItem {
   importedAt?: string;
   totalAmount?: number;
   totalFreight?: number;
+}
+
+// --- TIPOS DO CRM ---
+export type CRMStatus = 'PROSPECCAO' | 'QUALIFICADO' | 'NEGOCIACAO' | 'GANHO' | 'PERDIDO';
+
+export interface CRMOpportunity {
+  id?: string;
+  clientName: string;
+  companyName?: string;
+  phone?: string;
+  instagramLink?: string; // Novo
+  prospector?: string;    // Novo (SDR)
+  attendant?: string;     // Novo (Closer)
+  status: CRMStatus;
+  nextFollowUp?: string;
+  notes?: string;
+  createdAt?: string;
+  ownerId?: string;
+}
+
+export interface CRMInteraction {
+  id: string;
+  opportunityId: string;
+  userName: string;
+  content: string;
+  createdAt: string;
 }
