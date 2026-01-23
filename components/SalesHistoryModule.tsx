@@ -25,7 +25,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
   
   const [showImportModal, setShowImportModal] = useState(false);
   const [stagingData, setStagingData] = useState<SalesStagingItem[]>([]);
@@ -69,29 +69,28 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     }
 
     setIsSyncing(true);
-    setToast({ msg: 'Iniciando sincronização com Olist...', type: 'success' });
+    setToast({ msg: 'Iniciando sincronização com Olist...', type: 'info' });
     try {
-      const { data, error } = await supabase.functions.invoke('olist-integration');
+      // 1. Invoca a Edge Function 'sync-olist' para buscar e salvar os dados no backend.
+      const { data, error } = await supabase.functions.invoke('sync-olist');
 
       if (error) {
+        // O erro genérico "Failed to send a request" acontece aqui se o nome da função estiver errado.
         throw new Error(`Falha na Edge Function: ${error.message}`);
       }
 
-      const olistItems = data.data as SalesHistoryItem[];
-      if (!olistItems || olistItems.length === 0) {
-        setToast({ msg: 'Nenhum novo pedido encontrado na Olist.', type: 'warning' });
-        setIsSyncing(false);
-        return;
+      const syncCount = data?.upserted_count || 0;
+      const readCount = data?.orders_read || 0;
+      
+      if (syncCount > 0) {
+        setToast({ msg: `${syncCount} pedidos novos salvos com sucesso!`, type: 'success' });
+        await fetchData(); // Recarrega a tabela para mostrar os dados novos
+      } else {
+        setToast({ msg: `Leitura concluída (${readCount} analisados), nenhum pedido novo para salvar.`, type: 'info' });
       }
 
-      const result = await DataService.importSalesHistoryBatch(olistItems, user);
-      if (result.success) {
-        setToast({ msg: `${result.count} registros da Olist foram sincronizados!`, type: 'success' });
-        await fetchData();
-      } else {
-        throw new Error('Falha ao salvar os dados da Olist no banco.');
-      }
     } catch (err: any) {
+      console.error("Erro detalhado na sincronização:", err);
       setToast({ msg: `Erro na sincronização: ${err.message}`, type: 'error' });
     } finally {
       setIsSyncing(false);
