@@ -5,11 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Delay para respeitar o limite de requisições do Tiny (evita erro 429)
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 Deno.serve(async (req) => {
-  // Marca o início para controlar o tempo limite
   const startTime = performance.now();
 
   if (req.method === 'OPTIONS') {
@@ -32,26 +30,23 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`1. Iniciando Sincronização Inteligente Tiny -> NZERP...`);
+    console.log(`1. Iniciando Sincronização Corretiva Tiny -> NZERP...`);
 
     let pagina = 1;
-    const itemsPorPagina = 30; // Lote seguro
+    const itemsPorPagina = 30; 
     let stopExecution = false;
     let totalSalvo = 0;
     let totalIgnorado = 0;
     const allRows: any[] = [];
 
-    // --- LOOP DE PÁGINAS ---
     while (!stopExecution) {
-        // Verifica tempo limite (45s de segurança)
         if ((performance.now() - startTime) > 45000) {
-            console.log("Tempo limite atingido. Encerrando ciclo.");
+            console.log("Tempo limite de segurança atingido.");
             break;
         }
 
         console.log(`--- Analisando Página ${pagina}...`);
         
-        // 1. Busca lista da página atual
         const urlBusca = new URL('https://api.tiny.com.br/api2/pedidos.pesquisa.php');
         urlBusca.searchParams.set('token', token);
         urlBusca.searchParams.set('formato', 'json');
@@ -63,11 +58,10 @@ Deno.serve(async (req) => {
 
         if (jsonBusca.retorno.status === 'Erro') {
             if (jsonBusca.retorno.codigo_erro == 20) {
-                console.log("Fim do histórico de pedidos.");
+                console.log("Fim do histórico.");
                 stopExecution = true;
                 break;
             }
-            // Se der erro de API, paramos sem quebrar tudo
             console.warn(`Aviso Tiny: ${jsonBusca.retorno.erros[0].erro}`);
             stopExecution = true;
             break;
@@ -79,34 +73,38 @@ Deno.serve(async (req) => {
             break;
         }
 
-        // 2. VERIFICAÇÃO INTELIGENTE (O Pulo do Gato 🐈)
-        // Extrai os números dos pedidos dessa página
+        // --- INTELIGÊNCIA APRIMORADA (Status + Vendedor) ---
         const numerosPedidos = listaPedidos.map((i: any) => String(i.pedido.numero));
         
-        // Consulta no banco quais desses já existem
+        // Agora buscamos também o 'sales_rep' para conferir se está genérico
         const { data: existentes } = await supabase
             .from('sales_history')
-            .select('order_number, status')
+            .select('order_number, status, sales_rep')
             .in('order_number', numerosPedidos);
 
-        // Cria um mapa para busca rápida: { '123': 'Entregue', '124': 'Aprovado' }
         const mapaExistentes = new Map();
         existentes?.forEach((row: any) => {
-            mapaExistentes.set(row.order_number, row.status);
+            // Guardamos um objeto com status e vendedor
+            mapaExistentes.set(row.order_number, { status: row.status, vendedor: row.sales_rep });
         });
 
-        // Filtra: Só processa o que NÃO existe ou o que MUDOU de status
+        // Filtro Inteligente
         const pedidosParaProcessar = listaPedidos.filter((i: any) => {
             const numero = String(i.pedido.numero);
             const statusTiny = i.pedido.situacao;
-            const statusBanco = mapaExistentes.get(numero);
+            const dadosBanco = mapaExistentes.get(numero);
 
-            // Se não existe no banco, processa.
-            if (!statusBanco) return true;
-            // Se existe mas o status mudou (ex: era 'Aprovado' virou 'Enviado'), processa.
-            if (statusBanco !== statusTiny) return true;
+            // 1. Se não existe no banco, processa (Novo)
+            if (!dadosBanco) return true;
+
+            // 2. Se o status mudou, processa (Atualização)
+            if (dadosBanco.status !== statusTiny) return true;
+
+            // 3. Se o Vendedor no banco é o genérico "Tiny ERP", FORÇA A ATUALIZAÇÃO
+            //    (Isso vai corrigir os nomes que ficaram errados)
+            if (dadosBanco.vendedor === 'Tiny ERP') return true;
             
-            // Se é igual, ignora.
+            // Se tudo estiver certo e igual, ignora
             return false;
         });
 
@@ -114,16 +112,14 @@ Deno.serve(async (req) => {
         totalIgnorado += ignoradosNessaPagina;
 
         if (pedidosParaProcessar.length === 0) {
-            console.log(`>> Página ${pagina} 100% sincronizada. Pulando para a próxima...`);
+            console.log(`>> Página ${pagina} perfeita. Pulando...`);
             pagina++;
-            continue; // PULA IMEDIATAMENTE PARA A PRÓXIMA PÁGINA
+            continue; 
         }
 
-        console.log(`>> Processando ${pedidosParaProcessar.length} novos/atualizados (Ignorados: ${ignoradosNessaPagina})...`);
+        console.log(`>> Processando ${pedidosParaProcessar.length} pedidos (Novos/Correções)...`);
 
-        // 3. Busca detalhes APENAS dos necessários
         for (const itemLista of pedidosParaProcessar) {
-            // Verifica tempo dentro do loop
             if ((performance.now() - startTime) > 48000) {
                 stopExecution = true;
                 break;
@@ -132,7 +128,6 @@ Deno.serve(async (req) => {
             const idPedido = itemLista.pedido.id;
             
             try {
-                // Delay necessário para pegar detalhes
                 await delay(1500); 
                 
                 const urlDetalhe = new URL('https://api.tiny.com.br/api2/pedido.obter.php');
@@ -153,6 +148,9 @@ Deno.serve(async (req) => {
                             dataVendaISO = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00Z`).toISOString();
                         }
                     }
+
+                    // Tenta encontrar o nome correto em vários campos
+                    const vendedorFinal = p.nome_vendedor || p.vendedor || p.ecommerce || 'Tiny ERP';
 
                     const itens = p.itens || [{ item: { codigo: 'GEN', descricao: 'Item Genérico', quantidade: 1, valor_unitario: p.valor_total } }];
 
@@ -186,7 +184,7 @@ Deno.serve(async (req) => {
                             total_amount: Number(i.valor_total || (Number(i.quantidade) * Number(i.valor_unitario))),
                             total_freight: Number(p.valor_frete || 0),
                             total_discount: Number(p.valor_desconto || 0),
-                            sales_rep: p.vendedor || 'Tiny ERP'
+                            sales_rep: vendedorFinal // Atualiza o nome aqui
                         });
                     });
                 }
@@ -195,25 +193,21 @@ Deno.serve(async (req) => {
             }
         }
 
-        pagina++; // Prepara próxima página
+        pagina++; 
     }
 
-    // 4. Salva o lote acumulado
     if (allRows.length > 0) {
         const { error, count } = await supabase
             .from('sales_history')
             .upsert(allRows, { onConflict: 'external_id', count: 'exact' });
         
-        if (error) {
-            console.error("Erro Supabase:", error);
-            throw error;
-        }
+        if (error) throw error;
         totalSalvo = allRows.length;
     }
 
     return new Response(
       JSON.stringify({ 
-          message: `Ciclo concluído! Salvos: ${totalSalvo}. Já sincronizados (pulo): ${totalIgnorado}.`, 
+          message: `Processado! Salvos/Corrigidos: ${totalSalvo}. Ignorados: ${totalIgnorado}.`, 
           upserted_count: totalSalvo,
           skipped_count: totalIgnorado,
           partial: stopExecution
