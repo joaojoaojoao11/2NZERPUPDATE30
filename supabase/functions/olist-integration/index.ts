@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`1. Iniciando Sincronização (Correção Profunda de Vendedor)...`);
+    console.log(`1. Iniciando Sincronização (Modo Definitivo)...`);
 
     let pagina = 1;
     const itemsPorPagina = 30; 
@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
             break;
         }
 
-        // --- LÓGICA DE FILTRO INTELIGENTE ---
+        // --- LÓGICA DE FILTRO ---
         const numerosPedidos = listaPedidos.map((i: any) => String(i.pedido.numero));
         
         const { data: existentes } = await supabase
@@ -94,7 +94,11 @@ Deno.serve(async (req) => {
             if (!dadosBanco) return true; // Novo
             if (dadosBanco.status !== statusTiny) return true; // Status mudou
             
-            // CORREÇÃO: Se está como "Tiny ERP" no banco, TENTA corrigir
+            // AQUI ESTÁ A CORREÇÃO DO LOOP:
+            // Se no banco estiver "Tiny ERP", significa que tentamos antes e falhou (ou é importação velha).
+            // Vamos tentar de novo.
+            // Se no banco JÁ estiver "Sem Vendedor", significa que já conferimos e confirmamos que é vazio.
+            // Então PULAMOS.
             if (dadosBanco.vendedor === 'Tiny ERP') return true;
             
             return false;
@@ -109,7 +113,7 @@ Deno.serve(async (req) => {
             continue; 
         }
 
-        console.log(`>> Processando ${pedidosParaProcessar.length} pedidos para correção...`);
+        console.log(`>> Processando ${pedidosParaProcessar.length} pedidos...`);
 
         // --- DETALHAMENTO ---
         for (const itemLista of pedidosParaProcessar) {
@@ -142,26 +146,23 @@ Deno.serve(async (req) => {
                         }
                     }
 
-                    // --- NOVA LÓGICA DE EXTRAÇÃO DE VENDEDOR ---
+                    // --- EXTRAÇÃO DE VENDEDOR ---
                     let nomeVendedor = null;
 
-                    // 1. Tenta campo direto 'nome_vendedor'
                     if (p.nome_vendedor && typeof p.nome_vendedor === 'string' && p.nome_vendedor.length > 1) {
                         nomeVendedor = p.nome_vendedor;
                     }
-                    
-                    // 2. Tenta objeto 'vendedor' (ex: { nome: 'Joao' })
                     if (!nomeVendedor && p.vendedor && typeof p.vendedor === 'object' && p.vendedor.nome) {
                         nomeVendedor = p.vendedor.nome;
                     }
-
-                    // 3. Tenta string 'vendedor'
                     if (!nomeVendedor && p.vendedor && typeof p.vendedor === 'string') {
                         nomeVendedor = p.vendedor;
                     }
 
-                    // 4. Último caso: Canal de Venda (Ecommerce)
-                    const vendedorFinal = nomeVendedor || p.ecommerce || 'Tiny ERP';
+                    // A GRANDE MUDANÇA:
+                    // Se não achou nada, grava "Sem Vendedor".
+                    // Isso é diferente de "Tiny ERP", então o loop vai entender que acabou.
+                    const vendedorFinal = nomeVendedor || p.ecommerce || 'Sem Vendedor';
 
                     const itens = p.itens || [{ item: { codigo: 'GEN', descricao: 'Item Genérico', quantidade: 1, valor_unitario: p.valor_total } }];
 
@@ -195,7 +196,8 @@ Deno.serve(async (req) => {
                             total_amount: Number(i.valor_total || (Number(i.quantidade) * Number(i.valor_unitario))),
                             total_freight: Number(p.valor_frete || 0),
                             total_discount: Number(p.valor_desconto || 0),
-                            sales_rep: vendedorFinal // Nome corrigido
+                            
+                            sales_rep: vendedorFinal // Grava "Sem Vendedor" se estiver vazio
                         });
                     });
                 }
@@ -218,7 +220,7 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-          message: `Lote OK! Salvos/Corrigidos: ${totalSalvo}. Ignorados: ${totalIgnorado}.`, 
+          message: `Processado! Salvos: ${totalSalvo}. Ignorados: ${totalIgnorado}.`, 
           upserted_count: totalSalvo,
           skipped_count: totalIgnorado,
           partial: stopExecution
