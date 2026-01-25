@@ -1,4 +1,3 @@
-
 import { supabaseClient as supabase } from './core';
 import { InventoryService } from './inventoryService';
 import { UserService } from './userService';
@@ -201,6 +200,7 @@ export class DataService {
   // --- SALES & CRM ---
   static async getSalesHistory(limit: number = 500): Promise<SalesHistoryItem[]> {
     if (!supabase) return [];
+    // AQUI ESTÁ A MUDANÇA: Mapeamento dos novos campos financeiros
     const { data, error } = await supabase.from('sales_history').select('*').order('sale_date', { ascending: false }).limit(limit);
     if (error) throw error;
     return (data || []).map(s => ({
@@ -214,9 +214,14 @@ export class DataService {
         description: s.description,
         quantity: Number(s.quantity),
         unitPrice: Number(s.unit_price),
-        totalAmount: Number(s.total_amount),
         salesRep: s.sales_rep,
-        trackingCode: s.tracking_code
+        trackingCode: s.tracking_code,
+
+        // NOVOS CAMPOS PARA O DRE
+        totalAmount: Number(s.total_amount || 0),
+        totalFreight: Number(s.total_freight || 0),
+        orderDiscount: Number(s.order_discount || 0),
+        totalDiscount: Number(s.total_discount || 0)
     }));
   }
 
@@ -246,7 +251,10 @@ export class DataService {
         unit_price: i.unitPrice,
         total_amount: (i.quantity || 0) * (i.unitPrice || 0),
         sales_rep: i.salesRep,
-        tracking_code: i.trackingCode
+        tracking_code: i.trackingCode,
+        // Adicione também na importação manual, se usar
+        total_freight: i.totalFreight,
+        order_discount: i.orderDiscount
     }));
 
     const { error } = await supabase.from('sales_history').upsert(dbItems, { onConflict: 'external_id' });
@@ -272,7 +280,6 @@ export class DataService {
         notes: d.notes,
         createdAt: d.created_at,
         ownerId: d.owner_id,
-        // New Fields
         instagramLink: d.instagram_link,
         prospector: d.prospector,
         attendant: d.attendant
@@ -289,8 +296,7 @@ export class DataService {
         next_follow_up: opp.nextFollowUp || null,
         notes: opp.notes || null,
         updated_at: new Date().toISOString(),
-        owner_id: opp.ownerId, // Preserve owner
-        // New Fields
+        owner_id: opp.ownerId, 
         instagram_link: opp.instagramLink || null,
         prospector: opp.prospector || null,
         attendant: opp.attendant || null
@@ -309,10 +315,8 @@ export class DataService {
   }
 
   // --- CRM: Interactions / Feed ---
-  
   static async getCRMInteractions(opportunityId: string): Promise<CRMInteraction[]> {
     if (!supabase) return [];
-    // Busca interações de um card específico
     const { data, error } = await supabase
       .from('crm_interactions')
       .select('*')
@@ -320,7 +324,6 @@ export class DataService {
       .order('created_at', { ascending: false });
       
     if (error) {
-       // Silent fail if table doesn't exist yet
        if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
        return [];
     }
@@ -345,10 +348,8 @@ export class DataService {
     return !error;
   }
 
-  // Feed Global: Traz as últimas interações de TODOS os cards (Dashboard)
   static async getGlobalCRMFeed(limit = 50): Promise<any[]> {
     if (!supabase) return [];
-    // Join com crm_opportunities para pegar o nome do cliente
     const { data, error } = await supabase
       .from('crm_interactions')
       .select('*, crm_opportunities(client_name)')
@@ -389,7 +390,6 @@ export class DataService {
   static async processInboundRequest(id: string, action: 'APROVAR' | 'RECUSAR', admin: User, relato: string, costs: Record<string, number>): Promise<boolean> {
     if (!supabase) return false;
     
-    // 1. Update request
     const { error } = await supabase.from('inbound_requests').update({
         status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO',
         aprovador: admin.name,
@@ -399,7 +399,6 @@ export class DataService {
     
     if (error) return false;
 
-    // 2. If approved, create inventory
     if (action === 'APROVAR') {
         const { data: req } = await supabase.from('inbound_requests').select('items').eq('id', id).single();
         if (req && req.items) {
