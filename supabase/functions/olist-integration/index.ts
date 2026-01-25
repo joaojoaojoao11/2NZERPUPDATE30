@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`1. Iniciando Sincronização Corretiva Tiny -> NZERP...`);
+    console.log(`1. Iniciando Sincronização (Correção Profunda de Vendedor)...`);
 
     let pagina = 1;
     const itemsPorPagina = 30; 
@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
 
     while (!stopExecution) {
         if ((performance.now() - startTime) > 45000) {
-            console.log("Tempo limite de segurança atingido.");
+            console.log("Tempo limite atingido.");
             break;
         }
 
@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
 
         if (jsonBusca.retorno.status === 'Erro') {
             if (jsonBusca.retorno.codigo_erro == 20) {
-                console.log("Fim do histórico.");
+                console.log("Fim da lista.");
                 stopExecution = true;
                 break;
             }
@@ -73,10 +73,9 @@ Deno.serve(async (req) => {
             break;
         }
 
-        // --- INTELIGÊNCIA APRIMORADA (Status + Vendedor) ---
+        // --- LÓGICA DE FILTRO INTELIGENTE ---
         const numerosPedidos = listaPedidos.map((i: any) => String(i.pedido.numero));
         
-        // Agora buscamos também o 'sales_rep' para conferir se está genérico
         const { data: existentes } = await supabase
             .from('sales_history')
             .select('order_number, status, sales_rep')
@@ -84,27 +83,20 @@ Deno.serve(async (req) => {
 
         const mapaExistentes = new Map();
         existentes?.forEach((row: any) => {
-            // Guardamos um objeto com status e vendedor
             mapaExistentes.set(row.order_number, { status: row.status, vendedor: row.sales_rep });
         });
 
-        // Filtro Inteligente
         const pedidosParaProcessar = listaPedidos.filter((i: any) => {
             const numero = String(i.pedido.numero);
             const statusTiny = i.pedido.situacao;
             const dadosBanco = mapaExistentes.get(numero);
 
-            // 1. Se não existe no banco, processa (Novo)
-            if (!dadosBanco) return true;
-
-            // 2. Se o status mudou, processa (Atualização)
-            if (dadosBanco.status !== statusTiny) return true;
-
-            // 3. Se o Vendedor no banco é o genérico "Tiny ERP", FORÇA A ATUALIZAÇÃO
-            //    (Isso vai corrigir os nomes que ficaram errados)
+            if (!dadosBanco) return true; // Novo
+            if (dadosBanco.status !== statusTiny) return true; // Status mudou
+            
+            // CORREÇÃO: Se está como "Tiny ERP" no banco, TENTA corrigir
             if (dadosBanco.vendedor === 'Tiny ERP') return true;
             
-            // Se tudo estiver certo e igual, ignora
             return false;
         });
 
@@ -112,13 +104,14 @@ Deno.serve(async (req) => {
         totalIgnorado += ignoradosNessaPagina;
 
         if (pedidosParaProcessar.length === 0) {
-            console.log(`>> Página ${pagina} perfeita. Pulando...`);
+            console.log(`>> Página ${pagina} OK. Pulando...`);
             pagina++;
             continue; 
         }
 
-        console.log(`>> Processando ${pedidosParaProcessar.length} pedidos (Novos/Correções)...`);
+        console.log(`>> Processando ${pedidosParaProcessar.length} pedidos para correção...`);
 
+        // --- DETALHAMENTO ---
         for (const itemLista of pedidosParaProcessar) {
             if ((performance.now() - startTime) > 48000) {
                 stopExecution = true;
@@ -149,8 +142,26 @@ Deno.serve(async (req) => {
                         }
                     }
 
-                    // Tenta encontrar o nome correto em vários campos
-                    const vendedorFinal = p.nome_vendedor || p.vendedor || p.ecommerce || 'Tiny ERP';
+                    // --- NOVA LÓGICA DE EXTRAÇÃO DE VENDEDOR ---
+                    let nomeVendedor = null;
+
+                    // 1. Tenta campo direto 'nome_vendedor'
+                    if (p.nome_vendedor && typeof p.nome_vendedor === 'string' && p.nome_vendedor.length > 1) {
+                        nomeVendedor = p.nome_vendedor;
+                    }
+                    
+                    // 2. Tenta objeto 'vendedor' (ex: { nome: 'Joao' })
+                    if (!nomeVendedor && p.vendedor && typeof p.vendedor === 'object' && p.vendedor.nome) {
+                        nomeVendedor = p.vendedor.nome;
+                    }
+
+                    // 3. Tenta string 'vendedor'
+                    if (!nomeVendedor && p.vendedor && typeof p.vendedor === 'string') {
+                        nomeVendedor = p.vendedor;
+                    }
+
+                    // 4. Último caso: Canal de Venda (Ecommerce)
+                    const vendedorFinal = nomeVendedor || p.ecommerce || 'Tiny ERP';
 
                     const itens = p.itens || [{ item: { codigo: 'GEN', descricao: 'Item Genérico', quantidade: 1, valor_unitario: p.valor_total } }];
 
@@ -184,7 +195,7 @@ Deno.serve(async (req) => {
                             total_amount: Number(i.valor_total || (Number(i.quantidade) * Number(i.valor_unitario))),
                             total_freight: Number(p.valor_frete || 0),
                             total_discount: Number(p.valor_desconto || 0),
-                            sales_rep: vendedorFinal // Atualiza o nome aqui
+                            sales_rep: vendedorFinal // Nome corrigido
                         });
                     });
                 }
@@ -207,7 +218,7 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-          message: `Processado! Salvos/Corrigidos: ${totalSalvo}. Ignorados: ${totalIgnorado}.`, 
+          message: `Lote OK! Salvos/Corrigidos: ${totalSalvo}. Ignorados: ${totalIgnorado}.`, 
           upserted_count: totalSalvo,
           skipped_count: totalIgnorado,
           partial: stopExecution
