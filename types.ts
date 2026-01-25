@@ -342,7 +342,6 @@ export interface LeaveRecord {
   status: 'AGENDADO' | 'EM_ANDAMENTO' | 'CONCLUIDO';
   notes?: string;
 }
-
 export interface SalesHistoryItem {
   id?: string;
   externalId?: string;
@@ -372,8 +371,15 @@ export interface SalesHistoryItem {
   quantity?: number;
   unitPrice?: number;
   itemDiscount?: number;
-  orderDiscount?: number;
-  orderFreight?: number;
+  
+  // --- CAMPOS FINANCEIROS CRITICOS (DRE) ---
+  orderDiscount?: number;   // Desconto total do pedido
+  totalAmount?: number;     // Valor total da linha (Qtd * Preço)
+  totalFreight?: number;    // Frete total do pedido
+  totalDiscount?: number;   // Campo auxiliar para descontos gerais
+  // -----------------------------------------
+
+  orderFreight?: number;    // Mantive para compatibilidade (pode ser redundante com totalFreight)
   orderExpenses?: number;
   proratedDiscount?: number;
   proratedFreight?: number;
@@ -392,8 +398,6 @@ export interface SalesHistoryItem {
   recipientState?: string;
   recipientPhone?: string;
   importedAt?: string;
-  totalAmount?: number;
-  totalFreight?: number;
 }
 
 // --- TIPOS DO CRM ---
