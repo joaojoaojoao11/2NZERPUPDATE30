@@ -5,10 +5,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Delay para respeitar o limite de requisições do Tiny
+// Delay aumentado para 1.5s para evitar bloqueio "API Blocked" do Tiny
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 Deno.serve(async (req) => {
+  const startTime = performance.now(); // Marca o início da execução
+
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -29,46 +31,69 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`1. Iniciando Sincronização Tiny -> NZERP...`);
+    console.log(`1. Iniciando Sincronização Segura Tiny -> NZERP...`);
 
+    // --- CONFIGURAÇÃO DE SEGURANÇA ---
     let pagina = 1;
-    const itemsPorPagina = 50; 
-    let continuarBuscando = true;
+    // Reduzimos para 30 para garantir que dá tempo de processar tudo com o delay lento
+    const itemsPorPagina = 30; 
     let totalProcessado = 0;
     const allRows: any[] = [];
+    let stopExecution = false;
 
-    // --- LOOP INFINITO (Busca até acabar os pedidos) ---
-    while (continuarBuscando) {
-        console.log(`--- Processando Página ${pagina}...`);
+    // Loop de Páginas
+    while (!stopExecution) {
+        // Verifica se já passamos de 45 segundos de execução (Limite seguro do Supabase é 60s)
+        if ((performance.now() - startTime) > 45000) {
+            console.log("Tempo limite de segurança atingido. Salvando lote parcial...");
+            break;
+        }
+
+        console.log(`--- Buscando Página ${pagina} (Lote de ${itemsPorPagina})...`);
         
-        // 1. Busca lista de IDs
         const urlBusca = new URL('https://api.tiny.com.br/api2/pedidos.pesquisa.php');
         urlBusca.searchParams.set('token', token);
         urlBusca.searchParams.set('formato', 'json');
         urlBusca.searchParams.set('limit', String(itemsPorPagina));
         urlBusca.searchParams.set('pagina', String(pagina));
-        // urlBusca.searchParams.set('dataInicial', '01/01/2025'); // Opcional: Filtro de data
+        // urlBusca.searchParams.set('dataInicial', '01/01/2025'); // Opcional
 
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
+        // Tratamento especial para erro de bloqueio
         if (jsonBusca.retorno.status === 'Erro') {
+            const erroMsg = jsonBusca.retorno.erros[0].erro;
+            
             if (jsonBusca.retorno.codigo_erro == 20) {
                 console.log("Fim da lista de pedidos no Tiny.");
-                continuarBuscando = false;
+                stopExecution = true;
                 break;
             }
-            throw new Error(`Erro Tiny Busca: ${jsonBusca.retorno.erros[0].erro}`);
+            
+            if (erroMsg.includes("API Bloqueada") || erroMsg.includes("acessos")) {
+                console.warn("Alerta de Bloqueio Tiny: Parando por agora.");
+                stopExecution = true;
+                break;
+            }
+            
+            throw new Error(`Erro Tiny Busca: ${erroMsg}`);
         }
 
         const listaPedidos = jsonBusca.retorno.pedidos || [];
         if (listaPedidos.length === 0) {
-            continuarBuscando = false;
+            stopExecution = true;
             break;
         }
 
-        // 2. Busca detalhes de cada pedido
+        // Loop de Pedidos (Detalhes)
         for (const itemLista of listaPedidos) {
+            // Verificação de tempo dentro do loop também
+            if ((performance.now() - startTime) > 48000) {
+                stopExecution = true;
+                break;
+            }
+
             const idPedido = itemLista.pedido.id;
             
             const urlDetalhe = new URL('https://api.tiny.com.br/api2/pedido.obter.php');
@@ -77,7 +102,8 @@ Deno.serve(async (req) => {
             urlDetalhe.searchParams.set('formato', 'json');
 
             try {
-                await delay(200); // Pausa leve
+                // DELAY AUMENTADO: 1.5 segundos entre pedidos (aprox 40 req/min, seguro)
+                await delay(1500); 
                 
                 const resDetalhe = await fetch(urlDetalhe.toString());
                 const jsonDetalhe = await resDetalhe.json();
@@ -85,7 +111,6 @@ Deno.serve(async (req) => {
                 if (jsonDetalhe.retorno.status === 'OK') {
                     const p = jsonDetalhe.retorno.pedido;
                     
-                    // Formata Data (dd/mm/aaaa -> ISO)
                     let dataVendaISO = new Date().toISOString();
                     if (p.data_pedido) {
                         const parts = p.data_pedido.split('/'); 
@@ -96,33 +121,26 @@ Deno.serve(async (req) => {
 
                     const itens = p.itens || [{ item: { codigo: 'GEN', descricao: 'Item Genérico', quantidade: 1, valor_unitario: p.valor_total } }];
 
-                    // PROCESSA CADA ITEM DO PEDIDO (Linhas da sua Planilha)
                     itens.forEach((wrapper: any, index: number) => {
                         const i = wrapper.item;
-                        
-                        // ID ÚNICO INFALÍVEL: ID_PEDIDO + ÍNDICE_DO_ITEM (ex: 388162264-1)
-                        // Isso garante que se tiver 2 itens, teremos 2 linhas no banco, igual na planilha.
+                        // ID Único: ID_Pedido + Index
                         let uniqueRowId = `TINY-${p.id}-${index + 1}`; 
 
                         allRows.push({
-                            // --- Chaves e IDs ---
                             external_id: uniqueRowId, 
                             order_number: String(p.numero),
-                            product_id_external: i.id_produto ? String(i.id_produto) : null, // Coluna "ID produto"
+                            product_id_external: i.id_produto ? String(i.id_produto) : null,
                             
-                            // --- Datas e Status ---
                             sale_date: dataVendaISO,
-                            status: p.situacao, // "Em aberto", "Faturado", etc.
+                            status: p.situacao,
                             imported_at: new Date().toISOString(),
                             
-                            // --- Cliente (Colunas de Contato) ---
                             contact_id: p.cliente.codigo || null,
                             contact_name: p.cliente.nome,
                             cpf_cnpj: p.cliente.cpf_cnpj,
                             email: p.cliente.email,
-                            phone: p.cliente.fone || p.cliente.celular, // Tenta fone, se não tiver, celular
+                            phone: p.cliente.fone || p.cliente.celular,
                             
-                            // --- Endereço (Colunas de Endereço) ---
                             address: p.cliente.endereco,
                             address_number: p.cliente.numero,
                             neighborhood: p.cliente.bairro,
@@ -131,63 +149,54 @@ Deno.serve(async (req) => {
                             zip_code: p.cliente.cep,
                             complement: p.cliente.complemento,
                             
-                            // --- Produto (Colunas de Item) ---
                             sku: i.codigo,
                             description: i.descricao,
                             quantity: Number(i.quantidade || 0),
                             unit_price: Number(i.valor_unitario || 0),
                             
-                            // --- Valores Financeiros (DRE) ---
-                            // Valor Total da Linha = Qtd * Unitário
                             total_amount: Number(i.valor_total || (Number(i.quantidade) * Number(i.valor_unitario))),
-                            
-                            // Rateios (Valores do Pedido repetidos nas linhas para cálculo)
                             total_freight: Number(p.valor_frete || 0),
                             total_discount: Number(p.valor_desconto || 0),
-                            order_freight: Number(p.valor_frete || 0),
-                            order_discount: Number(p.valor_desconto || 0),
                             
-                            sales_rep: p.vendedor || 'Tiny ERP' // Coluna "Vendedor"
+                            sales_rep: p.vendedor || 'Tiny ERP'
                         });
                     });
+                } else if (jsonDetalhe.retorno.status === 'Erro' && jsonDetalhe.retorno.erros[0].erro.includes("Bloqueada")) {
+                     console.warn("Bloqueio detectado no detalhe. Parando.");
+                     stopExecution = true;
+                     break;
                 }
+
             } catch (err) {
-                console.error(`Erro ao processar pedido ${idPedido}:`, err);
+                console.error(`Erro processando pedido ${idPedido}:`, err);
             }
         }
 
         totalProcessado += listaPedidos.length;
-        console.log(`Pagina ${pagina} OK. Acumulado: ${allRows.length} linhas.`);
-        
-        pagina++;
-        
-        // SALVAMENTO EM LOTES (Para não estourar memória)
-        if (allRows.length >= 200) {
-             const { error } = await supabase
-                .from('sales_history')
-                .upsert(allRows, { onConflict: 'external_id', count: 'exact' });
-             
-             if (error) throw error;
-             
-             console.log(`LOTE SALVO: ${allRows.length} itens.`);
-             allRows.length = 0; // Esvazia a memória
-        }
+        console.log(`Pagina ${pagina} OK.`);
+        pagina++; // Prepara próxima página se houver tempo
     }
 
-    // Salva o que sobrou no final
+    // Salvamento Final
+    console.log(`3. Salvando ${allRows.length} linhas processadas...`);
     if (allRows.length > 0) {
         const { error, count } = await supabase
             .from('sales_history')
             .upsert(allRows, { onConflict: 'external_id', count: 'exact' });
         
-        if (error) throw error;
+        if (error) {
+            console.error("Erro Supabase:", error);
+            throw error;
+        }
     }
 
     return new Response(
       JSON.stringify({ 
-          message: 'Sincronização Completa!', 
-          upserted_count: totalProcessado,
-          details: 'Todos os pedidos foram importados.'
+          message: stopExecution 
+            ? `Sincronização Parcial (Segurança): ${allRows.length} itens salvos. Clique novamente para continuar.` 
+            : `Sincronização Completa! ${allRows.length} itens salvos.`, 
+          upserted_count: allRows.length,
+          partial: stopExecution
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
