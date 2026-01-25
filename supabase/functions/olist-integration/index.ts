@@ -16,22 +16,23 @@ Deno.serve(async (req) => {
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
     if (!OLIST_API_KEY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração incompleta: Verifique se OLIST_API_KEY e SERVICE_ROLE_KEY estão nos Secrets.');
+      throw new Error('Configuração incompleta: Verifique Secrets.');
     }
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     console.log("1. Buscando dados na Olist...");
+    
+    // MUDANÇA AQUI: Removemos o `Bearer` fixo. Agora o header é exatamente o que está no Segredo.
     const olistRes = await fetch('https://api.olist.com/v1/orders', {
       headers: { 
-        'Authorization': `Bearer ${OLIST_API_KEY}`,
+        'Authorization': OLIST_API_KEY, 
         'Accept': 'application/json'
       }
     });
 
     if (!olistRes.ok) {
       const txt = await olistRes.text();
-      // Isso vai aparecer no log se a senha da Olist estiver errada
       console.error("ERRO OLIST:", txt); 
       throw new Error(`Erro na API Olist (${olistRes.status}): ${txt}`);
     }
@@ -53,7 +54,7 @@ Deno.serve(async (req) => {
             external_id: `${order.id}-${item.sku}`,
             order_number: String(order.id),
             sale_date: order.created_at,
-            status: order.status?.name || 'DESCONHECIDO', // Garante status
+            status: order.status?.name || 'DESCONHECIDO',
             contact_name: order.customer?.name || 'Cliente',
             sku: item.sku,
             description: item.name,
@@ -72,7 +73,6 @@ Deno.serve(async (req) => {
         .upsert(rows, { onConflict: 'external_id', count: 'exact' });
     
     if (error) {
-        // Isso vai aparecer no log se for erro de permissão ou tabela
         console.error("ERRO BANCO DE DADOS:", JSON.stringify(error));
         throw error;
     }
@@ -83,9 +83,7 @@ Deno.serve(async (req) => {
     );
 
   } catch (err: any) {
-    // AQUI ESTÁ O SEGREDO: Imprime o erro no painel do Supabase
     console.error("ERRO FATAL:", err.message);
-    
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
