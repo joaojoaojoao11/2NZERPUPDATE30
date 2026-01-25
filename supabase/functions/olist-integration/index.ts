@@ -11,23 +11,29 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const OLIST_API_KEY = Deno.env.get('OLIST_API_KEY'); // Aqui dentro tem "email=..., api_key=..."
+    const OLIST_SECRET = Deno.env.get('OLIST_API_KEY'); // Seu segredo: "email=x, api_key=y"
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
-    if (!OLIST_API_KEY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    if (!OLIST_SECRET || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
       throw new Error('Configuração incompleta: Verifique Secrets.');
     }
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    console.log("1. Buscando dados na Olist...");
+    // MUDANÇA ESTRATÉGICA:
+    // Transformamos "email=foo, api_key=bar" em "email=foo&api_key=bar"
+    // e colocamos direto na URL para evitar erros de cabeçalho.
+    const authParams = OLIST_SECRET.replace(/,\s*/g, '&');
+    const finalUrl = `https://api.olist.com/v1/orders?${authParams}`;
+
+    console.log("1. Buscando dados na Olist (via URL)...");
     
-    // CORREÇÃO FINAL: Colocamos o Bearer de volta, somado ao conteúdo do seu segredo
-    const olistRes = await fetch('https://api.olist.com/v1/orders', {
+    const olistRes = await fetch(finalUrl, {
+      method: 'GET',
       headers: { 
-        'Authorization': `Bearer ${OLIST_API_KEY}`, 
         'Accept': 'application/json'
+        // Removemos o Authorization header propositalmente para não confundir a AWS
       }
     });
 
