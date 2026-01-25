@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const OLIST_API_KEY = Deno.env.get('OLIST_API_KEY');
+    const OLIST_API_KEY = Deno.env.get('OLIST_API_KEY'); // Aqui dentro tem "email=..., api_key=..."
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
@@ -23,10 +23,10 @@ Deno.serve(async (req) => {
 
     console.log("1. Buscando dados na Olist...");
     
-    // MUDANÇA AQUI: Removemos o `Bearer` fixo. Agora o header é exatamente o que está no Segredo.
+    // CORREÇÃO FINAL: Colocamos o Bearer de volta, somado ao conteúdo do seu segredo
     const olistRes = await fetch('https://api.olist.com/v1/orders', {
       headers: { 
-        'Authorization': OLIST_API_KEY, 
+        'Authorization': `Bearer ${OLIST_API_KEY}`, 
         'Accept': 'application/json'
       }
     });
