@@ -5,111 +5,147 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Delay para não bloquear a API do Tiny
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 Deno.serve(async (req) => {
-  // 1. Resposta Rápida (CORS)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Agora o OLIST_API_KEY vai guardar o Token do Tiny
     const TOKEN_TINY = Deno.env.get('OLIST_API_KEY') || ""; 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
     if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração incompleta: Verifique Secrets.');
+      throw new Error('Configuração incompleta nos Secrets.');
     }
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
-    // 2. Limpeza do Token (Para garantir que pegamos só o código 54ba...)
+    // Limpeza do Token
     let token = TOKEN_TINY;
-    // Se estiver no formato "email=..., api_key=...", tentamos extrair.
-    // Se não, assumimos que o usuário colou só o token do Tiny.
-    const keyMatch = TOKEN_TINY.match(/api_key=([^,\s]+)/);
-    if (keyMatch) {
-        token = keyMatch[1];
-    } else if (TOKEN_TINY.includes("=")) {
+    if (TOKEN_TINY.includes("=")) {
         token = TOKEN_TINY.split('=').pop()?.trim() || token;
     }
     token = token.trim();
 
-    console.log(`1. Conectando ao Tiny ERP...`);
+    console.log(`1. Iniciando busca AMPLA no Tiny...`);
 
-    // 3. Busca Pedidos no Tiny
-    // Endpoint oficial do Tiny para buscar pedidos
-    const url = new URL('https://api.tiny.com.br/api2/pedidos.pesquisa.php');
-    url.searchParams.set('token', token);
-    url.searchParams.set('formato', 'json');
-    url.searchParams.set('situacao', 'aprovado'); // Busca pedidos aprovados (pode mudar para 'faturado' ou tirar para trazer tudo)
-    
-    // Opcional: Buscar pedidos dos últimos 30 dias para não sobrecarregar
-    // const dataRecente = new Date();
-    // dataRecente.setDate(dataRecente.getDate() - 30);
-    // url.searchParams.set('dataInicial', dataRecente.toLocaleDateString('pt-BR'));
+    // 1. BUSCA LISTA DE PEDIDOS
+    const urlBusca = new URL('https://api.tiny.com.br/api2/pedidos.pesquisa.php');
+    urlBusca.searchParams.set('token', token);
+    urlBusca.searchParams.set('formato', 'json');
+    // REMOVIDO: urlBusca.searchParams.set('situacao', 'aprovado'); -> Agora traz tudo!
+    urlBusca.searchParams.set('limit', '50'); // Aumentado para 50 para pegar mais histórico
 
-    const tinyRes = await fetch(url.toString(), { method: 'GET' });
+    const resBusca = await fetch(urlBusca.toString());
+    const jsonBusca = await resBusca.json();
 
-    if (!tinyRes.ok) {
-      throw new Error(`Tiny API Falhou (${tinyRes.status})`);
-    }
-
-    const json = await tinyRes.json();
-    
-    // O Tiny retorna { retorno: { status: 'Erro', codigo_erro: ... } } se falhar a lógica
-    if (json.retorno.status === 'Erro') {
-        const erroMsg = json.retorno.erros ? json.retorno.erros[0].erro : 'Erro desconhecido do Tiny';
-        // Se o erro for "Não foram encontrados registros", não é erro, é só vazio.
-        if (erroMsg.includes('o foram encontrados')) {
-             return new Response(
-                JSON.stringify({ message: 'Conexão OK! Nenhum pedido novo no Tiny.', upserted_count: 0 }),
-                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
+    if (jsonBusca.retorno.status === 'Erro') {
+        if (jsonBusca.retorno.codigo_erro == 20) { 
+            return new Response(JSON.stringify({ message: 'Nenhum pedido encontrado no Tiny.' }), { headers: corsHeaders });
         }
-        throw new Error(`Tiny Recusou: ${erroMsg}`);
+        throw new Error(`Erro Tiny Busca: ${jsonBusca.retorno.erros[0].erro}`);
     }
 
-    const pedidos = json.retorno.pedidos || [];
-    console.log(`2. Pedidos encontrados no Tiny: ${pedidos.length}`);
+    const listaPedidos = jsonBusca.retorno.pedidos || [];
+    console.log(`2. Lista recebida: ${listaPedidos.length} pedidos. Buscando detalhes...`);
 
-    if (pedidos.length === 0) {
-      return new Response(
-        JSON.stringify({ message: 'Conexão OK! Nenhum pedido novo.', upserted_count: 0 }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const allRows: any[] = [];
+
+    // 2. DETALHAMENTO DOS PEDIDOS
+    for (const item of listaPedidos) {
+        const idPedido = item.pedido.id;
+        
+        const urlDetalhe = new URL('https://api.tiny.com.br/api2/pedido.obter.php');
+        urlDetalhe.searchParams.set('token', token);
+        urlDetalhe.searchParams.set('id', idPedido);
+        urlDetalhe.searchParams.set('formato', 'json');
+
+        const resDetalhe = await fetch(urlDetalhe.toString());
+        const jsonDetalhe = await resDetalhe.json();
+
+        // Delay preventivo
+        await delay(400); 
+
+        if (jsonDetalhe.retorno.status === 'OK') {
+            const p = jsonDetalhe.retorno.pedido;
+            
+            // Tratamento de data robusto
+            let dataVendaISO = new Date().toISOString();
+            if (p.data_pedido) {
+                // Converte dd/mm/aaaa para aaaa-mm-dd
+                const parts = p.data_pedido.split('/');
+                if (parts.length === 3) {
+                    dataVendaISO = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).toISOString();
+                }
+            }
+
+            // Garante que existe array de itens
+            const itens = p.itens || [{ item: { codigo: 'GENERICO', descricao: 'Descrição não disponível', quantidade: 1, valor_unitario: p.valor_total } }];
+
+            for (const i of itens) {
+                const prod = i.item;
+                
+                allRows.push({
+                    external_id: `TINY-${p.id}-${prod.codigo || 'GEN'}`,
+                    order_number: String(p.numero),
+                    sale_date: dataVendaISO,
+                    status: p.situacao, // Agora vai vir "Faturado", "Entregue", etc.
+                    notes: p.obs || '',
+                    
+                    // Cliente
+                    contact_id: p.cliente.codigo || null,
+                    contact_name: p.cliente.nome,
+                    cpf_cnpj: p.cliente.cpf_cnpj,
+                    email: p.cliente.email,
+                    phone: p.cliente.fone,
+                    
+                    // Endereço
+                    address: p.cliente.endereco,
+                    address_number: p.cliente.numero,
+                    neighborhood: p.cliente.bairro,
+                    city: p.cliente.cidade,
+                    state: p.cliente.uf,
+                    zip_code: p.cliente.cep,
+                    
+                    // Produto
+                    sku: prod.codigo,
+                    description: prod.descricao,
+                    quantity: Number(prod.quantidade || 0),
+                    unit_price: Number(prod.valor_unitario || 0),
+                    
+                    // Financeiro
+                    total_amount: Number(prod.valor_total || (prod.quantidade * prod.valor_unitario)),
+                    total_freight: Number(p.valor_frete || 0), 
+                    order_discount: Number(p.valor_desconto || 0),
+                    
+                    sales_rep: p.ecommerce || 'Tiny ERP', 
+                    imported_at: new Date().toISOString()
+                });
+            }
+        }
     }
 
-    // 4. Mapeamento (Tiny -> Supabase)
-    // O Tiny retorna o pedido dentro de um objeto wrapper: [ { pedido: { ... } }, { pedido: { ... } } ]
-    const rows = pedidos.map((p: any) => {
-        const order = p.pedido;
-        return {
-            external_id: `TINY-${order.id}`, // Usamos o ID do Tiny para unicidade
-            order_number: String(order.numero || order.id),
-            sale_date: order.data_pedido ? new Date(order.data_pedido.split('/').reverse().join('-')).toISOString() : new Date().toISOString(),
-            status: order.situacao || 'DESCONHECIDO',
-            contact_name: order.cliente?.nome || 'Cliente',
-            // O Tiny não manda itens na lista simples, teria que consultar um por um. 
-            // Para simplificar, vamos salvar o valor total como um item genérico ou usar dados disponíveis.
-            description: `Pedido Tiny #${order.numero}`, 
-            total_amount: Number(order.valor_total || 0),
-            sales_rep: order.ecommerce || 'Tiny ERP', // Mostra de onde veio (Olist, Shopee, etc)
-            imported_at: new Date().toISOString()
-        };
-    });
+    console.log(`3. Salvando ${allRows.length} linhas detalhadas...`);
 
-    console.log(`3. Salvando ${rows.length} pedidos...`);
-    
-    const { error, count } = await supabase
-        .from('sales_history')
-        .upsert(rows, { onConflict: 'external_id', count: 'exact' });
-    
-    if (error) throw error;
+    if (allRows.length > 0) {
+        const { error, count } = await supabase
+            .from('sales_history')
+            .upsert(allRows, { onConflict: 'external_id', count: 'exact' });
+
+        if (error) throw error;
+
+        return new Response(
+            JSON.stringify({ message: 'Sincronização Completa!', upserted_count: count }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+    }
 
     return new Response(
-      JSON.stringify({ message: 'Sincronização com Tiny concluída!', upserted_count: count }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ message: 'Conexão OK. Nenhum dado novo processado.', upserted_count: 0 }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
