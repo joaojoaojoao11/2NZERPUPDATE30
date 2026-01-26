@@ -185,7 +185,7 @@ const App: React.FC = () => {
       <nav className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center sticky top-0 z-[100] shadow-xl">
         <div className="flex flex-col cursor-pointer" onClick={() => navigate('SELECAO_MODULO')}>
           <h1 className="font-black italic text-2xl tracking-tighter text-white uppercase leading-none">NZERP</h1>
-          <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest mt-1">SISTEMA RESILIENTE</span>
+          <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest mt-1">SISTEMA RESILIENTE-JOAO LINDO </span>
         </div>
 
         <div className="flex items-center space-x-6">
