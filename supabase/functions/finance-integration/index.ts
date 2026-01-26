@@ -5,10 +5,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Pausa para não sobrecarregar a API
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-// Função de Conversão de Datas (Essencial para não dar erro no Banco)
+// Função de Conversão de Datas (Essencial)
 function converterData(data: any): string | null {
     if (!data || typeof data !== 'string') return null;
     const partes = data.split('/');
@@ -31,7 +30,7 @@ Deno.serve(async (req) => {
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
     if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração de Segredos (API KEYS) incompleta no Supabase.');
+      throw new Error('Configuração incompleta nos Secrets.');
     }
 
     let token = TOKEN_TINY;
@@ -39,7 +38,7 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`[START] Iniciando Sincronização Financeira (V3 - Robustez Total)...`);
+    console.log(`[START] Sincronização Financeira Iniciada...`);
 
     let pagina = 1;
     const itemsPorPagina = 50; 
@@ -47,9 +46,8 @@ Deno.serve(async (req) => {
     let totalSalvo = 0;
     
     while (!stopExecution) {
-        // Timeout de segurança (45s)
         if ((performance.now() - startTime) > 45000) {
-            console.log("[TIMEOUT] Tempo limite atingido. Encerrando execução de forma segura.");
+            console.log("[TIMEOUT] Tempo limite atingido (Segurança).");
             break;
         }
 
@@ -64,18 +62,25 @@ Deno.serve(async (req) => {
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
-        // --- CORREÇÃO DO ERRO ---
+        // --- TRATAMENTO DE ERROS MELHORADO ---
         if (jsonBusca.retorno.status === 'Erro') {
-            // AQUI ESTAVA O ERRO: Forçamos converter para String() para evitar o crash
-            const rawErro = jsonBusca.retorno.erros ? jsonBusca.retorno.erros[0]?.erro : '';
-            const msgErro = String(rawErro || ''); 
+            // Tenta pegar a mensagem de várias formas para não dar [object Object]
+            let msgErro = '';
+            const erroItem = jsonBusca.retorno.erros ? jsonBusca.retorno.erros[0] : null;
+            
+            if (erroItem) {
+                // Se for objeto com propriedade 'erro', pega ela. Se for string, usa direto.
+                const rawMsg = erroItem.erro || erroItem;
+                msgErro = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
+            }
 
-            // Erro 20 ou "não existe" indica apenas que acabaram as páginas
+            // Verifica se é apenas o fim da paginação
             if (jsonBusca.retorno.codigo_erro == 20 || msgErro.toLowerCase().includes('não existe')) {
-                console.log("[INFO] Fim da lista de contas encontrada.");
+                console.log("[INFO] Fim da lista de contas (Normal).");
                 stopExecution = true;
                 break;
             }
+            
             console.warn(`[TINY WARN] ${msgErro}`);
             stopExecution = true; 
             break;
@@ -90,12 +95,10 @@ Deno.serve(async (req) => {
         const allRows: any[] = [];
 
         for (const conta of listaContas) {
-            // Conversão de data segura
             const dataVencCorrigida = converterData(conta.data_vencimento);
             
-            // PULA se não tiver data válida (para não quebrar o banco)
+            // Ignora contas sem vencimento válido para proteger o banco
             if (!dataVencCorrigida) {
-                console.warn(`[SKIP] Conta ${conta.id} ignorada: Data vencimento inválida.`);
                 continue; 
             }
 
@@ -112,7 +115,6 @@ Deno.serve(async (req) => {
                 if (partes.length === 3) competencia = `${partes[1]}/${partes[2]}`;
             }
 
-            // Mapeamento EXATO (Case Sensitive)
             allRows.push({
                 "ID": String(conta.id),
                 "Cliente": conta.nome_cliente || 'Cliente Desconhecido',
@@ -137,11 +139,10 @@ Deno.serve(async (req) => {
                 .upsert(allRows, { onConflict: 'ID' });
             
             if (error) {
-                console.error(`[DB ERROR] Falha ao salvar página ${pagina}:`, error.message);
+                console.error(`[DB ERROR] Falha ao salvar:`, error.message);
                 throw new Error(`Erro SQL: ${error.message}`);
             } else {
                 totalSalvo += allRows.length;
-                console.log(`[SUCCESS] +${allRows.length} contas salvas.`);
             }
         }
 
@@ -151,14 +152,14 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-          message: `Sincronização concluída! Processados: ${totalSalvo}`, 
+          message: `Sucesso! ${totalSalvo} contas sincronizadas.`, 
           upserted_count: totalSalvo
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
-    console.error("[FATAL ERROR]", err.message);
+    console.error("[FATAL]", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
