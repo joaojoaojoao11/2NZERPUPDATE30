@@ -474,8 +474,9 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
               {filteredData.map((item, idx) => (
                 <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-100 font-mono text-[9px] font-bold text-slate-400">{item.externalId || item.id}</td>
-                  <td className="px-6 py-4 text-center text-[10px] font-bold text-slate-600">{item.saleDate ? new Date(item.saleDate).toLocaleDateString('pt-BR') : '-'}</td>
-                  <td className="px-6 py-4 font-black text-blue-600 text-[10px]">{item.orderNumber}</td>
+<td className="px-6 py-4 text-center text-[10px] font-bold text-slate-600">
+  {item.saleDate ? item.saleDate.split('T')[0].split('-').reverse().join('/') : '-'}
+</td>                  <td className="px-6 py-4 font-black text-blue-600 text-[10px]">{item.orderNumber}</td>
                   <td className="px-6 py-4 text-[10px] font-bold text-slate-700 uppercase truncate max-w-[150px]" title={item.contactName}>{item.contactName}</td>
                   <td className="px-6 py-4 font-black text-slate-900 text-[10px]">{item.sku}</td>
                   <td className="px-6 py-4 text-[9px] text-slate-500 uppercase truncate max-w-[200px]" title={item.description}>{item.description}</td>
