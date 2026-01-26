@@ -7,6 +7,17 @@ const corsHeaders = {
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
+// --- FUNÇÃO DE CORREÇÃO DE DATA (CRUCIAL) ---
+// Transforma 25/01/2025 em 2025-01-25 para o Banco aceitar
+function converterData(data: any): string | null {
+    if (!data || typeof data !== 'string') return null;
+    const partes = data.split('/');
+    if (partes.length === 3) {
+        return `${partes[2]}-${partes[1]}-${partes[0]}`; // Retorna YYYY-MM-DD
+    }
+    return null; 
+}
+
 Deno.serve(async (req) => {
   const startTime = performance.now();
 
@@ -30,7 +41,7 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`Iniciando Sincronização Financeira (Modo Compatibilidade Estrita)...`);
+    console.log(`Iniciando Sincronização Financeira (Com Correção de Datas)...`);
 
     let pagina = 1;
     const itemsPorPagina = 50; 
@@ -39,7 +50,6 @@ Deno.serve(async (req) => {
     const allRows: any[] = [];
 
     while (!stopExecution) {
-        // Proteção de tempo: 45s
         if ((performance.now() - startTime) > 45000) {
             console.log("Tempo limite atingido.");
             break;
@@ -56,7 +66,6 @@ Deno.serve(async (req) => {
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
-        // Tratamento de Erros / Fim da Lista
         if (jsonBusca.retorno.status === 'Erro') {
             const msgErro = jsonBusca.retorno.erros[0]?.erro || '';
             if (jsonBusca.retorno.codigo_erro == 20 || msgErro.toLowerCase().includes('não existe')) {
@@ -76,48 +85,50 @@ Deno.serve(async (req) => {
         }
 
         for (const conta of listaContas) {
-            const dataVenc = conta.data_vencimento;
-            const dataEmissao = conta.data_emissao;
-            const dataPagamento = conta.data_pagamento || null;
-            const valorDoc = Number(conta.valor);
-            const saldo = Number(conta.saldo);
+            // Converte valores monetários com segurança
+            const valorDoc = Number(conta.valor) || 0;
+            const saldo = Number(conta.saldo) || 0;
             const recebido = valorDoc - saldo;
 
+            // Extrai a competência (Mês/Ano) da data de vencimento corrigida
+            const dataVenc = conta.data_vencimento; 
             let competencia = null;
             if (dataVenc && dataVenc.length >= 7) {
-                competencia = dataVenc.substring(0, 7);
+                // Se vier 25/01/2025, pega 01/2025 ou similar
+                const partes = dataVenc.split('/');
+                if (partes.length === 3) competencia = `${partes[1]}/${partes[2]}`;
             }
 
-            // --- MAPEAMENTO EXATO COM O BANCO DE DADOS ---
-            // As chaves aqui devem ser IGUAIS às colunas do PostgreSQL (Case Sensitive)
+            // --- MAPEAMENTO BLINDADO ---
+            // Usa nomes exatos das colunas e converte as datas
             allRows.push({
                 "ID": String(conta.id),
                 "Cliente": conta.nome_cliente || 'Cliente Desconhecido',
-                "Data Emissão": dataEmissao,
-                "Data Vencimento": dataVenc,
-                "Data Liquidação": dataPagamento,
+                "Data Emissão": converterData(conta.data_emissao),
+                "Data Vencimento": converterData(conta.data_vencimento), // Correção aqui!
+                "Data Liquidação": converterData(conta.data_pagamento),  // Correção aqui!
                 "Valor documento": valorDoc,
                 "Saldo": saldo,
                 "Situação": conta.situacao,
                 "Número documento": conta.numero_doc,
                 "Histórico": conta.historico,
                 "Competência": competencia,
-                "Recebido": recebido, // Coluna "Recebido"
-                
-                // Campos mistos (alguns minúsculos no seu banco)
+                "Recebido": recebido, 
                 "origem": "OLIST", 
                 "ult_atuali": new Date().toISOString()
             });
         }
 
         if (allRows.length > 0) {
+            // Tenta salvar no banco
             const { error } = await supabase
                 .from('accounts_receivable')
-                .upsert(allRows, { onConflict: 'ID' }); // A chave primária é "ID" maiúsculo
+                .upsert(allRows, { onConflict: 'ID' });
             
             if (error) {
-                console.error("Erro ao salvar no banco:", error.message);
-                throw error; // Lança o erro para o frontend saber
+                // Se der erro, mostramos exatamente o porquê no log
+                console.error("ERRO AO SALVAR NO BANCO:", error.message);
+                throw new Error(`Falha ao gravar no banco: ${error.message}`);
             } else {
                 totalSalvo += allRows.length;
             }
@@ -137,7 +148,7 @@ Deno.serve(async (req) => {
     );
 
   } catch (err: any) {
-    console.error("ERRO FATAL:", err.message);
+    console.error("ERRO FATAL NA FUNÇÃO:", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
