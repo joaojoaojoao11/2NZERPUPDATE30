@@ -5,7 +5,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Reduzi o tempo de espera para evitar Timeout do navegador
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 Deno.serve(async (req) => {
@@ -31,7 +30,7 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`Iniciando Sincronização Financeira (V2 Otimizada)...`);
+    console.log(`Iniciando Sincronização Financeira (Modo Compatibilidade Estrita)...`);
 
     let pagina = 1;
     const itemsPorPagina = 50; 
@@ -40,9 +39,9 @@ Deno.serve(async (req) => {
     const allRows: any[] = [];
 
     while (!stopExecution) {
-        // Proteção de tempo: para aos 45s para garantir que responde ao frontend
+        // Proteção de tempo: 45s
         if ((performance.now() - startTime) > 45000) {
-            console.log("Tempo limite de segurança atingido. Finalizando...");
+            console.log("Tempo limite atingido.");
             break;
         }
 
@@ -57,17 +56,14 @@ Deno.serve(async (req) => {
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
-        // Lógica melhorada para detectar o fim da lista
+        // Tratamento de Erros / Fim da Lista
         if (jsonBusca.retorno.status === 'Erro') {
             const msgErro = jsonBusca.retorno.erros[0]?.erro || '';
-            
-            // Código 20 OU mensagem de página inexistente = Fim normal
             if (jsonBusca.retorno.codigo_erro == 20 || msgErro.toLowerCase().includes('não existe')) {
-                console.log("Fim da lista de contas.");
+                console.log("Fim da lista.");
                 stopExecution = true;
                 break;
             }
-            
             console.warn(`Aviso Tiny: ${msgErro}`);
             stopExecution = true;
             break;
@@ -92,60 +88,36 @@ Deno.serve(async (req) => {
                 competencia = dataVenc.substring(0, 7);
             }
 
-            // Mapeamento usando chaves em MINÚSCULO (snake_case)
-            // Se o seu banco usa "ID" (maiúsculo), o Supabase geralmente aceita minúsculo se não houver aspas na criação.
-            // Se isso falhar, teremos que confirmar o nome exato das colunas no seu Table Editor.
+            // --- MAPEAMENTO EXATO COM O BANCO DE DADOS ---
+            // As chaves aqui devem ser IGUAIS às colunas do PostgreSQL (Case Sensitive)
             allRows.push({
-                id: String(conta.id),
-                cliente: conta.nome_cliente || 'Cliente Desconhecido',
-                data_emissao: dataEmissao,
-                data_vencimento: dataVenc,
-                data_liquidacao: dataPagamento,
-                valor_documento: valorDoc,
-                saldo: saldo,
-                situacao: conta.situacao,
-                numero_documento: conta.numero_doc,
-                historico: conta.historico,
-                competencia: competencia,
-                origem: "OLIST", 
-                valor_recebido: recebido, // Ajustado para bater com seu frontend (valor_recebido)
-                ult_atuali: new Date().toISOString()
+                "ID": String(conta.id),
+                "Cliente": conta.nome_cliente || 'Cliente Desconhecido',
+                "Data Emissão": dataEmissao,
+                "Data Vencimento": dataVenc,
+                "Data Liquidação": dataPagamento,
+                "Valor documento": valorDoc,
+                "Saldo": saldo,
+                "Situação": conta.situacao,
+                "Número documento": conta.numero_doc,
+                "Histórico": conta.historico,
+                "Competência": competencia,
+                "Recebido": recebido, // Coluna "Recebido"
+                
+                // Campos mistos (alguns minúsculos no seu banco)
+                "origem": "OLIST", 
+                "ult_atuali": new Date().toISOString()
             });
         }
 
         if (allRows.length > 0) {
-            // Tenta salvar usando id minúsculo
             const { error } = await supabase
                 .from('accounts_receivable')
-                .upsert(allRows, { onConflict: 'id' }); // 'id' minúsculo
+                .upsert(allRows, { onConflict: 'ID' }); // A chave primária é "ID" maiúsculo
             
             if (error) {
-                console.error("Erro ao salvar lote (Tentativa 1):", error.message);
-                // Se der erro, tenta com ID Maiúsculo (caso o banco seja Case Sensitive)
-                if (error.message.includes('column') || error.message.includes('relation')) {
-                     console.log("Tentando salvar com chaves Maiúsculas...");
-                     const rowsUpper = allRows.map(r => ({
-                        "ID": r.id,
-                        "Cliente": r.cliente,
-                        "Data Emissão": r.data_emissao,
-                        "Data Vencimento": r.data_vencimento,
-                        "Data Liquidação": r.data_liquidacao,
-                        "Valor documento": r.valor_documento,
-                        "Saldo": r.saldo,
-                        "Situação": r.situacao,
-                        "Número documento": r.numero_documento,
-                        "Histórico": r.historico,
-                        "Competência": r.competencia,
-                        "origem": r.origem,
-                        "Recebido": r.valor_recebido
-                     }));
-                     const { error: error2 } = await supabase
-                        .from('accounts_receivable')
-                        .upsert(rowsUpper, { onConflict: 'ID' });
-                     
-                     if (error2) console.error("Erro final ao salvar:", error2.message);
-                     else totalSalvo += allRows.length;
-                }
+                console.error("Erro ao salvar no banco:", error.message);
+                throw error; // Lança o erro para o frontend saber
             } else {
                 totalSalvo += allRows.length;
             }
@@ -153,19 +125,19 @@ Deno.serve(async (req) => {
         }
 
         pagina++;
-        await delay(200); // 200ms é suficiente
+        await delay(200); 
     }
 
     return new Response(
       JSON.stringify({ 
-          message: `Sincronização OK! Registros processados: ${totalSalvo}`, 
+          message: `Sincronização OK! Atualizados: ${totalSalvo}`, 
           upserted_count: totalSalvo
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
-    console.error("ERRO CRÍTICO:", err.message);
+    console.error("ERRO FATAL:", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
