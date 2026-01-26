@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`[START] Sincronização de Contas a PAGAR (Esquema Snake_Case)...`);
+    console.log(`[START] Sincronização de Contas a PAGAR (V3)...`);
 
     let pagina = 1;
     const itemsPorPagina = 50; 
@@ -57,6 +57,7 @@ Deno.serve(async (req) => {
         urlBusca.searchParams.set('formato', 'json');
         urlBusca.searchParams.set('limit', String(itemsPorPagina));
         urlBusca.searchParams.set('pagina', String(pagina));
+        // Filtros obrigatórios do Tiny
         urlBusca.searchParams.set('data_ini_vencimento', '01/01/2023');
         urlBusca.searchParams.set('data_fim_vencimento', '31/12/2030');
 
@@ -92,7 +93,6 @@ Deno.serve(async (req) => {
 
         for (const conta of listaContas) {
             const dataVencCorrigida = converterData(conta.data_vencimento);
-            
             if (!dataVencCorrigida) continue; 
 
             const dataEmissaoCorrigida = converterData(conta.data_emissao);
@@ -108,7 +108,6 @@ Deno.serve(async (req) => {
                 if (partes.length === 3) competencia = `${partes[1]}/${partes[2]}`;
             }
 
-            // --- CORREÇÃO AQUI: Mapeamento para minúsculas (snake_case) ---
             allRows.push({
                 id: String(conta.id),
                 fornecedor: conta.nome_cliente || 'Fornecedor Desconhecido',
@@ -127,7 +126,6 @@ Deno.serve(async (req) => {
         }
 
         if (allRows.length > 0) {
-            // Usa 'id' minúsculo no onConflict
             const { error } = await supabase
                 .from('accounts_payable')
                 .upsert(allRows, { onConflict: 'id' });
