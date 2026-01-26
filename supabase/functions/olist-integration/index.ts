@@ -3,49 +3,52 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
-const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
-
 Deno.serve(async (req) => {
-  const startTime = performance.now();
-
+  // 1. Trata o Preflight (CORS) para o navegador não bloquear
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const TOKEN_TINY = Deno.env.get('OLIST_API_KEY') || ""; 
+    // 2. Pega as chaves corretas dos Segredos
+    // OBS: Mudei para TINY_TOKEN pois o código é do Tiny
+    const TOKEN_TINY = Deno.env.get('TINY_TOKEN') || ""; 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
-    const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-    if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração incompleta nos Secrets.');
+    if (!TOKEN_TINY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error(`Configuração incompleta! Verifique se TINY_TOKEN e chaves do Supabase estão nos Secrets.`);
     }
 
+    // Limpeza do token caso venha com lixo
     let token = TOKEN_TINY;
     if (TOKEN_TINY.includes("=")) {
         token = TOKEN_TINY.split('=').pop()?.trim() || token;
     }
     token = token.trim();
 
-    const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`1. Iniciando Sincronização (Modo Definitivo)...`);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    console.log(`[TinySync] Iniciando Sincronização...`);
 
     let pagina = 1;
-    const itemsPorPagina = 30; 
+    const itemsPorPagina = 50; 
     let stopExecution = false;
     let totalSalvo = 0;
     let totalIgnorado = 0;
     const allRows: any[] = [];
+    const startTime = performance.now();
 
     while (!stopExecution) {
-        if ((performance.now() - startTime) > 45000) {
-            console.log("Tempo limite atingido.");
+        // Limite de tempo de execução (Edge Functions têm limite)
+        if ((performance.now() - startTime) > 50000) {
+            console.log("[TinySync] Tempo limite de segurança atingido.");
             break;
         }
 
-        console.log(`--- Analisando Página ${pagina}...`);
+        console.log(`[TinySync] Buscando Página ${pagina}...`);
         
         const urlBusca = new URL('https://api.tiny.com.br/api2/pedidos.pesquisa.php');
         urlBusca.searchParams.set('token', token);
@@ -56,13 +59,18 @@ Deno.serve(async (req) => {
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
+        // Tratamento de erros da API do Tiny
         if (jsonBusca.retorno.status === 'Erro') {
-            if (jsonBusca.retorno.codigo_erro == 20) {
-                console.log("Fim da lista.");
+            if (jsonBusca.retorno.codigo_erro == 20) { // Erro 20 = Fim da lista/Vazio
+                console.log("[TinySync] Fim da lista encontrado.");
                 stopExecution = true;
                 break;
             }
-            console.warn(`Aviso Tiny: ${jsonBusca.retorno.erros[0].erro}`);
+            console.warn(`[TinySync] Aviso Tiny: ${jsonBusca.retorno.erros[0].erro}`);
+            // Se for erro de token inválido, para tudo
+            if (jsonBusca.retorno.erros[0].erro.includes('token')) {
+                throw new Error("Token do Tiny inválido ou expirado.");
+            }
             stopExecution = true;
             break;
         }
@@ -73,59 +81,15 @@ Deno.serve(async (req) => {
             break;
         }
 
-        // --- LÓGICA DE FILTRO ---
-        const numerosPedidos = listaPedidos.map((i: any) => String(i.pedido.numero));
-        
-        const { data: existentes } = await supabase
-            .from('sales_history')
-            .select('order_number, status, sales_rep')
-            .in('order_number', numerosPedidos);
+        console.log(`[TinySync] Processando ${listaPedidos.length} pedidos da página ${pagina}...`);
 
-        const mapaExistentes = new Map();
-        existentes?.forEach((row: any) => {
-            mapaExistentes.set(row.order_number, { status: row.status, vendedor: row.sales_rep });
-        });
-
-        const pedidosParaProcessar = listaPedidos.filter((i: any) => {
-            const numero = String(i.pedido.numero);
-            const statusTiny = i.pedido.situacao;
-            const dadosBanco = mapaExistentes.get(numero);
-
-            if (!dadosBanco) return true; // Novo
-            if (dadosBanco.status !== statusTiny) return true; // Status mudou
-            
-            // AQUI ESTÁ A CORREÇÃO DO LOOP:
-            // Se no banco estiver "Tiny ERP", significa que tentamos antes e falhou (ou é importação velha).
-            // Vamos tentar de novo.
-            // Se no banco JÁ estiver "Sem Vendedor", significa que já conferimos e confirmamos que é vazio.
-            // Então PULAMOS.
-            if (dadosBanco.vendedor === 'Tiny ERP') return true;
-            
-            return false;
-        });
-
-        const ignoradosNessaPagina = listaPedidos.length - pedidosParaProcessar.length;
-        totalIgnorado += ignoradosNessaPagina;
-
-        if (pedidosParaProcessar.length === 0) {
-            console.log(`>> Página ${pagina} OK. Pulando...`);
-            pagina++;
-            continue; 
-        }
-
-        console.log(`>> Processando ${pedidosParaProcessar.length} pedidos...`);
-
-        // --- DETALHAMENTO ---
-        for (const itemLista of pedidosParaProcessar) {
-            if ((performance.now() - startTime) > 48000) {
-                stopExecution = true;
-                break;
-            }
-
+        // Busca detalhes de cada pedido
+        for (const itemLista of listaPedidos) {
             const idPedido = itemLista.pedido.id;
             
             try {
-                await delay(1500); 
+                // Pequeno delay para não bloquear a API do Tiny
+                // await new Promise(r => setTimeout(r, 200)); 
                 
                 const urlDetalhe = new URL('https://api.tiny.com.br/api2/pedido.obter.php');
                 urlDetalhe.searchParams.set('token', token);
@@ -138,6 +102,7 @@ Deno.serve(async (req) => {
                 if (jsonDetalhe.retorno.status === 'OK') {
                     const p = jsonDetalhe.retorno.pedido;
                     
+                    // Tratamento de Datas
                     let dataVendaISO = new Date().toISOString();
                     if (p.data_pedido) {
                         const parts = p.data_pedido.split('/'); 
@@ -146,23 +111,12 @@ Deno.serve(async (req) => {
                         }
                     }
 
-                    // --- EXTRAÇÃO DE VENDEDOR ---
+                    // Lógica de Vendedor
                     let nomeVendedor = null;
-
-                    if (p.nome_vendedor && typeof p.nome_vendedor === 'string' && p.nome_vendedor.length > 1) {
-                        nomeVendedor = p.nome_vendedor;
-                    }
-                    if (!nomeVendedor && p.vendedor && typeof p.vendedor === 'object' && p.vendedor.nome) {
-                        nomeVendedor = p.vendedor.nome;
-                    }
-                    if (!nomeVendedor && p.vendedor && typeof p.vendedor === 'string') {
-                        nomeVendedor = p.vendedor;
-                    }
-
-                    // A GRANDE MUDANÇA:
-                    // Se não achou nada, grava "Sem Vendedor".
-                    // Isso é diferente de "Tiny ERP", então o loop vai entender que acabou.
-                    const vendedorFinal = nomeVendedor || p.ecommerce || 'Sem Vendedor';
+                    if (p.nome_vendedor && p.nome_vendedor.length > 1) nomeVendedor = p.nome_vendedor;
+                    if (!nomeVendedor && p.vendedor?.nome) nomeVendedor = p.vendedor.nome;
+                    if (!nomeVendedor && typeof p.vendedor === 'string') nomeVendedor = p.vendedor;
+                    const vendedorFinal = nomeVendedor || p.ecommerce || 'SISTEMA';
 
                     const itens = p.itens || [{ item: { codigo: 'GEN', descricao: 'Item Genérico', quantidade: 1, valor_unitario: p.valor_total } }];
 
@@ -188,16 +142,12 @@ Deno.serve(async (req) => {
                             city: p.cliente.cidade,
                             state: p.cliente.uf,
                             zip_code: p.cliente.cep,
-                            complement: p.cliente.complemento,
                             sku: i.codigo,
                             description: i.descricao,
                             quantity: Number(i.quantidade || 0),
                             unit_price: Number(i.valor_unitario || 0),
                             total_amount: Number(i.valor_total || (Number(i.quantidade) * Number(i.valor_unitario))),
-                            total_freight: Number(p.valor_frete || 0),
-                            total_discount: Number(p.valor_desconto || 0),
-                            
-                            sales_rep: vendedorFinal // Grava "Sem Vendedor" se estiver vazio
+                            sales_rep: vendedorFinal
                         });
                     });
                 }
@@ -205,14 +155,14 @@ Deno.serve(async (req) => {
                 console.error(`Erro pedido ${idPedido}:`, err);
             }
         }
-
         pagina++; 
     }
 
+    // Salva tudo no Banco de Dados
     if (allRows.length > 0) {
-        const { error, count } = await supabase
+        const { error } = await supabase
             .from('sales_history')
-            .upsert(allRows, { onConflict: 'external_id', count: 'exact' });
+            .upsert(allRows, { onConflict: 'external_id' });
         
         if (error) throw error;
         totalSalvo = allRows.length;
@@ -220,16 +170,15 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-          message: `Processado! Salvos: ${totalSalvo}. Ignorados: ${totalIgnorado}.`, 
+          message: `Sincronização Tiny Concluída!`, 
           upserted_count: totalSalvo,
-          skipped_count: totalIgnorado,
-          partial: stopExecution
+          skipped_count: totalIgnorado
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
-    console.error("ERRO FATAL:", err.message);
+    console.error("ERRO FATAL NA FUNCTION:", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
