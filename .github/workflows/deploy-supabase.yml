@@ -20,5 +20,5 @@ jobs:
         with:
           version: latest
 
-      # AQUI ESTÁ A MUDANÇA: mudamos de sync-olist para olist-integration
-      - run: supabase functions deploy olist-integration --project-ref $PROJECT_ID --no-verify-jwt
+      # ATUALIZADO: Faz o deploy das duas funções (Vendas e Financeiro)
+      - run: supabase functions deploy olist-integration finance-integration --project-ref $PROJECT_ID --no-verify-jwt
