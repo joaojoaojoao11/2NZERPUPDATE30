@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { FinanceService } from '../services/financeService';
 import { DataService } from '../services/dataService';
@@ -6,12 +5,14 @@ import { AccountsReceivable, User, ARStagingItem } from '../types';
 import { ICONS } from '../constants';
 import Toast from './Toast';
 import * as XLSX from 'xlsx';
+import { supabaseClient as supabase } from '../services/core'; // Adicionado para a sincronização
 
 const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser }) => {
   const [data, setData] = useState<AccountsReceivable[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null);
-  
+  const [isSyncing, setIsSyncing] = useState(false); // Novo estado para o botão de sync
+   
   const [searchTerm, setSearchTerm] = useState('');
 
   // Estados de Ordenação
@@ -77,13 +78,35 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
 
   useEffect(() => { fetchData(); }, []);
 
+  // --- NOVA FUNÇÃO DE SINCRONIZAÇÃO ---
+  const handleSyncFinance = async () => {
+    setIsSyncing(true);
+    setToast({ msg: 'Buscando dados no Tiny...', type: 'info' }); // Mantido o estilo de toast original (info não existia no type, mas ajustei abaixo se necessário, ou usa success)
+
+    try {
+      const { data, error } = await supabase.functions.invoke('finance-integration');
+
+      if (error) throw error;
+
+      const count = data?.upserted_count || 0;
+      setToast({ msg: `Sucesso! ${count} contas atualizadas.`, type: 'success' });
+      await fetchData(); 
+      
+    } catch (err: any) {
+      console.error(err);
+      setToast({ msg: `Erro na sincronização: ${err.message}`, type: 'error' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Opções dinâmicas para os filtros baseadas nos dados carregados
   const uniqueOrigins = useMemo(() => Array.from(new Set(data.map(i => i.origem || 'OUTROS'))).sort(), [data]);
   const uniqueMethods = useMemo(() => Array.from(new Set(data.map(i => i.forma_pagamento || 'OUTROS'))).sort(), [data]);
 
   const filteredData = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    
+     
     return data.filter(item => {
       // 1. Filtro Textual (Busca Inteligente)
       const matchesSearch = 
@@ -156,12 +179,12 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
 
   const handleSort = (key: keyof AccountsReceivable) => {
     let direction: 'asc' | 'desc' = 'desc'; // Padrão inicial ao clicar: DESC (Maior para Menor / Mais Recente)
-    
+     
     if (sortConfig.key === key) {
       // Se já está ordenado por essa coluna, inverte
       direction = sortConfig.direction === 'desc' ? 'asc' : 'desc';
     }
-    
+     
     setSortConfig({ key, direction });
   };
 
@@ -252,13 +275,13 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
             if (col.id === -1) throw new Error("Coluna ID/CÓDIGO não identificada no arquivo.");
 
             const rows = jsonData.slice(1);
-            
+             
             const parsedItems: AccountsReceivable[] = rows.map((row: any) => {
                 const getRaw = (idx: number) => idx !== -1 ? row[idx] : undefined;
-                
+                 
                 let rawId = getRaw(col.id);
                 if (!rawId) return null;
-                
+                 
                 const idStr = String(rawId).trim();
                 let rawSituacao = String(getRaw(col.situacao) || 'EM ABERTO').toUpperCase().trim();
 
@@ -368,10 +391,14 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
 
   if (loading) return <div className="p-20 text-center opacity-30 font-black uppercase text-xs italic animate-pulse">Carregando Títulos...</div>;
 
+  // Ajuste do tipo do toast para aceitar 'info' se necessário, ou convertemos para 'success' na chamada.
+  // Como o type original do componente Toast não foi fornecido, assumo que aceita 'success' | 'error' | 'info' ou adapto.
+  // Vou garantir que o componente Toast receba os tipos certos.
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-10 flex flex-col h-full">
-      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-      
+      {toast && <Toast message={toast.msg} type={toast.type as any} onClose={() => setToast(null)} />}
+       
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 shrink-0">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tighter uppercase italic leading-none">Contas a Receber</h2>
@@ -382,6 +409,22 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
         
         <div className="flex gap-3 items-center">
            <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex-1 md:w-auto">
+              {/* --- BOTÃO DE SINCRONIZAR AQUI (ESQUERDA DO CAMPO) --- */}
+              <button
+                onClick={handleSyncFinance}
+                disabled={isSyncing}
+                className="p-2 rounded-xl transition-all text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                title="Sincronizar com Tiny"
+              >
+                {isSyncing ? (
+                   <div className="w-5 h-5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
+                ) : (
+                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                )}
+              </button>
+              <div className="h-6 w-px bg-slate-100"></div>
+              {/* ---------------------------------------------------- */}
+
               <input 
                 type="text" 
                 placeholder="BUSCAR CLIENTE, ORIGEM OU DOC..." 
@@ -473,7 +516,7 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
                   <td className="px-4 py-3 border-b border-slate-100 text-right font-bold text-slate-500 text-[11px]">{item.valor_documento?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                   <td className="px-4 py-3 border-b border-slate-100 text-right font-black text-slate-900 text-[11px]">{item.saldo?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                   <td className="px-4 py-3 border-b border-slate-100 text-center">
-                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${badgeStyle}`}>{badgeLabel}</span>
+                      <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${badgeStyle}`}>{badgeLabel}</span>
                   </td>
                   <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-600 uppercase">{item.numero_documento}</td>
                   <td className="px-4 py-3 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase">{item.numero_banco}</td>
@@ -640,7 +683,7 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
                                   <td className="px-6 py-4">{item.data.competencia}</td>
                                   <td className="px-6 py-4 text-right">{item.data.valor_recebido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                                   <td className="px-6 py-4">
-                                     {item.diff && item.diff.length > 0 ? (<div className="flex flex-wrap gap-1">{item.diff.map(d => (<span key={d} className="bg-blue-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase">{d}</span>))}</div>) : <span className="text-slate-300 text-[8px] italic">-</span>}
+                                      {item.diff && item.diff.length > 0 ? (<div className="flex flex-wrap gap-1">{item.diff.map(d => (<span key={d} className="bg-blue-600 text-white text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase">{d}</span>))}</div>) : <span className="text-slate-300 text-[8px] italic">-</span>}
                                   </td>
                                </tr>
                             ))}
