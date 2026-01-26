@@ -5,57 +5,55 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Pausa para não sobrecarregar a API
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-// --- FUNÇÃO DE CORREÇÃO DE DATA (CRUCIAL) ---
-// Transforma 25/01/2025 em 2025-01-25 para o Banco aceitar
+// Função de Conversão de Datas (Essencial para não dar erro no Banco)
 function converterData(data: any): string | null {
     if (!data || typeof data !== 'string') return null;
     const partes = data.split('/');
     if (partes.length === 3) {
-        return `${partes[2]}-${partes[1]}-${partes[0]}`; // Retorna YYYY-MM-DD
+        return `${partes[2]}-${partes[1]}-${partes[0]}`; // YYYY-MM-DD
     }
     return null; 
 }
 
 Deno.serve(async (req) => {
-  const startTime = performance.now();
-
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const startTime = performance.now();
+
   try {
-    const TOKEN_TINY = Deno.env.get('OLIST_API_KEY') || ""; 
+    const TOKEN_TINY = Deno.env.get('OLIST_API_KEY');
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
     if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração incompleta nos Secrets.');
+      throw new Error('Configuração de Segredos (API KEYS) incompleta no Supabase.');
     }
 
     let token = TOKEN_TINY;
-    if (TOKEN_TINY.includes("=")) {
-        token = TOKEN_TINY.split('=').pop()?.trim() || token;
-    }
+    if (token.includes("=")) token = token.split('=').pop()?.trim() || token;
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`Iniciando Sincronização Financeira (Com Correção de Datas)...`);
+    console.log(`[START] Iniciando Sincronização Financeira (V3 - Robustez Total)...`);
 
     let pagina = 1;
     const itemsPorPagina = 50; 
     let stopExecution = false;
     let totalSalvo = 0;
-    const allRows: any[] = [];
-
+    
     while (!stopExecution) {
+        // Timeout de segurança (45s)
         if ((performance.now() - startTime) > 45000) {
-            console.log("Tempo limite atingido.");
+            console.log("[TIMEOUT] Tempo limite atingido. Encerrando execução de forma segura.");
             break;
         }
 
-        console.log(`--- Buscando Página ${pagina}...`);
+        console.log(`--- Processando Página ${pagina}...`);
         
         const urlBusca = new URL('https://api.tiny.com.br/api2/contas.receber.pesquisa.php');
         urlBusca.searchParams.set('token', token);
@@ -66,15 +64,20 @@ Deno.serve(async (req) => {
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
+        // --- CORREÇÃO DO ERRO ---
         if (jsonBusca.retorno.status === 'Erro') {
-            const msgErro = jsonBusca.retorno.erros[0]?.erro || '';
+            // AQUI ESTAVA O ERRO: Forçamos converter para String() para evitar o crash
+            const rawErro = jsonBusca.retorno.erros ? jsonBusca.retorno.erros[0]?.erro : '';
+            const msgErro = String(rawErro || ''); 
+
+            // Erro 20 ou "não existe" indica apenas que acabaram as páginas
             if (jsonBusca.retorno.codigo_erro == 20 || msgErro.toLowerCase().includes('não existe')) {
-                console.log("Fim da lista.");
+                console.log("[INFO] Fim da lista de contas encontrada.");
                 stopExecution = true;
                 break;
             }
-            console.warn(`Aviso Tiny: ${msgErro}`);
-            stopExecution = true;
+            console.warn(`[TINY WARN] ${msgErro}`);
+            stopExecution = true; 
             break;
         }
 
@@ -84,55 +87,62 @@ Deno.serve(async (req) => {
             break;
         }
 
+        const allRows: any[] = [];
+
         for (const conta of listaContas) {
-            // Converte valores monetários com segurança
+            // Conversão de data segura
+            const dataVencCorrigida = converterData(conta.data_vencimento);
+            
+            // PULA se não tiver data válida (para não quebrar o banco)
+            if (!dataVencCorrigida) {
+                console.warn(`[SKIP] Conta ${conta.id} ignorada: Data vencimento inválida.`);
+                continue; 
+            }
+
+            const dataEmissaoCorrigida = converterData(conta.data_emissao);
+            const dataLiqCorrigida = converterData(conta.data_pagamento);
+
             const valorDoc = Number(conta.valor) || 0;
             const saldo = Number(conta.saldo) || 0;
             const recebido = valorDoc - saldo;
 
-            // Extrai a competência (Mês/Ano) da data de vencimento corrigida
-            const dataVenc = conta.data_vencimento; 
             let competencia = null;
-            if (dataVenc && dataVenc.length >= 7) {
-                // Se vier 25/01/2025, pega 01/2025 ou similar
-                const partes = dataVenc.split('/');
+            if (conta.data_vencimento && conta.data_vencimento.length >= 7) {
+                const partes = conta.data_vencimento.split('/');
                 if (partes.length === 3) competencia = `${partes[1]}/${partes[2]}`;
             }
 
-            // --- MAPEAMENTO BLINDADO ---
-            // Usa nomes exatos das colunas e converte as datas
+            // Mapeamento EXATO (Case Sensitive)
             allRows.push({
                 "ID": String(conta.id),
                 "Cliente": conta.nome_cliente || 'Cliente Desconhecido',
-                "Data Emissão": converterData(conta.data_emissao),
-                "Data Vencimento": converterData(conta.data_vencimento), // Correção aqui!
-                "Data Liquidação": converterData(conta.data_pagamento),  // Correção aqui!
+                "Data Emissão": dataEmissaoCorrigida,
+                "Data Vencimento": dataVencCorrigida,
+                "Data Liquidação": dataLiqCorrigida,
                 "Valor documento": valorDoc,
                 "Saldo": saldo,
                 "Situação": conta.situacao,
                 "Número documento": conta.numero_doc,
                 "Histórico": conta.historico,
                 "Competência": competencia,
-                "Recebido": recebido, 
+                "Recebido": recebido,
                 "origem": "OLIST", 
                 "ult_atuali": new Date().toISOString()
             });
         }
 
         if (allRows.length > 0) {
-            // Tenta salvar no banco
             const { error } = await supabase
                 .from('accounts_receivable')
                 .upsert(allRows, { onConflict: 'ID' });
             
             if (error) {
-                // Se der erro, mostramos exatamente o porquê no log
-                console.error("ERRO AO SALVAR NO BANCO:", error.message);
-                throw new Error(`Falha ao gravar no banco: ${error.message}`);
+                console.error(`[DB ERROR] Falha ao salvar página ${pagina}:`, error.message);
+                throw new Error(`Erro SQL: ${error.message}`);
             } else {
                 totalSalvo += allRows.length;
+                console.log(`[SUCCESS] +${allRows.length} contas salvas.`);
             }
-            allRows.length = 0;
         }
 
         pagina++;
@@ -141,14 +151,14 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({ 
-          message: `Sincronização OK! Atualizados: ${totalSalvo}`, 
+          message: `Sincronização concluída! Processados: ${totalSalvo}`, 
           upserted_count: totalSalvo
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
-    console.error("ERRO FATAL NA FUNÇÃO:", err.message);
+    console.error("[FATAL ERROR]", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
