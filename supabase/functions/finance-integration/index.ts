@@ -5,24 +5,23 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Reduzi o tempo de espera para evitar Timeout do navegador
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
 Deno.serve(async (req) => {
   const startTime = performance.now();
 
-  // 1. Permite que o botão no site funcione (CORS)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // 2. Acesso às chaves secretas
     const TOKEN_TINY = Deno.env.get('OLIST_API_KEY') || ""; 
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
     if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração incompleta nos Secrets (OLIST_API_KEY).');
+      throw new Error('Configuração incompleta nos Secrets.');
     }
 
     let token = TOKEN_TINY;
@@ -32,23 +31,22 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`Iniciando Sincronização Financeira...`);
+    console.log(`Iniciando Sincronização Financeira (V2 Otimizada)...`);
 
     let pagina = 1;
-    const itemsPorPagina = 50; // Busca em lotes maiores
+    const itemsPorPagina = 50; 
     let stopExecution = false;
     let totalSalvo = 0;
     const allRows: any[] = [];
 
-    // 3. Loop para buscar todas as páginas do Tiny
     while (!stopExecution) {
-        // Proteção de tempo (evita timeout do servidor)
-        if ((performance.now() - startTime) > 50000) {
-            console.log("Tempo limite atingido. Salvando parcial.");
+        // Proteção de tempo: para aos 45s para garantir que responde ao frontend
+        if ((performance.now() - startTime) > 45000) {
+            console.log("Tempo limite de segurança atingido. Finalizando...");
             break;
         }
 
-        console.log(`--- Buscando Contas Página ${pagina}...`);
+        console.log(`--- Buscando Página ${pagina}...`);
         
         const urlBusca = new URL('https://api.tiny.com.br/api2/contas.receber.pesquisa.php');
         urlBusca.searchParams.set('token', token);
@@ -59,13 +57,18 @@ Deno.serve(async (req) => {
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
-        // Verifica erros ou fim da lista
+        // Lógica melhorada para detectar o fim da lista
         if (jsonBusca.retorno.status === 'Erro') {
-            if (jsonBusca.retorno.codigo_erro == 20) {
-                stopExecution = true; // Fim da lista
+            const msgErro = jsonBusca.retorno.erros[0]?.erro || '';
+            
+            // Código 20 OU mensagem de página inexistente = Fim normal
+            if (jsonBusca.retorno.codigo_erro == 20 || msgErro.toLowerCase().includes('não existe')) {
+                console.log("Fim da lista de contas.");
+                stopExecution = true;
                 break;
             }
-            console.warn(`Aviso Tiny: ${jsonBusca.retorno.erros[0].erro}`);
+            
+            console.warn(`Aviso Tiny: ${msgErro}`);
             stopExecution = true;
             break;
         }
@@ -76,9 +79,7 @@ Deno.serve(async (req) => {
             break;
         }
 
-        // 4. Processamento dos Dados
         for (const conta of listaContas) {
-            // Tratamento de datas e valores
             const dataVenc = conta.data_vencimento;
             const dataEmissao = conta.data_emissao;
             const dataPagamento = conta.data_pagamento || null;
@@ -88,57 +89,83 @@ Deno.serve(async (req) => {
 
             let competencia = null;
             if (dataVenc && dataVenc.length >= 7) {
-                competencia = dataVenc.substring(0, 7); // Ex: "2024-01"
+                competencia = dataVenc.substring(0, 7);
             }
 
-            // Preparação do objeto para salvar
-            // IMPORTANTE: Só mapeamos campos do Tiny. Campos como 'status_cartorio' não são tocados.
+            // Mapeamento usando chaves em MINÚSCULO (snake_case)
+            // Se o seu banco usa "ID" (maiúsculo), o Supabase geralmente aceita minúsculo se não houver aspas na criação.
+            // Se isso falhar, teremos que confirmar o nome exato das colunas no seu Table Editor.
             allRows.push({
-                "ID": String(conta.id),
-                "Cliente": conta.nome_cliente || 'Cliente Desconhecido',
-                "Data Emissão": dataEmissao,
-                "Data Vencimento": dataVenc,
-                "Data Liquidação": dataPagamento,
-                "Valor documento": valorDoc,
-                "Saldo": saldo,
-                "Situação": conta.situacao,
-                "Número documento": conta.numero_doc,
-                "Histórico": conta.historico,
-                "Competência": competencia,
-                "origem": "OLIST", 
-                "Recebido": recebido,
-                "ult_atuali": new Date().toISOString()
+                id: String(conta.id),
+                cliente: conta.nome_cliente || 'Cliente Desconhecido',
+                data_emissao: dataEmissao,
+                data_vencimento: dataVenc,
+                data_liquidacao: dataPagamento,
+                valor_documento: valorDoc,
+                saldo: saldo,
+                situacao: conta.situacao,
+                numero_documento: conta.numero_doc,
+                historico: conta.historico,
+                competencia: competencia,
+                origem: "OLIST", 
+                valor_recebido: recebido, // Ajustado para bater com seu frontend (valor_recebido)
+                ult_atuali: new Date().toISOString()
             });
         }
 
-        // 5. Salvar no Banco (Upsert)
         if (allRows.length > 0) {
+            // Tenta salvar usando id minúsculo
             const { error } = await supabase
                 .from('accounts_receivable')
-                .upsert(allRows, { onConflict: 'ID' });
+                .upsert(allRows, { onConflict: 'id' }); // 'id' minúsculo
             
             if (error) {
-                console.error("Erro ao salvar lote:", error);
+                console.error("Erro ao salvar lote (Tentativa 1):", error.message);
+                // Se der erro, tenta com ID Maiúsculo (caso o banco seja Case Sensitive)
+                if (error.message.includes('column') || error.message.includes('relation')) {
+                     console.log("Tentando salvar com chaves Maiúsculas...");
+                     const rowsUpper = allRows.map(r => ({
+                        "ID": r.id,
+                        "Cliente": r.cliente,
+                        "Data Emissão": r.data_emissao,
+                        "Data Vencimento": r.data_vencimento,
+                        "Data Liquidação": r.data_liquidacao,
+                        "Valor documento": r.valor_documento,
+                        "Saldo": r.saldo,
+                        "Situação": r.situacao,
+                        "Número documento": r.numero_documento,
+                        "Histórico": r.historico,
+                        "Competência": r.competencia,
+                        "origem": r.origem,
+                        "Recebido": r.valor_recebido
+                     }));
+                     const { error: error2 } = await supabase
+                        .from('accounts_receivable')
+                        .upsert(rowsUpper, { onConflict: 'ID' });
+                     
+                     if (error2) console.error("Erro final ao salvar:", error2.message);
+                     else totalSalvo += allRows.length;
+                }
             } else {
                 totalSalvo += allRows.length;
             }
-            allRows.length = 0; // Limpa memória
+            allRows.length = 0;
         }
 
         pagina++;
-        await delay(800); // Pausa para não bloquear a API
+        await delay(200); // 200ms é suficiente
     }
 
     return new Response(
       JSON.stringify({ 
-          message: `Sincronização Financeira OK! Atualizados: ${totalSalvo}`, 
+          message: `Sincronização OK! Registros processados: ${totalSalvo}`, 
           upserted_count: totalSalvo
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
-    console.error("ERRO FATAL:", err.message);
+    console.error("ERRO CRÍTICO:", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
