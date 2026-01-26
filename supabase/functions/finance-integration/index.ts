@@ -7,7 +7,6 @@ const corsHeaders = {
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-// Função de Conversão de Datas (Essencial)
 function converterData(data: any): string | null {
     if (!data || typeof data !== 'string') return null;
     const partes = data.split('/');
@@ -30,7 +29,7 @@ Deno.serve(async (req) => {
     const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY');
 
     if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      throw new Error('Configuração incompleta nos Secrets.');
+      throw new Error('Configuração de Segredos (API KEYS) incompleta no Supabase.');
     }
 
     let token = TOKEN_TINY;
@@ -38,7 +37,7 @@ Deno.serve(async (req) => {
     token = token.trim();
 
     const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    console.log(`[START] Sincronização Financeira Iniciada...`);
+    console.log(`[START] Sincronização Financeira (Com Filtro de Data Obrigatório)...`);
 
     let pagina = 1;
     const itemsPorPagina = 50; 
@@ -47,40 +46,44 @@ Deno.serve(async (req) => {
     
     while (!stopExecution) {
         if ((performance.now() - startTime) > 45000) {
-            console.log("[TIMEOUT] Tempo limite atingido (Segurança).");
+            console.log("[TIMEOUT] Tempo limite atingido.");
             break;
         }
 
-        console.log(`--- Processando Página ${pagina}...`);
+        console.log(`--- Buscando Página ${pagina}...`);
         
         const urlBusca = new URL('https://api.tiny.com.br/api2/contas.receber.pesquisa.php');
         urlBusca.searchParams.set('token', token);
         urlBusca.searchParams.set('formato', 'json');
         urlBusca.searchParams.set('limit', String(itemsPorPagina));
         urlBusca.searchParams.set('pagina', String(pagina));
+        
+        // --- A CORREÇÃO ESTÁ AQUI ---
+        // O Tiny EXIGE um período. Colocamos um período bem largo para pegar tudo.
+        urlBusca.searchParams.set('data_ini_vencimento', '01/01/2023'); // Pegamos histórico desde 2023
+        urlBusca.searchParams.set('data_fim_vencimento', '31/12/2030'); // Até o futuro distante
 
         const resBusca = await fetch(urlBusca.toString());
         const jsonBusca = await resBusca.json();
 
-        // --- TRATAMENTO DE ERROS MELHORADO ---
+        // Tratamento de Erros e Logs
         if (jsonBusca.retorno.status === 'Erro') {
-            // Tenta pegar a mensagem de várias formas para não dar [object Object]
             let msgErro = '';
             const erroItem = jsonBusca.retorno.erros ? jsonBusca.retorno.erros[0] : null;
             
             if (erroItem) {
-                // Se for objeto com propriedade 'erro', pega ela. Se for string, usa direto.
                 const rawMsg = erroItem.erro || erroItem;
                 msgErro = typeof rawMsg === 'string' ? rawMsg : JSON.stringify(rawMsg);
             }
 
-            // Verifica se é apenas o fim da paginação
+            // Se for erro de paginação ou "não existe", é fim da lista
             if (jsonBusca.retorno.codigo_erro == 20 || msgErro.toLowerCase().includes('não existe')) {
-                console.log("[INFO] Fim da lista de contas (Normal).");
+                console.log("[INFO] Fim da lista de contas.");
                 stopExecution = true;
                 break;
             }
             
+            // Se for outro erro, mostramos o aviso
             console.warn(`[TINY WARN] ${msgErro}`);
             stopExecution = true; 
             break;
@@ -97,7 +100,6 @@ Deno.serve(async (req) => {
         for (const conta of listaContas) {
             const dataVencCorrigida = converterData(conta.data_vencimento);
             
-            // Ignora contas sem vencimento válido para proteger o banco
             if (!dataVencCorrigida) {
                 continue; 
             }
