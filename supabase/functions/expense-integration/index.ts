@@ -1,10 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
-// --- CONFIGURAÇÕES ---
-const TIME_LIMIT_MS = 55000; 
-const PAUSA_API = 4000; // Mantendo os 4 segundos que resolveram o bloqueio
+const TIME_LIMIT_MS = 55000;
+const PAUSA_API = 4000;
 
-// --- FUNÇÃO AUXILIAR DE DATA ---
 function parseDate(dateStr: string | null): string | null {
   if (!dateStr || typeof dateStr !== 'string') return null;
   try {
@@ -17,7 +15,6 @@ function parseDate(dateStr: string | null): string | null {
     } else {
         return null;
     }
-    // Retorna YYYY-MM-DD
     return `${y}-${m}-${d}`;
   } catch {
     return null;
@@ -35,7 +32,7 @@ Deno.serve(async (req) => {
   }
 
   const startTime = performance.now();
-  console.log('--> [ExpenseSync] Iniciando Sincronização (Correção de Datas)...');
+  console.log('--> [ExpenseSync] Iniciando (Correção de Estrutura JSON)...');
 
   try {
     const TOKEN = Deno.env.get('TINY_TOKEN') || Deno.env.get('OLIST_API_KEY');
@@ -56,7 +53,7 @@ Deno.serve(async (req) => {
 
     let totalSalvo = 0;
     let stopGlobal = false;
-    const idsProcessados = new Set<string>(); 
+    const idsProcessados = new Set<string>();
 
     for (const p of periodos) {
       if (stopGlobal) break;
@@ -91,50 +88,52 @@ Deno.serve(async (req) => {
           } else if (json.retorno.codigo_erro == 20 || erroMsg.toLowerCase().includes('não existe') || erroMsg.includes('não foram encontrados')) {
              console.log(`--> Fim dos registros para ${p.ini}.`);
           }
-          break; 
+          break;
         }
 
-        const contas = json.retorno.contas || [];
-        if (contas.length === 0) break;
+        const rawList = json.retorno.contas || [];
+        if (rawList.length === 0) break;
 
-        const batch = contas.map((c: any) => {
-            const idStr = String(c.id);
+        const batch = rawList.map((itemRaw: any) => {
+            // CORREÇÃO CRÍTICA: O Tiny retorna { conta: { ... } }
+            // Aqui pegamos o objeto interno se existir, ou o próprio item.
+            const conta = itemRaw.conta || itemRaw;
+
+            const idStr = String(conta.id);
             if (idsProcessados.has(idStr)) return null;
             idsProcessados.add(idStr);
 
-            const vDoc = parseFloat(c.valor) || 0;
-            const saldo = parseFloat(c.saldo) || 0;
+            const vDoc = parseFloat(conta.valor) || 0;
+            const saldo = parseFloat(conta.saldo) || 0;
             const vPago = vDoc - saldo;
 
-            // --- TRATAMENTO DE DATAS ROBUSTO ---
-            const dataVencParsed = parseDate(c.data_vencimento);
-            const dataEmissaoParsed = parseDate(c.data_emissao);
+            const dataVencParsed = parseDate(conta.data_vencimento);
+            const dataEmissaoParsed = parseDate(conta.data_emissao);
             
-            // Lógica de Fallback: Se Vencimento for nulo, tenta Emissão, senão usa Hoje.
-            // Isso evita o erro "violates not-null constraint"
+            // Fallback inteligente para data
             const dataVencFinal = dataVencParsed || dataEmissaoParsed || new Date().toISOString().split('T')[0];
 
             let comp = null;
-            if (c.data_vencimento && c.data_vencimento.includes('/')) {
-              const parts = c.data_vencimento.split('/');
+            if (conta.data_vencimento && conta.data_vencimento.includes('/')) {
+              const parts = conta.data_vencimento.split('/');
               if (parts.length === 3) comp = `${parts[1]}/${parts[2]}`;
             }
 
             return {
               id: idStr,
-              fornecedor: c.nome_cliente || c.nome_fornecedor || 'Desconhecido',
+              fornecedor: conta.nome_cliente || conta.nome_fornecedor || 'Desconhecido',
               data_emissao: dataEmissaoParsed,
-              data_vencimento: dataVencFinal, // Agora garantimos que nunca é null
-              data_liquidacao: parseDate(c.data_pagamento),
+              data_vencimento: dataVencFinal,
+              data_liquidacao: parseDate(conta.data_pagamento),
               valor_documento: vDoc,
               saldo: saldo,
-              situacao: c.situacao,
-              numero_documento: c.numero_doc,
-              categoria: c.categoria || null,
-              historico: c.historico,
+              situacao: conta.situacao,
+              numero_documento: conta.numero_doc,
+              categoria: conta.categoria || null,
+              historico: conta.historico,
               valor_pago: vPago,
               competencia: comp,
-              forma_pagamento: c.forma_pagamento || null,
+              forma_pagamento: conta.forma_pagamento || null,
               ult_atuali: new Date().toISOString(),
             };
           })
@@ -146,7 +145,6 @@ Deno.serve(async (req) => {
             .upsert(batch, { onConflict: 'id' });
 
           if (error) {
-            // Log detalhado para sabermos se persistir o erro
             console.error(`--> Erro SQL Pág ${pagina}:`, error.message);
           } else {
             totalSalvo += batch.length;
@@ -164,9 +162,7 @@ Deno.serve(async (req) => {
         count: totalSalvo,
         message: 'Sincronização Finalizada',
       }),
-      {
-        headers: { 'Content-Type': 'application/json' },
-      }
+      { headers: { 'Content-Type': 'application/json' } }
     );
 
   } catch (err: any) {
