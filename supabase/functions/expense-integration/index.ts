@@ -1,173 +1,141 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// --- CONFIGURAÇÕES DE PERFORMANCE ---
-const TIME_LIMIT_MS = 55000;      // 55s (Limite de segurança do Supabase)
-const PAUSA_ENTRE_DETALHES = 800; // 0.8s entre chamadas (Otimizado)
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
-// Função de Data segura
-function parseDate(dateStr: string | null): string | null {
-  if (!dateStr || typeof dateStr !== 'string') return null;
+// Configurações
+const TINY_TOKEN = "df0900959326f5540306233267d345c267a32900"; 
+const TIME_LIMIT_MS = 55000; // 55s limite
+const PAUSA_ENTRE_DETALHES = 800; // Delay para evitar bloqueio
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  const startTime = Date.now();
+  
   try {
-    const clean = dateStr.split(' ')[0].trim();
-    let y, m, d;
-    if (clean.includes('/')) [d, m, y] = clean.split('/');
-    else if (clean.includes('-')) [y, m, d] = clean.split('-');
-    else return null;
-    return `${y}-${m}-${d}`;
-  } catch { return null; }
-}
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-Deno.serve(async (req) => {
-  // CORS Check
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform' } });
-  }
+    console.log(">>> INICIANDO SYNC (MODO ID CORRIGIDO) <<<");
 
-  const startTime = performance.now();
-  console.log('--> [ExpenseSync] Iniciando Sincronização DETALHADA (Buscando Categorias)...');
+    // 1. Período de Busca (Ampliado para garantir)
+    const hoje = new Date();
+    const dataInicio = new Date();
+    dataInicio.setDate(hoje.getDate() - 60); 
+    const dataFim = new Date();
+    dataFim.setDate(hoje.getDate() + 120);
 
-  try {
-    const TOKEN = Deno.env.get('TINY_TOKEN') || Deno.env.get('OLIST_API_KEY');
-    const SB_URL = Deno.env.get('SUPABASE_URL');
-    const SB_KEY = Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const dataIniStr = dataInicio.toISOString().split('T')[0].split('-').reverse().join('/');
+    const dataFimStr = dataFim.toISOString().split('T')[0].split('-').reverse().join('/');
 
-    if (!TOKEN || !SB_URL || !SB_KEY) throw new Error('Configuração incompleta.');
-    const cleanToken = TOKEN.includes('=') ? TOKEN.split('=').pop()?.trim() || TOKEN : TOKEN;
-    const supabase = createClient(SB_URL, SB_KEY);
+    let pagina = 1;
+    let totalProcessado = 0;
+    let continuar = true;
 
-    // Focamos em 2026 e 2025
-    const periodos = [
-      { ini: '01/01/2026', fim: '31/12/2026' },
-      { ini: '01/01/2025', fim: '31/12/2025' },
-    ];
+    while (continuar) {
+      if (Date.now() - startTime > TIME_LIMIT_MS) break;
 
-    let totalSalvo = 0;
-    let stopGlobal = false;
-    const idsProcessados = new Set<string>();
+      // 2. Busca Listagem Resumida
+      const urlPesquisa = `https://api.tiny.com.br/api2/conta.pagar.pesquisa.php?token=${TINY_TOKEN}&data_inicial_vencimento=${dataIniStr}&data_final_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
+      const resp = await fetch(urlPesquisa);
+      const json = await resp.json();
 
-    for (const p of periodos) {
-      if (stopGlobal) break;
-      let pagina = 1;
+      if (json.retorno.status !== 'OK' || !json.retorno.contas) {
+        continuar = false;
+        break;
+      }
 
-      while (true) {
-        // Verifica se o tempo está acabando (deixa 5s de margem)
-        if (performance.now() - startTime > (TIME_LIMIT_MS - 5000)) {
-          console.log(`--> Tempo limite (${TIME_LIMIT_MS}ms) próximo. Salvando progresso e encerrando.`);
-          stopGlobal = true;
+      const listaContas = json.retorno.contas;
+      console.log(`Página ${pagina}: Processando ${listaContas.length} itens...`);
+
+      // 3. Processamento Item a Item
+      for (const itemWrapper of listaContas) {
+        const itemBasico = itemWrapper.conta;
+        
+        if (Date.now() - startTime > TIME_LIMIT_MS) {
+          continuar = false;
           break;
         }
 
-        console.log(`--> Lendo Lista Resumida ${p.ini} - Pág ${pagina}...`);
+        // Delay anti-bloqueio
+        await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
+
+        // 4. Busca Detalhes (Pente Fino)
+        let dadosDetalhados = {};
+        try {
+            const urlDetalhe = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${itemBasico.id}&formato=json`;
+            const respDet = await fetch(urlDetalhe);
+            const jsonDet = await respDet.json();
+            if (jsonDet.retorno.status === 'OK' && jsonDet.retorno.conta) {
+                dadosDetalhados = jsonDet.retorno.conta;
+            }
+        } catch (err) {
+            console.error(`Erro ao buscar detalhe ${itemBasico.id}`, err);
+        }
+
+        // Mescla: O que vier no detalhe sobrescreve o básico
+        const final = { ...itemBasico, ...dadosDetalhados };
+
+        // 5. Tratamento de Valores e Status
+        const valorDoc = parseFloat(final.valor || 0);
+        const valorPago = parseFloat(final.valor_pago || 0);
+        const saldo = parseFloat(final.saldo || (valorDoc - valorPago));
         
-        // 1. BUSCA A LISTA (RESUMIDA) - Lote de 20
-        const urlList = new URL('https://api.tiny.com.br/api2/contas.pagar.pesquisa.php');
-        urlList.searchParams.set('token', cleanToken);
-        urlList.searchParams.set('formato', 'json');
-        urlList.searchParams.set('limit', '20'); 
-        urlList.searchParams.set('pagina', String(pagina));
-        urlList.searchParams.set('data_ini_emissao', p.ini);
-        urlList.searchParams.set('data_fim_emissao', p.fim);
-
-        const resList = await fetch(urlList.toString());
-        const jsonList = await resList.json();
-
-        if (jsonList.retorno.status === 'Erro') {
-            const erro = jsonList.retorno.erros?.[0]?.erro || '';
-            if (erro.includes('não foram encontrados') || jsonList.retorno.codigo_erro == 20) {
-                console.log(`--> Fim da lista para ${p.ini}.`);
-            } else {
-                console.log(`--> Erro na lista: ${erro}`);
-            }
-            break; 
+        // Status Inteligente (Corrige erros do Tiny)
+        let situacaoReal = final.situacao;
+        if (Math.abs(saldo) < 0.05) situacaoReal = "LIQUIDADO"; // Se deve centavos, considera pago
+        else if (situacaoReal === 'Aberto' && final.data_vencimento) {
+             const venc = final.data_vencimento.split('/').reverse().join('-');
+             if (new Date(venc) < new Date()) situacaoReal = "ATRASADO";
         }
 
-        const listaResumida = jsonList.retorno.contas || [];
-        if (listaResumida.length === 0) break;
+        // Fornecedor: Tenta de todas as formas
+        const nomeFornecedor = final.nome_fornecedor || final.cliente?.nome || itemBasico.nome_fornecedor || "Fornecedor Não Identificado";
 
-        const batchDetalhado = [];
+        // 6. Objeto para o Banco
+        const contaPayload = {
+          id: final.id.toString(), // AGORA O BANCO ACEITA ISSO COMO CHAVE ÚNICA
+          fornecedor: nomeFornecedor,
+          data_emissao: final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null,
+          data_vencimento: final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null,
+          data_liquidacao: final.data_pagamento ? final.data_pagamento.split('/').reverse().join('-') : null,
+          valor_documento: valorDoc,
+          valor_pago: valorPago,
+          saldo: saldo,
+          situacao: situacaoReal,
+          numero_documento: final.nro_documento || "",
+          competencia: final.data_competencia || "",
+          historico: final.historico || `Conta ${final.id}`,
+          categoria: final.categoria || final.classe_financeira || "Despesa Geral",
+          forma_pagamento: final.forma_pagamento || "Boleto",
+          updated_at: new Date().toISOString()
+        };
 
-        // 2. LOOP DE DETALHES
-        for (const itemResumido of listaResumida) {
-            if (performance.now() - startTime > (TIME_LIMIT_MS - 2000)) { stopGlobal = true; break; }
+        // 7. Salvar (UPSERT)
+        // Agora sim: Se o ID "389677613" já existe, ele ATUALIZA. Não cria novo.
+        const { error } = await supabase
+          .from('accounts_payable')
+          .upsert(contaPayload, { onConflict: 'id' });
 
-            const contaBasic = itemResumido.conta || itemResumido;
-            const idConta = String(contaBasic.id);
-
-            if (idsProcessados.has(idConta)) continue;
-            idsProcessados.add(idConta);
-
-            await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
-
-            try {
-                const urlDetalhe = new URL('https://api.tiny.com.br/api2/conta.pagar.obter.php');
-                urlDetalhe.searchParams.set('token', cleanToken);
-                urlDetalhe.searchParams.set('formato', 'json');
-                urlDetalhe.searchParams.set('id', idConta);
-
-                const resDet = await fetch(urlDetalhe.toString());
-                const jsonDet = await resDet.json();
-                
-                const contaFull = (jsonDet.retorno.status === 'OK') ? jsonDet.retorno.conta : contaBasic;
-                
-                const vDoc = parseFloat(contaFull.valor) || 0;
-                const saldo = parseFloat(contaFull.saldo) || 0;
-                const dataVenc = parseDate(contaFull.data_vencimento);
-                const dataEmis = parseDate(contaFull.data_emissao);
-
-                let categoriaReal = contaFull.categoria || contaFull.classe_financeira || contaFull.grupo_contas || null;
-                if (!categoriaReal) categoriaReal = null;
-
-                let comp = null;
-                if (contaFull.data_vencimento && contaFull.data_vencimento.includes('/')) {
-                    const parts = contaFull.data_vencimento.split('/');
-                    if (parts.length === 3) comp = `${parts[1]}/${parts[2]}`;
-                }
-
-                batchDetalhado.push({
-                    id: idConta,
-                    fornecedor: contaFull.nome_cliente || contaFull.nome_fornecedor || 'Desconhecido',
-                    data_emissao: dataEmis,
-                    data_vencimento: dataVenc || dataEmis || new Date().toISOString().split('T')[0],
-                    data_liquidacao: parseDate(contaFull.data_pagamento),
-                    valor_documento: vDoc,
-                    saldo: saldo,
-                    situacao: contaFull.situacao,
-                    numero_documento: contaFull.numero_doc,
-                    categoria: categoriaReal,
-                    historico: contaFull.historico,
-                    valor_pago: vDoc - saldo,
-                    competencia: comp,
-                    ult_atuali: new Date().toISOString(),
-                });
-
-            } catch (err) {
-                console.error(`Erro ao detalhar conta ${idConta}`, err);
-            }
-        }
-
-        // 3. SALVAR NO BANCO
-        if (batchDetalhado.length > 0) {
-            const { error } = await supabase.from('accounts_payable').upsert(batchDetalhado, { onConflict: 'id' });
-            if (!error) {
-                totalSalvo += batchDetalhado.length;
-                console.log(`--> Salvo lote de ${batchDetalhado.length} contas DETALHADAS.`);
-            } else {
-                console.error('Erro SQL:', error.message);
-            }
-        }
-
-        if (stopGlobal) break;
-        pagina++;
+        if (error) console.error(`Erro BD ${final.id}:`, error);
+        else totalProcessado++;
       }
+      pagina++;
     }
 
-    return new Response(JSON.stringify({ 
-        success: true, 
-        count: totalSalvo, 
-        message: stopGlobal ? 'Parcial (Limite de Tempo - Clique novamente)' : 'Completo' 
-    }), { headers: { 'Content-Type': 'application/json' } });
+    return new Response(
+      JSON.stringify({ message: "Sync Sucesso", count: totalProcessado }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
 
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message }), { status: 400 });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), { 
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
   }
 });
