@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 // --- CONFIGURAÇÕES DE PERFORMANCE ---
 const TIME_LIMIT_MS = 55000;      // 55s (Limite de segurança do Supabase)
-const PAUSA_ENTRE_DETALHES = 800; // 0.8s entre chamadas (Otimizado para não bloquear)
+const PAUSA_ENTRE_DETALHES = 800; // 0.8s entre chamadas (Otimizado)
 
 // Função de Data segura
 function parseDate(dateStr: string | null): string | null {
@@ -18,7 +18,7 @@ function parseDate(dateStr: string | null): string | null {
 }
 
 Deno.serve(async (req) => {
-  // CORS Check (Permite conexão do Front)
+  // CORS Check
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform' } });
   }
@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
 
         console.log(`--> Lendo Lista Resumida ${p.ini} - Pág ${pagina}...`);
         
-        // 1. BUSCA A LISTA (RESUMIDA) - Lote de 20 para dar tempo de processar os detalhes
+        // 1. BUSCA A LISTA (RESUMIDA) - Lote de 20
         const urlList = new URL('https://api.tiny.com.br/api2/contas.pagar.pesquisa.php');
         urlList.searchParams.set('token', cleanToken);
         urlList.searchParams.set('formato', 'json');
@@ -86,23 +86,19 @@ Deno.serve(async (req) => {
 
         const batchDetalhado = [];
 
-        // 2. LOOP DE DETALHES (BUSCA DADOS COMPLETOS UM POR UM)
+        // 2. LOOP DE DETALHES
         for (const itemResumido of listaResumida) {
-            // Checagem de tempo dentro do loop
             if (performance.now() - startTime > (TIME_LIMIT_MS - 2000)) { stopGlobal = true; break; }
 
             const contaBasic = itemResumido.conta || itemResumido;
             const idConta = String(contaBasic.id);
 
-            // Evita duplicidade
             if (idsProcessados.has(idConta)) continue;
             idsProcessados.add(idConta);
 
-            // Pausa rápida para a API não bloquear
             await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
 
             try {
-                // --> AQUI ESTÁ O SEGREDO: Endpoint "obter" traz a categoria
                 const urlDetalhe = new URL('https://api.tiny.com.br/api2/conta.pagar.obter.php');
                 urlDetalhe.searchParams.set('token', cleanToken);
                 urlDetalhe.searchParams.set('formato', 'json');
@@ -111,20 +107,14 @@ Deno.serve(async (req) => {
                 const resDet = await fetch(urlDetalhe.toString());
                 const jsonDet = await resDet.json();
                 
-                // Se o detalhe falhar, usamos o básico. Se funcionar, usamos o completo.
                 const contaFull = (jsonDet.retorno.status === 'OK') ? jsonDet.retorno.conta : contaBasic;
                 
-                // Extração de Valores e Datas
                 const vDoc = parseFloat(contaFull.valor) || 0;
                 const saldo = parseFloat(contaFull.saldo) || 0;
                 const dataVenc = parseDate(contaFull.data_vencimento);
                 const dataEmis = parseDate(contaFull.data_emissao);
 
-                // --- CAÇA À CATEGORIA ---
-                // Tenta pegar de 'categoria', 'classe_financeira' ou 'grupo_contas'
                 let categoriaReal = contaFull.categoria || contaFull.classe_financeira || contaFull.grupo_contas || null;
-                
-                // Se ainda for null, tenta garantir que não salve "undefined"
                 if (!categoriaReal) categoriaReal = null;
 
                 let comp = null;
@@ -143,7 +133,7 @@ Deno.serve(async (req) => {
                     saldo: saldo,
                     situacao: contaFull.situacao,
                     numero_documento: contaFull.numero_doc,
-                    categoria: categoriaReal,  // <--- AGORA VEM PREENCHIDA
+                    categoria: categoriaReal,
                     historico: contaFull.historico,
                     valor_pago: vDoc - saldo,
                     competencia: comp,
@@ -155,7 +145,7 @@ Deno.serve(async (req) => {
             }
         }
 
-        // 3. SALVAR NO BANCO (Upsert: Atualiza se já existir)
+        // 3. SALVAR NO BANCO
         if (batchDetalhado.length > 0) {
             const { error } = await supabase.from('accounts_payable').upsert(batchDetalhado, { onConflict: 'id' });
             if (!error) {
@@ -163,3 +153,21 @@ Deno.serve(async (req) => {
                 console.log(`--> Salvo lote de ${batchDetalhado.length} contas DETALHADAS.`);
             } else {
                 console.error('Erro SQL:', error.message);
+            }
+        }
+
+        if (stopGlobal) break;
+        pagina++;
+      }
+    }
+
+    return new Response(JSON.stringify({ 
+        success: true, 
+        count: totalSalvo, 
+        message: stopGlobal ? 'Parcial (Limite de Tempo - Clique novamente)' : 'Completo' 
+    }), { headers: { 'Content-Type': 'application/json' } });
+
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), { status: 400 });
+  }
+});
