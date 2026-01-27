@@ -29,6 +29,12 @@ const AccountsPayableModule: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'info' } | null>(null);
   
+  // --- AQUI ESTAVA FALTANDO ESSA PARTE: ---
+  // Estados de Paginação
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 50;
+  // ----------------------------------------
+
   // Estados de Filtro
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [filters, setFilters] = useState({
@@ -41,11 +47,11 @@ const AccountsPayableModule: React.FC = () => {
   const fetchItems = async () => {
     setLoading(true);
     try {
+      // BUSCA TUDO SEM LIMIT
       const { data: items, error } = await supabase
         .from('accounts_payable')
         .select('*')
-        .order('data_vencimento', { ascending: true })
-        .limit(100);
+        .order('data_vencimento', { ascending: true });
 
       if (error) throw error;
       setData(items || []);
@@ -61,12 +67,11 @@ const AccountsPayableModule: React.FC = () => {
     fetchItems();
   }, []);
 
- const handleSyncExpenses = async () => {
+  const handleSyncExpenses = async () => {
     setIsSyncing(true);
     setToast({ msg: 'Sincronizando 2026...', type: 'info' });
 
     try {
-      // Chama a função SEM corpo (body), apenas POST. Isso evita preflight complexo.
       const { data, error } = await supabase.functions.invoke('expense-integration', {
         method: 'POST',
       });
@@ -81,8 +86,6 @@ const AccountsPayableModule: React.FC = () => {
       
     } catch (err: any) {
       console.error("Erro Sync:", err);
-      // Se for erro de timeout/network, as vezes a função rodou no servidor mesmo assim.
-      // Damos um feedback neutro.
       setToast({ msg: `Processo enviado. Atualize a tabela em instantes.`, type: 'info' });
       setTimeout(() => fetchItems(), 3000);
     } finally {
@@ -97,11 +100,13 @@ const AccountsPayableModule: React.FC = () => {
   const clearFilters = () => {
     setFilters({ startDate: '', endDate: '', status: 'TODOS', category: 'TODOS' });
     setShowFilterModal(false);
+    setCurrentPage(1); // Volta para a primeira página ao limpar filtros
   };
 
+  // Filtragem dos dados
   const filteredData = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return data.filter(d => {
+    const result = data.filter(d => {
       const matchesSearch = 
         (d.fornecedor || '').toLowerCase().includes(term) || 
         (d.numero_documento && d.numero_documento.toLowerCase().includes(term)) ||
@@ -117,7 +122,19 @@ const AccountsPayableModule: React.FC = () => {
 
       return true;
     });
+    return result;
   }, [data, searchTerm, filters]);
+
+  // Lógica de Paginação (Fatiamento)
+  const indexOfLastItem = currentPage * itemsPerPage;
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+  const currentAccounts = filteredData.slice(indexOfFirstItem, indexOfLastItem);
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+
+  // Reseta para pág 1 se mudar o filtro
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filters]);
 
   if (loading) return <div className="p-20 text-center opacity-30 font-black uppercase text-xs italic animate-pulse">Carregando Despesas...</div>;
 
@@ -168,50 +185,116 @@ const AccountsPayableModule: React.FC = () => {
         </div>
       </div>
 
-      <div className="table-container flex-1 overflow-auto border border-slate-200 rounded-[2rem] bg-white shadow-sm" style={{ maxHeight: 'calc(100vh - 280px)' }}>
-        <table className="w-full border-separate border-spacing-0" style={{ minWidth: '1800px' }}>
-          <thead className="sticky top-0 z-20">
-            <tr>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left sticky left-0 z-30">ID</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Fornecedor</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Data Emissão</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Data Vencimento</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Data Liquidação</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-right">Valor documento</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-right">Pago</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-right">Saldo</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Situação</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Número documento</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Categoria</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Histórico</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Competência</th>
-              <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Forma Pagamento</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredData.map(item => (
-              <tr key={item.id} className="group hover:bg-slate-50/80 transition-colors">
-                <td className="px-6 py-4 border-b border-slate-100 font-black text-blue-600 text-[10px] italic sticky left-0 z-10 bg-white group-hover:bg-slate-50">#{item.id}</td>
-                <td className="px-6 py-4 border-b border-slate-100 font-black text-slate-900 uppercase italic text-[11px] whitespace-nowrap">{item.fornecedor}</td>
-                <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-500 text-center">{item.data_emissao ? item.data_emissao.split('-').reverse().join('/') : '---'}</td>
-                <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-900 text-center">{item.data_vencimento ? item.data_vencimento.split('-').reverse().join('/') : '---'}</td>
-                <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-400 text-center">{item.data_liquidacao ? item.data_liquidacao.split('-').reverse().join('/') : '---'}</td>
-                <td className="px-6 py-4 border-b border-slate-100 text-right font-bold text-slate-400 text-[11px]">R$ {(item.valor_documento || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                <td className="px-6 py-4 border-b border-slate-100 text-right font-black text-emerald-600 text-[11px]">R$ {(item.valor_pago || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                <td className="px-6 py-4 border-b border-slate-100 text-right font-black text-slate-900 text-[11px]">R$ {(item.saldo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                <td className="px-6 py-4 border-b border-slate-100 text-center">
-                   <div className={`inline-flex px-3 py-1 rounded-lg font-black text-[9px] uppercase border shadow-sm ${ (item.situacao || '').toLowerCase().includes('paga') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : item.data_vencimento && new Date(item.data_vencimento) < new Date() ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100' }`}>{item.situacao || 'PENDENTE'}</div>
-                </td>
-                <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-600">{item.numero_documento || '---'}</td>
-                <td className="px-6 py-4 border-b border-slate-100 font-black text-blue-500 text-[9px] uppercase">{item.categoria}</td>
-                <td className="px-6 py-4 border-b border-slate-100 text-[10px] text-slate-400 max-w-xs truncate" title={item.historico}>{item.historico}</td>
-                <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-500">{item.competencia}</td>
-                <td className="px-6 py-4 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase">{item.forma_pagamento}</td>
+      <div className="table-container flex-1 overflow-auto border border-slate-200 rounded-[2rem] bg-white shadow-sm flex flex-col" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full border-separate border-spacing-0" style={{ minWidth: '1800px' }}>
+            <thead className="sticky top-0 z-20">
+              <tr>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left sticky left-0 z-30">ID</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Fornecedor</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Data Emissão</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Data Vencimento</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Data Liquidação</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-right">Valor documento</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-right">Pago</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-right">Saldo</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-center">Situação</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Número documento</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Categoria</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Histórico</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Competência</th>
+                <th className="bg-slate-50 text-slate-400 font-black uppercase text-[9px] tracking-widest px-6 py-4 border-b border-slate-200 text-left">Forma Pagamento</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {filteredData.length === 0 && (<div className="py-20 text-center opacity-30 font-black uppercase text-[10px] tracking-widest">Nenhum registro encontrado.</div>)}
+            </thead>
+            <tbody>
+              {currentAccounts.map(item => (
+                <tr key={item.id} className="group hover:bg-slate-50/80 transition-colors">
+                  <td className="px-6 py-4 border-b border-slate-100 font-black text-blue-600 text-[10px] italic sticky left-0 z-10 bg-white group-hover:bg-slate-50">#{item.id}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-black text-slate-900 uppercase italic text-[11px] whitespace-nowrap">{item.fornecedor}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-500 text-center">{item.data_emissao ? item.data_emissao.split('-').reverse().join('/') : '---'}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-900 text-center">{item.data_vencimento ? item.data_vencimento.split('-').reverse().join('/') : '---'}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-400 text-center">{item.data_liquidacao ? item.data_liquidacao.split('-').reverse().join('/') : '---'}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 text-right font-bold text-slate-400 text-[11px]">R$ {(item.valor_documento || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 text-right font-black text-emerald-600 text-[11px]">R$ {(item.valor_pago || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 text-right font-black text-slate-900 text-[11px]">R$ {(item.saldo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 text-center">
+                     <div className={`inline-flex px-3 py-1 rounded-lg font-black text-[9px] uppercase border shadow-sm ${ (item.situacao || '').toLowerCase().includes('pago') || (item.situacao || '').toLowerCase().includes('paga') || (item.situacao || '').toLowerCase().includes('liquidado') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : item.data_vencimento && new Date(item.data_vencimento) < new Date() ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100' }`}>{item.situacao || 'PENDENTE'}</div>
+                  </td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-600">{item.numero_documento || '---'}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-black text-blue-500 text-[9px] uppercase">{item.categoria || 'SEM CATEGORIA'}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 text-[10px] text-slate-400 max-w-xs truncate" title={item.historico}>{item.historico}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-500">{item.competencia}</td>
+                  <td className="px-6 py-4 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase">{item.forma_pagamento}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filteredData.length === 0 && (<div className="py-20 text-center opacity-30 font-black uppercase text-[10px] tracking-widest">Nenhum registro encontrado.</div>)}
+        </div>
+
+        {/* --- RODAPÉ COM PAGINAÇÃO --- */}
+        <div className="flex items-center justify-between px-6 py-4 bg-white border-t border-slate-100 sticky bottom-0 z-40">
+          <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                Mostrando <span className="font-black text-slate-900">{indexOfFirstItem + 1}</span> até{' '}
+                <span className="font-black text-slate-900">
+                  {Math.min(indexOfLastItem, filteredData.length)}
+                </span>{' '}
+                de <span className="font-black text-slate-900">{filteredData.length}</span> resultados
+              </p>
+            </div>
+            <div>
+              <nav className="relative z-0 inline-flex rounded-xl shadow-sm -space-x-px" aria-label="Pagination">
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className={`relative inline-flex items-center px-3 py-2 rounded-l-xl border border-slate-200 bg-white text-xs font-bold uppercase tracking-wider ${
+                    currentPage === 1 ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Anterior
+                </button>
+                
+                {/* Lógica Simplificada de Números de Página */}
+                <div className="hidden md:flex">
+                  {[...Array(totalPages)].map((_, i) => {
+                    const pageNum = i + 1;
+                    // Mostra primeira, última, e vizinhas da atual
+                    if (pageNum === 1 || pageNum === totalPages || (pageNum >= currentPage - 1 && pageNum <= currentPage + 1)) {
+                       return (
+                        <button
+                          key={i}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`relative inline-flex items-center px-4 py-2 border text-xs font-bold ${
+                            currentPage === pageNum
+                              ? 'z-10 bg-slate-900 border-slate-900 text-white'
+                              : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    } else if (pageNum === currentPage - 2 || pageNum === currentPage + 2) {
+                       return <span key={i} className="px-2 py-2 text-slate-400">...</span>;
+                    }
+                    return null;
+                  })}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className={`relative inline-flex items-center px-3 py-2 rounded-r-xl border border-slate-200 bg-white text-xs font-bold uppercase tracking-wider ${
+                    currentPage === totalPages ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:bg-slate-50'
+                  }`}
+                >
+                  Próximo
+                </button>
+              </nav>
+            </div>
+          </div>
+        </div>
       </div>
 
       {showFilterModal && (
@@ -234,6 +317,13 @@ const AccountsPayableModule: React.FC = () => {
                     <select value={filters.status} onChange={e => setFilters({...filters, status: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl text-xs font-bold outline-none uppercase cursor-pointer">
                        <option value="TODOS">Todas as Situações</option>
                        {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                 </div>
+                 <div className="space-y-2">
+                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Categoria</label>
+                    <select value={filters.category} onChange={e => setFilters({...filters, category: e.target.value})} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl text-xs font-bold outline-none uppercase cursor-pointer">
+                       <option value="TODOS">Todas as Categorias</option>
+                       {uniqueCategories.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                  </div>
               </div>
