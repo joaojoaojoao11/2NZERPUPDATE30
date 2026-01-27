@@ -1,8 +1,7 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { supabaseClient as supabase } from '../services/core'; 
 import { ICONS } from '../constants';
 import Toast from './Toast';
-import * as XLSX from 'xlsx';
 
 // Definindo o tipo exato que vem do banco
 interface AccountsPayable {
@@ -64,19 +63,31 @@ const AccountsPayableModule: React.FC = () => {
 
   const handleSyncExpenses = async () => {
     setIsSyncing(true);
-    setToast({ msg: 'Buscando despesas no Tiny...', type: 'info' });
+    setToast({ msg: 'Iniciando sincronização (isso pode levar 1 minuto)...', type: 'info' });
 
     try {
-      const { data, error } = await supabase.functions.invoke('expense-integration');
-      if (error) throw error;
+      // Chama a função com método POST explícito
+      const { data, error } = await supabase.functions.invoke('expense-integration', {
+        method: 'POST',
+        body: {} // Corpo vazio, mas necessário em alguns casos
+      });
 
+      if (error) {
+        console.error('Erro Supabase Invoke:', error);
+        throw new Error(error.message || 'Falha na comunicação com o servidor.');
+      }
+
+      console.log('Resposta Sync:', data);
+      
       const count = data?.upserted_count || 0;
-      setToast({ msg: `Sucesso! ${count} despesas atualizadas.`, type: 'success' });
-      await fetchItems();
+      setToast({ msg: `Sincronização concluída! ${count} registros processados.`, type: 'success' });
+      
+      // Recarrega a tabela após 1 segundo para garantir que o banco processou
+      setTimeout(() => fetchItems(), 1000);
       
     } catch (err: any) {
-      console.error(err);
-      setToast({ msg: `Erro na sincronização: ${err.message}`, type: 'error' });
+      console.error('Erro Catch:', err);
+      setToast({ msg: `Erro ao sincronizar: ${err.message}`, type: 'error' });
     } finally {
       setIsSyncing(false);
     }
@@ -130,8 +141,8 @@ const AccountsPayableModule: React.FC = () => {
               <button
                 onClick={handleSyncExpenses}
                 disabled={isSyncing}
-                className="p-2 rounded-xl transition-all text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
-                title="Sincronizar com Tiny"
+                className="p-2 rounded-xl transition-all text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title={isSyncing ? "Sincronizando..." : "Sincronizar com Tiny"}
               >
                 {isSyncing ? (
                    <div className="w-5 h-5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
