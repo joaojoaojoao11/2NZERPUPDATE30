@@ -7,11 +7,18 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// Mantenha os imports e o token...
+
 const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
 const TIME_LIMIT_MS = 55000; 
-const PAUSA_NOVO_ITEM = 1000; // 1s para itens novos (segurança API)
-const PAUSA_ITEM_EXISTENTE = 10; // 10ms para itens já salvos (voando!)
-const LIMITE_REQUISICOES_TINY = 45; // Máximo de chamadas PESADAS por execução
+const PAUSA_NOVO_ITEM = 1000; 
+const PAUSA_ITEM_EXISTENTE = 0; 
+
+// === AJUSTE DE SEGURANÇA ===
+// Reduzido de 55 para 40 para evitar Erro 6 (API Bloqueada)
+const LIMITE_REQUISICOES_TINY = 40; 
+
+// ... resto do código igual ...
 
 function formatDateBR(date: Date): string {
   const d = new Date(date);
