@@ -7,10 +7,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Seu Token Válido
+// SEU TOKEN NOVO (Já incluído)
 const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
-const TIME_LIMIT_MS = 50000; 
-const PAUSA_ENTRE_DETALHES = 800;
+const TIME_LIMIT_MS = 55000; 
+
+// === ACELERAÇÃO MÁXIMA ===
+// De 800ms para 50ms. Aumenta a velocidade em ~10x
+const PAUSA_ENTRE_DETALHES = 50; 
 
 function formatDateBR(date: Date): string {
   const d = new Date(date);
@@ -30,7 +33,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC INICIADO: CORREÇÃO NOME FORNECEDOR <<<");
+    console.log(">>> SYNC INICIADO: MODO TURBO (BAIXA LATÊNCIA) <<<");
 
     const hoje = new Date();
     const dataInicio = new Date(hoje);
@@ -42,7 +45,7 @@ serve(async (req) => {
     const dataIniStr = formatDateBR(dataInicio);
     const dataFimStr = formatDateBR(dataFim);
 
-    console.log(`Buscando de: ${dataIniStr} até ${dataFimStr}`);
+    console.log(`Periodo: ${dataIniStr} ate ${dataFimStr}`);
 
     let pagina = 1;
     let totalProcessado = 0;
@@ -60,7 +63,7 @@ serve(async (req) => {
       try {
         json = JSON.parse(text);
       } catch (e) {
-        throw new Error(`Resposta inválida do Tiny: ${text.substring(0, 50)}...`);
+        throw new Error(`Resposta inválida do Tiny.`);
       }
 
       if (json.retorno.status !== 'OK') {
@@ -83,7 +86,12 @@ serve(async (req) => {
 
       for (const itemWrapper of listaContas) {
         const itemBasico = itemWrapper.conta;
-        if (Date.now() - startTime > TIME_LIMIT_MS) { continuar = false; break; }
+        // Verifica tempo antes de cada item para não estourar
+        if (Date.now() - startTime > TIME_LIMIT_MS) { 
+            console.log("Tempo limite atingido. Encerrando lote.");
+            continuar = false; 
+            break; 
+        }
 
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
 
@@ -95,22 +103,11 @@ serve(async (req) => {
           if (jsonDet.retorno.status === 'OK') det = jsonDet.retorno.conta;
         } catch (e) { console.warn("Erro detalhe:", itemBasico.id); }
 
-        // === CORREÇÃO: DETETIVE DE NOME ===
-        // O Tiny é bagunçado. O nome pode estar em vários lugares.
-        // Ordem de preferência: 
-        // 1. nome_cliente (no detalhe)
-        // 2. cliente.nome (objeto cliente no detalhe)
-        // 3. nome_fornecedor (no detalhe)
-        // 4. cliente.nome (no básico)
-        // 5. nome_cliente (no básico)
-        
+        // Detetive de Nomes
         let nomeFinal = "Desconhecido";
-
-        // Tenta pegar do detalhe primeiro (mais confiável)
         if (det.cliente && det.cliente.nome) nomeFinal = det.cliente.nome;
         else if (det.nome_cliente) nomeFinal = det.nome_cliente;
         else if (det.nome_fornecedor) nomeFinal = det.nome_fornecedor;
-        // Se falhar, tenta do básico
         else if (itemBasico.cliente && itemBasico.cliente.nome) nomeFinal = itemBasico.cliente.nome;
         else if (itemBasico.nome_cliente) nomeFinal = itemBasico.nome_cliente;
         else if (itemBasico.nome_fornecedor) nomeFinal = itemBasico.nome_fornecedor;
@@ -119,7 +116,7 @@ serve(async (req) => {
 
         const payload = {
           id: final.id.toString(),
-          fornecedor: nomeFinal, // Usa o nome descoberto
+          fornecedor: nomeFinal,
           data_emissao: final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null,
           data_vencimento: final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null,
           data_liquidacao: final.data_pagamento ? final.data_pagamento.split('/').reverse().join('-') : null,
