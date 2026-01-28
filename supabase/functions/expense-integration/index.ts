@@ -8,37 +8,29 @@ const corsHeaders = {
 };
 
 const TINY_TOKEN = "df0900959326f5540306233267d345c267a32900"; 
-const TIME_LIMIT_MS = 55000;
-const PAUSA_ENTRE_DETALHES = 800;
+const TIME_LIMIT_MS = 50000; // Limite de 50s para segurança
+const PAUSA_ENTRE_DETALHES = 800; // Milissegundos entre chamadas para não ser bloqueado pelo Tiny
 
 serve(async (req) => {
-  // Preflight request handler
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   const startTime = Date.now();
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-    
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Configuração do Supabase ausente (URL ou Key).");
-    }
-
     const supabase = createClient(supabaseUrl, supabaseKey);
-    console.log(">>> SYNC INICIADO: MODO ROBUSTO <<<");
 
-    // Datas
-    const hoje = new Date();
+    console.log(">>> SYNC INICIADO: MODO SINGULAR + CORS FIX <<<");
+
+    // Período: 30 dias atrás até 90 dias à frente
     const dataInicio = new Date();
-    dataInicio.setDate(hoje.getDate() - 60); 
+    dataInicio.setDate(dataInicio.getDate() - 30);
     const dataFim = new Date();
-    dataFim.setDate(hoje.getDate() + 120);
+    dataFim.setDate(dataFim.getDate() + 90);
 
-    const dataIniStr = dataInicio.toISOString().split('T')[0].split('-').reverse().join('/');
-    const dataFimStr = dataFim.toISOString().split('T')[0].split('-').reverse().join('/');
+    const dataIniStr = dataInicio.toLocaleDateString('pt-BR');
+    const dataFimStr = dataFim.toLocaleDateString('pt-BR');
 
     let pagina = 1;
     let totalProcessado = 0;
@@ -47,135 +39,80 @@ serve(async (req) => {
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
 
-      // 1. URL da API (Verifique se não há espaços extras)
-      const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_inicial_vencimento=${dataIniStr}&data_final_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
+      // URL CORRETA: conta.pagar (SINGULAR)
+      const urlPesquisa = `https://api.tiny.com.br/api2/conta.pagar.pesquisa.php?token=${TINY_TOKEN}&data_inicial_vencimento=${dataIniStr}&data_final_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
-      console.log(`Buscando URL: ${urlPesquisa.replace(TINY_TOKEN, '***')}`);
-
       const resp = await fetch(urlPesquisa);
-      
-      // Checagem de Erro de Rede/API
-      if (!resp.ok) {
-        throw new Error(`Erro HTTP Tiny: ${resp.status} - ${resp.statusText}`);
-      }
+      const text = await resp.text();
 
-      // Leitura Segura do JSON
-      const textResponse = await resp.text();
+      // Verifica se a resposta é JSON antes de parsear
       let json;
       try {
-        json = JSON.parse(textResponse);
+        json = JSON.parse(text);
       } catch (e) {
-        console.error("Resposta não é JSON:", textResponse);
-        throw new Error(`Tiny retornou resposta inválida: ${textResponse.substring(0, 100)}...`);
+        console.error("Erro: Tiny não retornou JSON. Resposta:", text);
+        throw new Error("A API do Tiny retornou um formato inválido (provavelmente File Not Found). Verifique a URL.");
       }
 
-      // Validação da Resposta do Tiny
-      if (json.retorno.status !== 'OK') {
-        if (json.retorno.codigo_erro === '20') { // Nenhum registro encontrado
-             console.log("Fim da paginação (código 20).");
-             continuar = false;
-             break;
-        }
-        // Se houver erro real, loga mas não quebra se for apenas "sem dados"
-        if (!json.retorno.contas) {
-            continuar = false;
-            break;
-        }
-      }
-
-      const listaContas = json.retorno.contas || [];
-      console.log(`Página ${pagina}: ${listaContas.length} itens.`);
-
-      if (listaContas.length === 0) {
+      if (json.retorno.status !== 'OK' || !json.retorno.contas) {
         continuar = false;
         break;
       }
 
-      // Processamento
+      const listaContas = json.retorno.contas;
+
       for (const itemWrapper of listaContas) {
         const itemBasico = itemWrapper.conta;
-        
-        if (Date.now() - startTime > TIME_LIMIT_MS) {
-          continuar = false;
-          break;
-        }
+        if (Date.now() - startTime > TIME_LIMIT_MS) { continuar = false; break; }
 
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
 
-        // Detalhes (Try-catch isolado para não parar o loop)
-        let dadosDetalhados = {};
+        // Busca Detalhes para pegar Fornecedor e Categoria reais
+        let det = {};
         try {
-            const urlDetalhe = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${itemBasico.id}&formato=json`;
-            const respDet = await fetch(urlDetalhe);
-            const textDet = await respDet.text();
-            const jsonDet = JSON.parse(textDet);
-            
-            if (jsonDet.retorno.status === 'OK' && jsonDet.retorno.conta) {
-                dadosDetalhados = jsonDet.retorno.conta;
-            }
-        } catch (err) {
-            console.warn(`Aviso: Falha ao buscar detalhes ID ${itemBasico.id}`, err);
-        }
+          const urlObter = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${itemBasico.id}&formato=json`;
+          const respDet = await fetch(urlObter);
+          const jsonDet = await respDet.json();
+          if (jsonDet.retorno.status === 'OK') det = jsonDet.retorno.conta;
+        } catch (e) { console.error("Erro ao obter detalhe:", itemBasico.id); }
 
-        const final = { ...itemBasico, ...dadosDetalhados };
+        const final = { ...itemBasico, ...det };
 
-        // Normalização
-        const valorDoc = parseFloat(final.valor || 0);
-        const valorPago = parseFloat(final.valor_pago || 0);
-        const saldo = parseFloat(final.saldo || (valorDoc - valorPago));
-        
-        let situacaoReal = final.situacao;
-        // Lógica de Status
-        if (Math.abs(saldo) < 0.05) situacaoReal = "LIQUIDADO";
-        else if (situacaoReal === 'Aberto' && final.data_vencimento) {
-             const venc = final.data_vencimento.split('/').reverse().join('-');
-             if (new Date(venc) < new Date()) situacaoReal = "ATRASADO";
-        }
-
-        const nomeFornecedor = final.nome_fornecedor || final.cliente?.nome || itemBasico.nome_fornecedor || "Fornecedor Não Identificado";
-
-        const contaPayload = {
-          id: final.id.toString(),
-          fornecedor: nomeFornecedor,
+        // Mapeamento para o seu banco (conforme o esquema enviado)
+        const payload = {
+          id: final.id.toString(), // Texto
+          fornecedor: final.nome_fornecedor || final.cliente?.nome || "Não Identificado",
           data_emissao: final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null,
-          data_vencimento: final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null,
+          data_vencimento: final.data_vencimento.split('/').reverse().join('-'),
           data_liquidacao: final.data_pagamento ? final.data_pagamento.split('/').reverse().join('-') : null,
-          valor_documento: valorDoc,
-          valor_pago: valorPago,
-          saldo: saldo,
-          situacao: situacaoReal,
+          valor_documento: parseFloat(final.valor || 0),
+          valor_pago: parseFloat(final.valor_pago || 0),
+          saldo: parseFloat(final.saldo || 0),
+          situacao: final.situacao?.toLowerCase() || 'pendente',
           numero_documento: final.nro_documento || "",
+          categoria: final.categoria || final.classe_financeira || "Geral",
+          historico: final.historico || "",
           competencia: final.data_competencia || "",
-          historico: final.historico || `Conta ${final.id}`,
-          categoria: final.categoria || final.classe_financeira || "Despesa Geral",
-          forma_pagamento: final.forma_pagamento || "Boleto",
-          updated_at: new Date().toISOString()
+          forma_pagamento: final.forma_pagamento || "",
+          ult_atuali: new Date().toISOString()
         };
 
-        const { error } = await supabase
-          .from('accounts_payable')
-          .upsert(contaPayload, { onConflict: 'id' });
-
-        if (error) {
-            console.error(`Erro BD ID ${final.id}:`, error.message);
-        } else {
-            totalProcessado++;
-        }
+        const { error } = await supabase.from('accounts_payable').upsert(payload, { onConflict: 'id' });
+        if (!error) totalProcessado++;
       }
       pagina++;
     }
 
-    return new Response(
-      JSON.stringify({ message: "Sync Finalizado", count: totalProcessado }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ message: "Sync concluído", count: totalProcessado }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200
+    });
 
   } catch (err: any) {
-    console.error("ERRO CRÍTICO NA FUNCTION:", err);
-    // Retorna erro formatado para o front-end não ficar "cego"
-    return new Response(
-      JSON.stringify({ error: err.message, detail: "Verifique os logs do Supabase" }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error("ERRO FATAL:", err.message);
+    return new Response(JSON.stringify({ error: err.message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500
+    });
   }
 });
