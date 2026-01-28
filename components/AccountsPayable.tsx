@@ -95,7 +95,7 @@ const AccountsPayableModule: React.FC = () => {
 
   const handleSyncExpenses = async () => {
     setIsSyncing(true);
-    setToast({ msg: 'Sincronizando 2026...', type: 'info' });
+    setToast({ msg: 'Sincronizando...', type: 'info' });
 
     try {
       const { data, error } = await supabase.functions.invoke('expense-integration', {
@@ -105,8 +105,11 @@ const AccountsPayableModule: React.FC = () => {
       if (error) throw error;
 
       console.log('Sync Sucesso:', data);
-      const count = data?.count || 0;
-      setToast({ msg: `Sucesso! ${count} contas atualizadas.`, type: 'success' });
+      
+      const novos = data?.novos || 0;
+      const atualizados = data?.atualizados || 0;
+      
+      setToast({ msg: `Sucesso! ${novos} novos, ${atualizados} atualizados.`, type: 'success' });
       
       setTimeout(() => fetchItems(), 1000);
       
@@ -168,14 +171,25 @@ const AccountsPayableModule: React.FC = () => {
     });
   }, [data, searchTerm, filters, currentDate, selectedDay]);
 
-  // Cálculo de Totais
+  // Cálculo de Totais (COM A LÓGICA CORRIGIDA)
   const summary = useMemo(() => {
-    return filteredData.reduce((acc, item) => ({
-      totalDoc: acc.totalDoc + (item.valor_documento || 0),
-      totalPago: acc.totalPago + (item.valor_pago || 0),
-      totalSaldo: acc.totalSaldo + (item.saldo || 0),
-      count: acc.count + 1
-    }), { totalDoc: 0, totalPago: 0, totalSaldo: 0, count: 0 });
+    return filteredData.reduce((acc, item) => {
+        // Lógica para corrigir visualização do valor pago
+        const situacao = (item.situacao || '').toLowerCase();
+        const isPago = situacao.includes('pago') || situacao.includes('liquidado') || situacao.includes('baixado');
+        
+        // Se está pago e o valor_pago é zero/nulo, assumimos o valor do documento
+        const valorPagoReal = (item.valor_pago && item.valor_pago > 0) 
+            ? item.valor_pago 
+            : (isPago ? item.valor_documento : 0);
+
+        return {
+            totalDoc: acc.totalDoc + (item.valor_documento || 0),
+            totalPago: acc.totalPago + valorPagoReal,
+            totalSaldo: acc.totalSaldo + (item.saldo || 0),
+            count: acc.count + 1
+        };
+    }, { totalDoc: 0, totalPago: 0, totalSaldo: 0, count: 0 });
   }, [filteredData]);
 
   // Lógica de Paginação
@@ -308,7 +322,15 @@ const AccountsPayableModule: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {currentAccounts.map(item => (
+              {currentAccounts.map(item => {
+                // LÓGICA DE CORREÇÃO VISUAL PARA A LINHA
+                const situacao = (item.situacao || '').toLowerCase();
+                const isPago = situacao.includes('pago') || situacao.includes('liquidado') || situacao.includes('baixado');
+                const valorPagoVisual = (item.valor_pago && item.valor_pago > 0) 
+                    ? item.valor_pago 
+                    : (isPago ? item.valor_documento : 0);
+
+                return (
                 <tr key={item.id} className="group hover:bg-slate-50/80 transition-colors">
                   <td className="px-6 py-4 border-b border-slate-100 font-black text-blue-600 text-[10px] italic sticky left-0 z-10 bg-white group-hover:bg-slate-50 whitespace-nowrap">#{item.id}</td>
                   <td className="px-6 py-4 border-b border-slate-100 font-black text-slate-900 uppercase italic text-[11px] whitespace-nowrap">{item.fornecedor}</td>
@@ -316,10 +338,15 @@ const AccountsPayableModule: React.FC = () => {
                   <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-900 text-center whitespace-nowrap">{item.data_vencimento ? item.data_vencimento.split('-').reverse().join('/') : '---'}</td>
                   <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-400 text-center whitespace-nowrap">{item.data_liquidacao ? item.data_liquidacao.split('-').reverse().join('/') : '---'}</td>
                   <td className="px-6 py-4 border-b border-slate-100 text-right font-bold text-slate-400 text-[11px] whitespace-nowrap">R$ {(item.valor_documento || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-6 py-4 border-b border-slate-100 text-right font-black text-emerald-600 text-[11px] whitespace-nowrap">R$ {(item.valor_pago || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                  
+                  {/* COLUNA PAGO CORRIGIDA */}
+                  <td className="px-6 py-4 border-b border-slate-100 text-right font-black text-emerald-600 text-[11px] whitespace-nowrap">
+                    R$ {valorPagoVisual.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </td>
+                  
                   <td className="px-6 py-4 border-b border-slate-100 text-right font-black text-slate-900 text-[11px] whitespace-nowrap">R$ {(item.saldo || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                   <td className="px-6 py-4 border-b border-slate-100 text-center whitespace-nowrap">
-                     <div className={`inline-flex px-3 py-1 rounded-lg font-black text-[9px] uppercase border shadow-sm ${ (item.situacao || '').toLowerCase().includes('pago') || (item.situacao || '').toLowerCase().includes('paga') || (item.situacao || '').toLowerCase().includes('liquidado') ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : item.data_vencimento && new Date(item.data_vencimento) < new Date() ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100' }`}>{item.situacao || 'PENDENTE'}</div>
+                     <div className={`inline-flex px-3 py-1 rounded-lg font-black text-[9px] uppercase border shadow-sm ${ isPago ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : item.data_vencimento && new Date(item.data_vencimento) < new Date() ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100' }`}>{item.situacao || 'PENDENTE'}</div>
                   </td>
                   <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-600 whitespace-nowrap">{item.numero_documento || '---'}</td>
                   <td className="px-6 py-4 border-b border-slate-100 font-black text-blue-500 text-[9px] uppercase whitespace-nowrap">{item.categoria || 'SEM CATEGORIA'}</td>
@@ -327,7 +354,7 @@ const AccountsPayableModule: React.FC = () => {
                   <td className="px-6 py-4 border-b border-slate-100 font-bold text-[11px] text-slate-500 whitespace-nowrap">{item.competencia}</td>
                   <td className="px-6 py-4 border-b border-slate-100 font-bold text-[10px] text-slate-500 uppercase whitespace-nowrap">{item.forma_pagamento}</td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
           {filteredData.length === 0 && (<div className="py-20 text-center opacity-30 font-black uppercase text-[10px] tracking-widest">Nenhum registro encontrado para este período.</div>)}
