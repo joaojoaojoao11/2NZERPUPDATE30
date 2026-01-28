@@ -7,10 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
-const PAUSA_ENTRE_REQUISICOES = 1000; 
-const LIMITE_POR_EXECUCAO = 20; 
-
 function safeDate(raw: any): string | null {
     if (!raw || typeof raw !== 'string' || raw.trim() === '') return null;
     try {
@@ -21,46 +17,45 @@ function safeDate(raw: any): string | null {
 }
 
 serve(async (req) => {
-  // 1. Tratamento de CORS (Essencial para o botão funcionar)
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  // 1. Resposta para o Preflight (Resolve o erro de CORS)
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
 
   try {
+    // 2. Variáveis de ambiente (Secrets do Supabase)
+    const TINY_TOKEN = Deno.env.get('TINY_TOKEN');
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     
-    if (!supabaseKey) {
-        throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada.");
-    }
+    if (!TINY_TOKEN) throw new Error("TINY_TOKEN não configurado.");
+    if (!supabaseKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada.");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const PAUSA_ENTRE_REQUISICOES = 1000; 
+    const LIMITE_POR_EXECUCAO = 20; 
 
-    console.log(">>> EXPENSE ENRICHER: Buscando contas pagas sem detalhes... <<<");
+    console.log(">>> INICIANDO ENRIQUECIMENTO DE DESPESAS <<<");
 
-    // 2. Busca apenas contas PAGAS que estão com DATA DE LIQUIDAÇÃO VAZIA
+    // 3. Busca contas pagas sem data de liquidação
     const { data: incompletos, error } = await supabase
       .from('accounts_payable')
       .select('id, fornecedor')
       .or('situacao.ilike.pago,situacao.ilike.liquidado,situacao.ilike.baixado')
-      .is('data_liquidacao', null) // O alvo do robô
+      .is('data_liquidacao', null)
       .limit(LIMITE_POR_EXECUCAO);
 
     if (error) throw error;
 
     if (!incompletos || incompletos.length === 0) {
-        return new Response(JSON.stringify({ 
-            message: "Nada pendente de correção.", 
-            corrigidos: 0,
-            analisados: 0
-        }), {
+        return new Response(JSON.stringify({ message: "Nada para corrigir", corrigidos: 0 }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 200
         });
     }
 
-    console.log(`Encontradas ${incompletos.length} contas para corrigir.`);
     let corrigidos = 0;
 
-    // 3. Busca os detalhes no Tiny para cada conta incompleta
     for (const item of incompletos) {
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_REQUISICOES));
 
@@ -71,8 +66,6 @@ serve(async (req) => {
 
             if (json.retorno.status === 'OK') {
                 const det = json.retorno.conta;
-                
-                // Extrai dados ricos
                 const dataLiq = det.data_pagamento || det.data_baixa;
                 const dataFormatada = safeDate(dataLiq);
                 
@@ -80,39 +73,25 @@ serve(async (req) => {
                     ult_atuali: new Date().toISOString()
                 };
 
-                // Só preenche o que achou
                 if (dataFormatada) updatePayload.data_liquidacao = dataFormatada;
                 if (det.data_competencia) updatePayload.competencia = det.data_competencia;
                 if (det.linha_digitavel || det.codigo_barras) updatePayload.chave_pix_boleto = det.linha_digitavel || det.codigo_barras;
 
-                // Atualiza nomes genéricos
                 if (item.fornecedor === 'Desconhecido') {
-                     if (det.cliente && det.cliente.nome) updatePayload.fornecedor = det.cliente.nome;
+                     if (det.cliente?.nome) updatePayload.fornecedor = det.cliente.nome;
                      else if (det.nome_cliente) updatePayload.fornecedor = det.nome_cliente;
-                     else if (det.nome_fornecedor) updatePayload.fornecedor = det.nome_fornecedor;
                 }
 
-                // Salva no banco
-                const { error: upError } = await supabase
-                    .from('accounts_payable')
-                    .update(updatePayload)
-                    .eq('id', item.id);
-
-                if (!upError) {
-                    corrigidos++;
-                    console.log(`Corrigido ID ${item.id} - Data: ${dataFormatada}`);
-                }
+                await supabase.from('accounts_payable').update(updatePayload).eq('id', item.id);
+                corrigidos++;
+                console.log(`ID ${item.id} atualizado.`);
             }
         } catch (err) {
             console.error(`Erro ID ${item.id}:`, err);
         }
     }
 
-    return new Response(JSON.stringify({ 
-        message: "Ciclo de Enriquecimento Concluído", 
-        analisados: incompletos.length,
-        corrigidos: corrigidos 
-    }), {
+    return new Response(JSON.stringify({ message: "Sucesso", corrigidos }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
     });
