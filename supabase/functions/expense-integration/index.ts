@@ -12,8 +12,7 @@ const TIME_LIMIT_MS = 55000;
 const PAUSA_NOVO_ITEM = 1000; 
 const PAUSA_ITEM_EXISTENTE = 0; 
 
-// === AJUSTE FINO FINAL ===
-// De 40 para 35. Mais segurança contra bloqueio.
+// Limite de segurança
 const LIMITE_REQUISICOES_TINY = 35; 
 
 function formatDateBR(date: Date): string {
@@ -34,32 +33,52 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC: SUPER SMART (Ignora 'Pagos' inalterados) <<<");
+    console.log(">>> EXPENSE SYNC: MODO INCREMENTAL (Cursor de Data) <<<");
 
-    // 1. Carrega IDs E STATUS existentes (Otimização Suprema)
-    const { data: existingData } = await supabase.from('accounts_payable').select('id, situacao');
-    
-    // Cria um mapa para consulta rápida: ID -> Situação
-    const existingMap = new Map();
-    if (existingData) {
-        existingData.forEach(item => {
-            existingMap.set(item.id, item.situacao);
-        });
-    }
-    console.log(`Banco possui ${existingMap.size} registros.`);
+    // 1. Descobrir onde paramos (Última data de vencimento salva no CONTAS A PAGAR)
+    const { data: lastRecord } = await supabase
+      .from('accounts_payable')
+      .select('data_vencimento')
+      .order('data_vencimento', { ascending: false })
+      .limit(1)
+      .single();
 
     const hoje = new Date();
-    const dataInicio = new Date(hoje);
-    dataInicio.setDate(hoje.getDate() - 365); // Busca 1 ano (ajustado para histórico)
+    let dataInicio = new Date();
+    
+    // Lógica do Pulo:
+    // Se tem registro, começamos 5 dias antes da última data (margem de segurança).
+    // Assim, pulamos todos os meses anteriores automaticamente.
+    if (lastRecord && lastRecord.data_vencimento) {
+        dataInicio = new Date(lastRecord.data_vencimento);
+        dataInicio.setDate(dataInicio.getDate() - 5); 
+        console.log(`Último registro em: ${lastRecord.data_vencimento}. Retomando de: ${formatDateBR(dataInicio)}`);
+    } else {
+        // Se o banco estiver vazio, aí sim buscamos 1 ano para trás
+        dataInicio.setDate(hoje.getDate() - 365);
+        console.log("Banco vazio. Iniciando carga completa (365 dias).");
+    }
+
+    // Buscamos até 180 dias no futuro
     const dataFim = new Date(hoje);
     dataFim.setDate(hoje.getDate() + 180); 
 
     const dataIniStr = formatDateBR(dataInicio);
     const dataFimStr = formatDateBR(dataFim);
 
+    // Carrega cache apenas desse período recente (muito mais rápido)
+    const { data: existingData } = await supabase
+        .from('accounts_payable')
+        .select('id, situacao')
+        .gte('data_vencimento', lastRecord ? lastRecord.data_vencimento : '2000-01-01');
+
+    const existingMap = new Map();
+    if (existingData) {
+        existingData.forEach(item => existingMap.set(item.id, item.situacao));
+    }
+
     let pagina = 1;
     let totalProcessado = 0;
-    let ignoradosPorSeremPagos = 0;
     let novosInseridos = 0;
     let requisicoesFeitas = 0;
     let continuar = true;
@@ -72,6 +91,7 @@ serve(async (req) => {
           break;
       }
 
+      // Chama a API do Tiny apenas para o período "em aberto"
       const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_ini_vencimento=${dataIniStr}&data_fim_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
       const resp = await fetch(urlPesquisa);
@@ -82,7 +102,12 @@ serve(async (req) => {
       try { json = JSON.parse(text); } catch (e) { throw new Error(`Erro JSON Tiny`); }
 
       if (json.retorno.status !== 'OK') {
-        if (json.retorno.codigo_erro != '20') console.error("Erro Tiny:", JSON.stringify(json.retorno));
+        // Código 20 ou 23 significa que acabou a lista nessa data
+        if (json.retorno.codigo_erro == '20' || json.retorno.codigo_erro == '23') {
+             console.log("Fim dos registros neste período.");
+        } else {
+             console.error("Erro Tiny:", JSON.stringify(json.retorno));
+        }
         continuar = false; 
         break;
       }
@@ -90,7 +115,7 @@ serve(async (req) => {
       const listaContas = json.retorno.contas || [];
       if (listaContas.length === 0) { continuar = false; break; }
 
-      console.log(`Pág ${pagina}: ${listaContas.length} itens.`);
+      console.log(`Pág ${pagina} (${dataIniStr} - ${dataFimStr}): ${listaContas.length} itens.`);
 
       for (const itemWrapper of listaContas) {
         if (Date.now() - startTime > TIME_LIMIT_MS) { continuar = false; break; }
@@ -99,18 +124,13 @@ serve(async (req) => {
         const idString = itemBasico.id.toString();
         const situacaoTiny = itemBasico.situacao?.toLowerCase() || 'pendente';
         
-        // Verifica se já existe
         if (existingMap.has(idString)) {
             const situacaoBanco = existingMap.get(idString);
+            
+            // Se já existe e está pago, pula (não gasta processamento)
+            if (situacaoBanco === 'pago' && situacaoTiny === 'pago') continue;
 
-            // === OTIMIZAÇÃO SUPREMA ===
-            // Se já está pago no banco E continua pago no Tiny -> NÃO FAZ NADA
-            if (situacaoBanco === 'pago' && situacaoTiny === 'pago') {
-                ignoradosPorSeremPagos++;
-                continue; // Pula para o próximo loop (economiza Banco de Dados)
-            }
-
-            // Se mudou algo (ex: estava 'pendente' e agora virou 'pago'), atualiza
+            // Se mudou algo, atualiza (update leve)
             const payloadBasico = {
                 id: idString,
                 situacao: situacaoTiny,
@@ -123,7 +143,7 @@ serve(async (req) => {
             totalProcessado++;
             
         } else {
-            // === NOVO ITEM (Busca Completa) ===
+            // Se é NOVO, busca detalhes (gasta API, mas só para o que é novo)
             if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
                 continuar = false;
                 break;
@@ -179,10 +199,10 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ 
-        message: "Sync OK", 
-        atualizados: totalProcessado, 
+        message: "Expense Sync Incremental OK", 
+        inicio_busca: formatDateBR(dataInicio), // Para você confirmar nos logs
         novos: novosInseridos,
-        ignorados_pagos: ignoradosPorSeremPagos,
+        atualizados: totalProcessado,
         reqs: requisicoesFeitas 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
