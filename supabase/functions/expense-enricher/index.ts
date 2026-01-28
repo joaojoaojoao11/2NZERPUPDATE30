@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Cabeçalhos de CORS atualizados para aceitar o seu localhost
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform',
@@ -24,18 +23,19 @@ serve(async (req) => {
   }
 
   try {
-    // 2. Pega as chaves dos Secrets que você configurou no site do Supabase
     const TINY_TOKEN = Deno.env.get('TINY_TOKEN');
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     
-    if (!TINY_TOKEN) throw new Error("TINY_TOKEN não configurado nos Secrets.");
+    if (!TINY_TOKEN) throw new Error("TINY_TOKEN não configurado.");
+    if (!supabaseKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada.");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const PAUSA_ENTRE_REQUISICOES = 1000; 
     const LIMITE_POR_EXECUCAO = 20; 
 
-    // 3. Busca contas pagas sem data de liquidação no banco local
+    console.log(">>> INICIANDO ENRIQUECIMENTO DE DESPESAS <<<");
+
     const { data: incompletos, error } = await supabase
       .from('accounts_payable')
       .select('id, fornecedor')
@@ -46,13 +46,14 @@ serve(async (req) => {
     if (error) throw error;
 
     if (!incompletos || incompletos.length === 0) {
-        return new Response(JSON.stringify({ message: "Nada pendente", corrigidos: 0 }), {
+        return new Response(JSON.stringify({ message: "Nada para corrigir", corrigidos: 0 }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 200
         });
     }
 
     let corrigidos = 0;
+
     for (const item of incompletos) {
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_REQUISICOES));
         try {
@@ -77,9 +78,10 @@ serve(async (req) => {
 
                 await supabase.from('accounts_payable').update(updatePayload).eq('id', item.id);
                 corrigidos++;
+                console.log(`ID ${item.id} atualizado.`);
             }
         } catch (err) {
-            console.error(`Erro no ID ${item.id}:`, err);
+            console.error(`Erro ID ${item.id}:`, err);
         }
     }
 
