@@ -13,6 +13,11 @@ const PAUSA_NOVO_ITEM = 1000;
 const PAUSA_ITEM_EXISTENTE = 0; 
 const LIMITE_REQUISICOES_TINY = 35; 
 
+// === MODO SNIPER (Opcional) ===
+// Deixe vazio "" para modo automático (Recomendado para o dia a dia)
+const FORCE_START = ""; 
+const FORCE_END = "";   
+
 function formatDateBR(date: Date): string {
   const d = new Date(date);
   const dia = d.getUTCDate().toString().padStart(2, '0');
@@ -31,48 +36,66 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> EXPENSE SYNC: CURSOR INTELIGENTE (Janela de 1 Ano) <<<");
+    let dataIniStr = "";
+    let dataFimStr = "";
+    let modoExecucao = "";
 
-    // DATA DE CORTE: Hoje + 1 dia (para o cursor não se perder com o futuro)
-    const dataCorte = new Date();
-    dataCorte.setDate(dataCorte.getDate() + 1);
-    const dataCorteStr = dataCorte.toISOString().split('T')[0];
-
-    // 1. Descobrir onde paramos (limitado a hoje para não pular buracos)
-    const { data: lastRecord } = await supabase
-      .from('accounts_payable')
-      .select('data_vencimento')
-      .lte('data_vencimento', dataCorteStr) 
-      .order('data_vencimento', { ascending: false })
-      .limit(1)
-      .single();
-
-    const hoje = new Date();
-    let dataInicio = new Date();
+    // --- DEFINIÇÃO DO PERÍODO DE BUSCA ---
     
-    if (lastRecord && lastRecord.data_vencimento) {
-        dataInicio = new Date(lastRecord.data_vencimento);
-        dataInicio.setDate(dataInicio.getDate() - 10); 
-        console.log(`Último histórico válido: ${lastRecord.data_vencimento}. Retomando de: ${formatDateBR(dataInicio)}`);
+    if (FORCE_START && FORCE_END) {
+        // MODO 1: SNIPER (Manual)
+        modoExecucao = "SNIPER";
+        console.log(`>>> EXPENSE SYNC: MODO SNIPER (${FORCE_START} até ${FORCE_END}) <<<`);
+        dataIniStr = FORCE_START;
+        dataFimStr = FORCE_END;
+
     } else {
-        dataInicio.setDate(hoje.getDate() - 365);
-        console.log("Nenhum histórico recente. Iniciando carga completa (365 dias).");
+        // MODO 2: AUTOMÁTICO (Cursor Inteligente)
+        modoExecucao = "AUTO (Janela de 1 Ano)";
+        console.log(">>> EXPENSE SYNC: MODO AUTOMÁTICO 2026+ <<<");
+        
+        // Data de corte = Hoje + 1 dia (para não se perder com fusos)
+        const dataCorte = new Date();
+        dataCorte.setDate(dataCorte.getDate() + 1);
+        const dataCorteStr = dataCorte.toISOString().split('T')[0];
+
+        // Descobre onde paramos (limitado a hoje para não pular buracos se houver lançamento futuro)
+        const { data: lastRecord } = await supabase
+          .from('accounts_payable')
+          .select('data_vencimento')
+          .lte('data_vencimento', dataCorteStr)
+          .order('data_vencimento', { ascending: false })
+          .limit(1)
+          .single();
+
+        const hoje = new Date();
+        let dataInicio = new Date();
+        
+        if (lastRecord && lastRecord.data_vencimento) {
+            dataInicio = new Date(lastRecord.data_vencimento);
+            dataInicio.setDate(dataInicio.getDate() - 10); // Volta 10 dias por segurança
+            console.log(`Retomando de: ${formatDateBR(dataInicio)}`);
+        } else {
+            dataInicio.setDate(hoje.getDate() - 365);
+            console.log("Iniciando carga completa (365 dias).");
+        }
+
+        // === AQUI ESTÁ A CORREÇÃO ===
+        // Aumentado para 400 dias. Isso garante o ano corrente inteiro + início do próximo.
+        // Ex: Hoje (Jan/26) + 400 dias = Fev/2027.
+        const dataFim = new Date(hoje);
+        dataFim.setDate(hoje.getDate() + 400); 
+
+        dataIniStr = formatDateBR(dataInicio);
+        dataFimStr = formatDateBR(dataFim);
     }
 
-    // === AJUSTE AQUI ===
-    // Aumentado de 180 para 365 dias no futuro
-    // Isso vai pegar Agosto, Setembro... até Janeiro de 2027
-    const dataFim = new Date(hoje);
-    dataFim.setDate(hoje.getDate() + 365); 
-
-    const dataIniStr = formatDateBR(dataInicio);
-    const dataFimStr = formatDateBR(dataFim);
-
-    // Carrega cache apenas da janela de interesse
+    // Carrega cache apenas da janela selecionada para otimizar
+    const isoStart = dataIniStr.split('/').reverse().join('-');
     const { data: existingData } = await supabase
         .from('accounts_payable')
         .select('id, situacao')
-        .gte('data_vencimento', lastRecord ? lastRecord.data_vencimento : '2000-01-01');
+        .gte('data_vencimento', isoStart);
 
     const existingMap = new Map();
     if (existingData) {
@@ -103,7 +126,7 @@ serve(async (req) => {
 
       if (json.retorno.status !== 'OK') {
         if (json.retorno.codigo_erro == '20' || json.retorno.codigo_erro == '23') {
-             console.log("Fim dos registros neste período.");
+             console.log(`Fim dos registros (Pág ${pagina-1} ok).`);
         } else {
              console.error("Erro Tiny:", JSON.stringify(json.retorno));
         }
@@ -125,6 +148,7 @@ serve(async (req) => {
         
         if (existingMap.has(idString)) {
             const situacaoBanco = existingMap.get(idString);
+            // Ignora se já estiver pago nos dois lados
             if (situacaoBanco === 'pago' && situacaoTiny === 'pago') continue;
 
             const payloadBasico = {
@@ -138,6 +162,7 @@ serve(async (req) => {
             totalProcessado++;
             
         } else {
+            // Novo item - Busca detalhes
             if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
                 continuar = false;
                 break;
@@ -193,9 +218,9 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ 
-        message: "Expense Sync 1-Year OK", 
-        inicio_real: formatDateBR(dataInicio),
-        fim_real: formatDateBR(dataFim),
+        message: "Expense Sync OK", 
+        mode: modoExecucao,
+        periodo: `${dataIniStr} -> ${dataFimStr}`,
         novos: novosInseridos,
         atualizados: totalProcessado
     }), {
