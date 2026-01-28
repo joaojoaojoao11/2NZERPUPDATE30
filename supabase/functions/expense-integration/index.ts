@@ -11,6 +11,16 @@ const TINY_TOKEN = "df0900959326f5540306233267d345c267a32900";
 const TIME_LIMIT_MS = 50000; 
 const PAUSA_ENTRE_DETALHES = 800;
 
+// === CORREÇÃO CRÍTICA ===
+// Função manual para garantir DD/MM/AAAA independente do servidor
+function formatDateBR(date: Date): string {
+  const d = new Date(date);
+  const dia = d.getUTCDate().toString().padStart(2, '0'); // Usa UTC para não sofrer com fuso
+  const mes = (d.getUTCMonth() + 1).toString().padStart(2, '0');
+  const ano = d.getUTCFullYear();
+  return `${dia}/${mes}/${ano}`;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -21,16 +31,22 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC INICIADO: CORREÇÃO URL PLURAL/SINGULAR <<<");
+    console.log(">>> SYNC INICIADO: MODO DATA MANUAL (DD/MM/AAAA) <<<");
 
-    // Período de busca
-    const dataInicio = new Date();
-    dataInicio.setDate(dataInicio.getDate() - 30);
-    const dataFim = new Date();
-    dataFim.setDate(dataFim.getDate() + 90);
+    // Definição de Período Robusta
+    const hoje = new Date();
+    // Força datas seguras
+    const dataInicio = new Date(hoje);
+    dataInicio.setDate(hoje.getDate() - 60); // 2 meses atrás
+    
+    const dataFim = new Date(hoje);
+    dataFim.setDate(hoje.getDate() + 120); // 4 meses pra frente
 
-    const dataIniStr = dataInicio.toLocaleDateString('pt-BR');
-    const dataFimStr = dataFim.toLocaleDateString('pt-BR');
+    // Usa a formatação manual
+    const dataIniStr = formatDateBR(dataInicio);
+    const dataFimStr = formatDateBR(dataFim);
+
+    console.log(`Buscando no Tiny de: ${dataIniStr} até ${dataFimStr}`);
 
     let pagina = 1;
     let totalProcessado = 0;
@@ -39,7 +55,7 @@ serve(async (req) => {
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
 
-      // CORREÇÃO 1: PESQUISA É NO PLURAL (contas)
+      // URL com data formatada manualmente e PLURAL (contas)
       const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_inicial_vencimento=${dataIniStr}&data_final_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
       const resp = await fetch(urlPesquisa);
@@ -50,10 +66,16 @@ serve(async (req) => {
         json = JSON.parse(text);
       } catch (e) {
         console.error("Erro Tiny JSON:", text);
-        throw new Error("Tiny retornou erro na pesquisa. Verifique logs.");
+        throw new Error("Tiny retornou erro. Verifique Logs.");
       }
 
+      // Se der erro 20 (sem dados), para o loop
       if (json.retorno.status !== 'OK') {
+        if (json.retorno.codigo_erro == '20') {
+             console.log("Fim da paginação ou nenhum dado encontrado.");
+        } else {
+             console.error("Erro API Tiny:", json.retorno.erros);
+        }
         continuar = false; 
         break;
       }
@@ -64,13 +86,15 @@ serve(async (req) => {
         break;
       }
 
+      console.log(`Página ${pagina}: ${listaContas.length} contas encontradas.`);
+
       for (const itemWrapper of listaContas) {
         const itemBasico = itemWrapper.conta;
         if (Date.now() - startTime > TIME_LIMIT_MS) { continuar = false; break; }
 
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
 
-        // CORREÇÃO 2: OBTER DETALHE É NO SINGULAR (conta)
+        // Busca Detalhes (SINGULAR)
         let det = {};
         try {
           const urlObter = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${itemBasico.id}&formato=json`;
@@ -81,17 +105,12 @@ serve(async (req) => {
 
         const final = { ...itemBasico, ...det };
 
-        // CORREÇÃO 3: PROTEÇÃO CONTRA DATA NULA (Evita crash no .split)
-        const dtVenc = final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null;
-        const dtEmis = final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null;
-        const dtLiq = final.data_pagamento ? final.data_pagamento.split('/').reverse().join('-') : null;
-
         const payload = {
           id: final.id.toString(),
           fornecedor: final.nome_fornecedor || final.cliente?.nome || "Desconhecido",
-          data_emissao: dtEmis,
-          data_vencimento: dtVenc,
-          data_liquidacao: dtLiq,
+          data_emissao: final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null,
+          data_vencimento: final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null,
+          data_liquidacao: final.data_pagamento ? final.data_pagamento.split('/').reverse().join('-') : null,
           valor_documento: parseFloat(final.valor || 0),
           valor_pago: parseFloat(final.valor_pago || 0),
           saldo: parseFloat(final.saldo || 0),
