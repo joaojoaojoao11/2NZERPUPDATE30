@@ -26,6 +26,29 @@ function formatDateBR(date: Date): string {
   return `${dia}/${mes}/${ano}`;
 }
 
+// --- NOVA FUNÇÃO SEGURA PARA DATA DE LIQUIDAÇÃO ---
+function getDataLiquidacao(item: any): string | null {
+    // Tenta pegar data_pagamento OU data_baixa
+    const raw = item.data_pagamento || item.data_baixa;
+    
+    // Se não tiver nada ou for string vazia, retorna null
+    if (!raw || typeof raw !== 'string' || raw.trim() === '') {
+        return null;
+    }
+
+    // Tenta formatar de DD/MM/YYYY para YYYY-MM-DD
+    try {
+        const parts = raw.split('/');
+        if (parts.length === 3) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+    } catch (e) {
+        return null;
+    }
+    
+    return null;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -52,14 +75,13 @@ serve(async (req) => {
     } else {
         // MODO 2: AUTOMÁTICO (Cursor Inteligente)
         modoExecucao = "AUTO (Janela de 1 Ano)";
-        console.log(">>> EXPENSE SYNC: MODO AUTOMÁTICO 2026+ <<<");
+        console.log(">>> EXPENSE SYNC: MODO AUTOMÁTICO 2026+ (Com Correção Data Liq.) <<<");
         
-        // Data de corte = Hoje + 1 dia (para não se perder com fusos)
         const dataCorte = new Date();
         dataCorte.setDate(dataCorte.getDate() + 1);
         const dataCorteStr = dataCorte.toISOString().split('T')[0];
 
-        // Descobre onde paramos (limitado a hoje para não pular buracos se houver lançamento futuro)
+        // Descobre onde paramos
         const { data: lastRecord } = await supabase
           .from('accounts_payable')
           .select('data_vencimento')
@@ -73,16 +95,14 @@ serve(async (req) => {
         
         if (lastRecord && lastRecord.data_vencimento) {
             dataInicio = new Date(lastRecord.data_vencimento);
-            dataInicio.setDate(dataInicio.getDate() - 10); // Volta 10 dias por segurança
+            dataInicio.setDate(dataInicio.getDate() - 10); 
             console.log(`Retomando de: ${formatDateBR(dataInicio)}`);
         } else {
             dataInicio.setDate(hoje.getDate() - 365);
             console.log("Iniciando carga completa (365 dias).");
         }
 
-        // === AQUI ESTÁ A CORREÇÃO ===
-        // Aumentado para 400 dias. Isso garante o ano corrente inteiro + início do próximo.
-        // Ex: Hoje (Jan/26) + 400 dias = Fev/2027.
+        // Janela de 400 dias para o futuro
         const dataFim = new Date(hoje);
         dataFim.setDate(hoje.getDate() + 400); 
 
@@ -90,7 +110,6 @@ serve(async (req) => {
         dataFimStr = formatDateBR(dataFim);
     }
 
-    // Carrega cache apenas da janela selecionada para otimizar
     const isoStart = dataIniStr.split('/').reverse().join('-');
     const { data: existingData } = await supabase
         .from('accounts_payable')
@@ -155,14 +174,14 @@ serve(async (req) => {
                 id: idString,
                 situacao: situacaoTiny,
                 saldo: parseFloat(itemBasico.saldo || 0),
-                data_liquidacao: itemBasico.data_pagamento ? itemBasico.data_pagamento.split('/').reverse().join('-') : null,
+                // AQUI: Usa a nova função segura
+                data_liquidacao: getDataLiquidacao(itemBasico),
                 ult_atuali: new Date().toISOString()
             };
             await supabase.from('accounts_payable').upsert(payloadBasico, { onConflict: 'id' });
             totalProcessado++;
             
         } else {
-            // Novo item - Busca detalhes
             if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
                 continuar = false;
                 break;
@@ -194,7 +213,8 @@ serve(async (req) => {
                 fornecedor: nomeFinal,
                 data_emissao: final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null,
                 data_vencimento: final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null,
-                data_liquidacao: final.data_pagamento ? final.data_pagamento.split('/').reverse().join('-') : null,
+                // AQUI: Usa a nova função segura
+                data_liquidacao: getDataLiquidacao(final),
                 valor_documento: parseFloat(final.valor || 0),
                 valor_pago: parseFloat(final.valor_pago || 0),
                 saldo: parseFloat(final.saldo || 0),
