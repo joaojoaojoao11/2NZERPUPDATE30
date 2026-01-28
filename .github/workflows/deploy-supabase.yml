@@ -20,4 +20,5 @@ jobs:
         with:
           version: latest
 
+      # COMANDO ÚNICO E COMPLETO:
       - run: supabase functions deploy olist-integration finance-integration expense-integration revenue-integration expense-enricher --project-ref $PROJECT_ID --no-verify-jwt
