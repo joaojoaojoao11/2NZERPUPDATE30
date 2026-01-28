@@ -73,8 +73,11 @@ serve(async (req) => {
 
         if (json.retorno.status === 'OK') {
           const det = json.retorno.conta;
+          console.log(`[DEBUG ID ${item.id}] Dados Brutos Tiny:`, JSON.stringify(det)); // LOG 1: O que veio do Tiny?
+
           const dataLiq = det.data_pagamento || det.data_baixa;
           const dataFormatada = safeDate(dataLiq);
+          console.log(`[DEBUG ID ${item.id}] Data Liq Raw: "${dataLiq}" -> Formatada: "${dataFormatada}"`); // LOG 2: A data funcionou?
 
           const updatePayload: any = {
             ult_atuali: new Date().toISOString()
@@ -82,6 +85,10 @@ serve(async (req) => {
 
           if (dataFormatada) updatePayload.data_liquidacao = dataFormatada;
           if (det.data_competencia) updatePayload.competencia = det.data_competencia;
+
+          // Correção potencial para forma de pagamento que as vezes vem como forma_pagamento ou meiopagamento
+          if (det.forma_pagamento) updatePayload.forma_pagamento = det.forma_pagamento;
+
           if (det.linha_digitavel || det.codigo_barras) updatePayload.chave_pix_boleto = det.linha_digitavel || det.codigo_barras;
 
           if (item.fornecedor === 'Desconhecido') {
@@ -89,8 +96,11 @@ serve(async (req) => {
             else if (det.nome_cliente) updatePayload.fornecedor = det.nome_cliente;
           }
 
-          await supabase.from('accounts_payable').update(updatePayload).eq('id', item.id);
-          corrigidos++;
+          console.log(`[DEBUG ID ${item.id}] Payload Final:`, JSON.stringify(updatePayload)); // LOG 3: O que vamos salvar?
+
+          const { error: errUpdate } = await supabase.from('accounts_payable').update(updatePayload).eq('id', item.id);
+          if (errUpdate) console.error(`[ERRO UPDATE ${item.id}]`, errUpdate);
+          else corrigidos++;
         }
       } catch (err) {
         console.error(`Erro no ID ${item.id}:`, err);
