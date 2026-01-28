@@ -7,18 +7,13 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Mantenha os imports e o token...
-
 const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
 const TIME_LIMIT_MS = 55000; 
 const PAUSA_NOVO_ITEM = 1000; 
 const PAUSA_ITEM_EXISTENTE = 0; 
 
-// === AJUSTE DE SEGURANÇA ===
-// Reduzido de 55 para 40 para evitar Erro 6 (API Bloqueada)
+// Limite seguro de 40 para não bloquear a API
 const LIMITE_REQUISICOES_TINY = 40; 
-
-// ... resto do código igual ...
 
 function formatDateBR(date: Date): string {
   const d = new Date(date);
@@ -38,32 +33,41 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC: MODO SMART (Ignora detalhes de conhecidos) <<<");
+    console.log(">>> SYNC: SUPER SMART (Ignora 'Pagos' inalterados) <<<");
 
-    // 1. Carrega IDs existentes para não perder tempo com eles
-    const { data: existingData } = await supabase.from('accounts_payable').select('id');
-    const existingIds = new Set(existingData?.map(x => x.id) || []);
-    console.log(`Banco possui ${existingIds.size} registros.`);
+    // 1. Carrega IDs E STATUS existentes (Otimização Suprema)
+    const { data: existingData } = await supabase.from('accounts_payable').select('id, situacao');
+    
+    // Cria um mapa para consulta rápida: ID -> Situação
+    const existingMap = new Map();
+    if (existingData) {
+        existingData.forEach(item => {
+            existingMap.set(item.id, item.situacao);
+        });
+    }
+    console.log(`Banco possui ${existingMap.size} registros.`);
 
     const hoje = new Date();
     const dataInicio = new Date(hoje);
-    dataInicio.setDate(hoje.getDate() - 60); 
+    dataInicio.setDate(hoje.getDate() - 365); // Busca 1 ano (ajustado para histórico)
     const dataFim = new Date(hoje);
-    dataFim.setDate(hoje.getDate() + 120); 
+    dataFim.setDate(hoje.getDate() + 180); 
 
     const dataIniStr = formatDateBR(dataInicio);
     const dataFimStr = formatDateBR(dataFim);
 
     let pagina = 1;
     let totalProcessado = 0;
+    let ignoradosPorSeremPagos = 0;
+    let novosInseridos = 0;
     let requisicoesFeitas = 0;
     let continuar = true;
 
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
-      // Se já fizemos muitas chamadas pesadas ao Tiny, paramos para não bloquear
+      
       if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
-          console.log("Limite de requisições API atingido. Parando lote.");
+          console.log("Limite de API atingido. Pausando.");
           break;
       }
 
@@ -71,7 +75,6 @@ serve(async (req) => {
       
       const resp = await fetch(urlPesquisa);
       const text = await resp.text();
-      // Contabiliza requisição de pesquisa
       requisicoesFeitas++; 
 
       let json;
@@ -93,27 +96,33 @@ serve(async (req) => {
         
         const itemBasico = itemWrapper.conta;
         const idString = itemBasico.id.toString();
-        const jaExiste = existingIds.has(idString);
+        const situacaoTiny = itemBasico.situacao?.toLowerCase() || 'pendente';
+        
+        // Verifica se já existe
+        if (existingMap.has(idString)) {
+            const situacaoBanco = existingMap.get(idString);
 
-        if (jaExiste) {
-            // === MODO RÁPIDO (UPDATE) ===
-            // Se já existe, atualizamos apenas status/saldo usando dados básicos
-            // Não chamamos API de detalhes -> Economiza tempo e cota
-            await new Promise(r => setTimeout(r, PAUSA_ITEM_EXISTENTE));
-            
+            // === OTIMIZAÇÃO SUPREMA ===
+            // Se já está pago no banco E continua pago no Tiny -> NÃO FAZ NADA
+            if (situacaoBanco === 'pago' && situacaoTiny === 'pago') {
+                ignoradosPorSeremPagos++;
+                continue; // Pula para o próximo loop (economiza Banco de Dados)
+            }
+
+            // Se mudou algo (ex: estava 'pendente' e agora virou 'pago'), atualiza
             const payloadBasico = {
                 id: idString,
-                situacao: itemBasico.situacao?.toLowerCase() || 'pendente',
+                situacao: situacaoTiny,
                 saldo: parseFloat(itemBasico.saldo || 0),
                 data_liquidacao: itemBasico.data_pagamento ? itemBasico.data_pagamento.split('/').reverse().join('-') : null,
                 ult_atuali: new Date().toISOString()
             };
             
             await supabase.from('accounts_payable').upsert(payloadBasico, { onConflict: 'id' });
+            totalProcessado++;
             
         } else {
-            // === MODO COMPLETO (INSERT) ===
-            // Item novo: Precisa de detalhes (Nome, Categoria, etc)
+            // === NOVO ITEM (Busca Completa) ===
             if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
                 continuar = false;
                 break;
@@ -126,11 +135,10 @@ serve(async (req) => {
                 const urlObter = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${itemBasico.id}&formato=json`;
                 const respDet = await fetch(urlObter);
                 const jsonDet = await respDet.json();
-                requisicoesFeitas++; // Contabiliza requisição pesada
+                requisicoesFeitas++;
                 if (jsonDet.retorno.status === 'OK') det = jsonDet.retorno.conta;
             } catch (e) { console.warn("Erro det:", itemBasico.id); }
 
-            // Lógica de nome (Detetive)
             let nomeFinal = "Desconhecido";
             if (det.cliente && det.cliente.nome) nomeFinal = det.cliente.nome;
             else if (det.nome_cliente) nomeFinal = det.nome_cliente;
@@ -160,7 +168,10 @@ serve(async (req) => {
             };
 
             const { error } = await supabase.from('accounts_payable').upsert(payloadNovo, { onConflict: 'id' });
-            if (!error) totalProcessado++;
+            if (!error) {
+                totalProcessado++;
+                novosInseridos++;
+            }
         }
       }
       pagina++;
@@ -168,7 +179,9 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ 
         message: "Sync OK", 
-        novos: totalProcessado, 
+        atualizados: totalProcessado, 
+        novos: novosInseridos,
+        ignorados_pagos: ignoradosPorSeremPagos,
         reqs: requisicoesFeitas 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
