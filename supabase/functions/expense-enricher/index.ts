@@ -24,12 +24,12 @@ serve(async (req) => {
 
   try {
     // 2. BUSCA DINÂMICA DOS SECRETS (Pega o que você cadastrou no painel)
-    const TINY_TOKEN = Deno.env.get('OLIST_API_KEY');
+    const TINY_TOKEN = Deno.env.get('OLIST_API_KEY') ?? Deno.env.get('TINY_TOKEN');
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY') || '';
+    const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     
-    if (!TINY_TOKEN) throw new Error("OLIST_API_KEY não encontrado nos Secrets do Supabase.");
-    if (!supabaseKey) throw new Error("SERVICE_ROLE_KEY não configurada.");
+    if (!TINY_TOKEN) throw new Error("OLIST_API_KEY (ou TINY_TOKEN) não encontrado nos Secrets do Supabase.");
+    if (!supabaseKey) throw new Error("SERVICE_ROLE_KEY (ou SUPABASE_SERVICE_ROLE_KEY) não configurada.");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const PAUSA_ENTRE_REQUISICOES = 1000; 
