@@ -31,19 +31,18 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> EXPENSE SYNC: CURSOR INTELIGENTE (Ignora Futuro Distante) <<<");
+    console.log(">>> EXPENSE SYNC: CURSOR INTELIGENTE (Janela de 1 Ano) <<<");
 
-    // DATA DE CORTE: Hoje + 1 dia (para garantir fuso horário)
+    // DATA DE CORTE: Hoje + 1 dia (para o cursor não se perder com o futuro)
     const dataCorte = new Date();
     dataCorte.setDate(dataCorte.getDate() + 1);
     const dataCorteStr = dataCorte.toISOString().split('T')[0];
 
-    // 1. Descobrir onde paramos, MAS LIMITADO A HOJE
-    // Isso evita que uma conta de 2027 faça o robô pular 2026 inteiro.
+    // 1. Descobrir onde paramos (limitado a hoje para não pular buracos)
     const { data: lastRecord } = await supabase
       .from('accounts_payable')
       .select('data_vencimento')
-      .lte('data_vencimento', dataCorteStr) // <--- O PULO DO GATO AQUI
+      .lte('data_vencimento', dataCorteStr) 
       .order('data_vencimento', { ascending: false })
       .limit(1)
       .single();
@@ -53,18 +52,18 @@ serve(async (req) => {
     
     if (lastRecord && lastRecord.data_vencimento) {
         dataInicio = new Date(lastRecord.data_vencimento);
-        // Voltar 10 dias para garantir que pegamos alterações recentes ou atrasados
         dataInicio.setDate(dataInicio.getDate() - 10); 
         console.log(`Último histórico válido: ${lastRecord.data_vencimento}. Retomando de: ${formatDateBR(dataInicio)}`);
     } else {
-        // Se não achar nada antigo, pega 1 ano para trás
         dataInicio.setDate(hoje.getDate() - 365);
-        console.log("Nenhum histórico recente encontrado. Iniciando carga completa (365 dias).");
+        console.log("Nenhum histórico recente. Iniciando carga completa (365 dias).");
     }
 
-    // Busca até 180 dias no futuro (para pegar as contas que vencem logo)
+    // === AJUSTE AQUI ===
+    // Aumentado de 180 para 365 dias no futuro
+    // Isso vai pegar Agosto, Setembro... até Janeiro de 2027
     const dataFim = new Date(hoje);
-    dataFim.setDate(hoje.getDate() + 180); 
+    dataFim.setDate(hoje.getDate() + 365); 
 
     const dataIniStr = formatDateBR(dataInicio);
     const dataFimStr = formatDateBR(dataFim);
@@ -126,8 +125,6 @@ serve(async (req) => {
         
         if (existingMap.has(idString)) {
             const situacaoBanco = existingMap.get(idString);
-            
-            // Pula se já estiver pago em ambos
             if (situacaoBanco === 'pago' && situacaoTiny === 'pago') continue;
 
             const payloadBasico = {
@@ -141,7 +138,6 @@ serve(async (req) => {
             totalProcessado++;
             
         } else {
-            // Novo item
             if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
                 continuar = false;
                 break;
@@ -197,8 +193,9 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ 
-        message: "Expense Sync Corrected OK", 
+        message: "Expense Sync 1-Year OK", 
         inicio_real: formatDateBR(dataInicio),
+        fim_real: formatDateBR(dataFim),
         novos: novosInseridos,
         atualizados: totalProcessado
     }), {
