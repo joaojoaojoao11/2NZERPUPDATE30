@@ -11,8 +11,6 @@ const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d2
 const TIME_LIMIT_MS = 55000; 
 const PAUSA_NOVO_ITEM = 1000; 
 const PAUSA_ITEM_EXISTENTE = 0; 
-
-// Limite de segurança
 const LIMITE_REQUISICOES_TINY = 35; 
 
 function formatDateBR(date: Date): string {
@@ -33,12 +31,19 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> EXPENSE SYNC: MODO INCREMENTAL (Cursor de Data) <<<");
+    console.log(">>> EXPENSE SYNC: CURSOR INTELIGENTE (Ignora Futuro Distante) <<<");
 
-    // 1. Descobrir onde paramos (Última data de vencimento salva no CONTAS A PAGAR)
+    // DATA DE CORTE: Hoje + 1 dia (para garantir fuso horário)
+    const dataCorte = new Date();
+    dataCorte.setDate(dataCorte.getDate() + 1);
+    const dataCorteStr = dataCorte.toISOString().split('T')[0];
+
+    // 1. Descobrir onde paramos, MAS LIMITADO A HOJE
+    // Isso evita que uma conta de 2027 faça o robô pular 2026 inteiro.
     const { data: lastRecord } = await supabase
       .from('accounts_payable')
       .select('data_vencimento')
+      .lte('data_vencimento', dataCorteStr) // <--- O PULO DO GATO AQUI
       .order('data_vencimento', { ascending: false })
       .limit(1)
       .single();
@@ -46,27 +51,25 @@ serve(async (req) => {
     const hoje = new Date();
     let dataInicio = new Date();
     
-    // Lógica do Pulo:
-    // Se tem registro, começamos 5 dias antes da última data (margem de segurança).
-    // Assim, pulamos todos os meses anteriores automaticamente.
     if (lastRecord && lastRecord.data_vencimento) {
         dataInicio = new Date(lastRecord.data_vencimento);
-        dataInicio.setDate(dataInicio.getDate() - 5); 
-        console.log(`Último registro em: ${lastRecord.data_vencimento}. Retomando de: ${formatDateBR(dataInicio)}`);
+        // Voltar 10 dias para garantir que pegamos alterações recentes ou atrasados
+        dataInicio.setDate(dataInicio.getDate() - 10); 
+        console.log(`Último histórico válido: ${lastRecord.data_vencimento}. Retomando de: ${formatDateBR(dataInicio)}`);
     } else {
-        // Se o banco estiver vazio, aí sim buscamos 1 ano para trás
+        // Se não achar nada antigo, pega 1 ano para trás
         dataInicio.setDate(hoje.getDate() - 365);
-        console.log("Banco vazio. Iniciando carga completa (365 dias).");
+        console.log("Nenhum histórico recente encontrado. Iniciando carga completa (365 dias).");
     }
 
-    // Buscamos até 180 dias no futuro
+    // Busca até 180 dias no futuro (para pegar as contas que vencem logo)
     const dataFim = new Date(hoje);
     dataFim.setDate(hoje.getDate() + 180); 
 
     const dataIniStr = formatDateBR(dataInicio);
     const dataFimStr = formatDateBR(dataFim);
 
-    // Carrega cache apenas desse período recente (muito mais rápido)
+    // Carrega cache apenas da janela de interesse
     const { data: existingData } = await supabase
         .from('accounts_payable')
         .select('id, situacao')
@@ -85,13 +88,11 @@ serve(async (req) => {
 
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
-      
       if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
           console.log("Limite de API atingido. Pausando.");
           break;
       }
 
-      // Chama a API do Tiny apenas para o período "em aberto"
       const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_ini_vencimento=${dataIniStr}&data_fim_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
       const resp = await fetch(urlPesquisa);
@@ -102,7 +103,6 @@ serve(async (req) => {
       try { json = JSON.parse(text); } catch (e) { throw new Error(`Erro JSON Tiny`); }
 
       if (json.retorno.status !== 'OK') {
-        // Código 20 ou 23 significa que acabou a lista nessa data
         if (json.retorno.codigo_erro == '20' || json.retorno.codigo_erro == '23') {
              console.log("Fim dos registros neste período.");
         } else {
@@ -127,10 +127,9 @@ serve(async (req) => {
         if (existingMap.has(idString)) {
             const situacaoBanco = existingMap.get(idString);
             
-            // Se já existe e está pago, pula (não gasta processamento)
+            // Pula se já estiver pago em ambos
             if (situacaoBanco === 'pago' && situacaoTiny === 'pago') continue;
 
-            // Se mudou algo, atualiza (update leve)
             const payloadBasico = {
                 id: idString,
                 situacao: situacaoTiny,
@@ -138,12 +137,11 @@ serve(async (req) => {
                 data_liquidacao: itemBasico.data_pagamento ? itemBasico.data_pagamento.split('/').reverse().join('-') : null,
                 ult_atuali: new Date().toISOString()
             };
-            
             await supabase.from('accounts_payable').upsert(payloadBasico, { onConflict: 'id' });
             totalProcessado++;
             
         } else {
-            // Se é NOVO, busca detalhes (gasta API, mas só para o que é novo)
+            // Novo item
             if (requisicoesFeitas >= LIMITE_REQUISICOES_TINY) {
                 continuar = false;
                 break;
@@ -199,11 +197,10 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ 
-        message: "Expense Sync Incremental OK", 
-        inicio_busca: formatDateBR(dataInicio), // Para você confirmar nos logs
+        message: "Expense Sync Corrected OK", 
+        inicio_real: formatDateBR(dataInicio),
         novos: novosInseridos,
-        atualizados: totalProcessado,
-        reqs: requisicoesFeitas 
+        atualizados: totalProcessado
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
