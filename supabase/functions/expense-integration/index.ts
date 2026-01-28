@@ -3,27 +3,34 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Configurações
 const TINY_TOKEN = "df0900959326f5540306233267d345c267a32900"; 
-const TIME_LIMIT_MS = 55000; // 55s limite
-const PAUSA_ENTRE_DETALHES = 800; // Delay para evitar bloqueio
+const TIME_LIMIT_MS = 55000;
+const PAUSA_ENTRE_DETALHES = 800;
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+  // Preflight request handler
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
 
   const startTime = Date.now();
-  
+
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error("Configuração do Supabase ausente (URL ou Key).");
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey);
+    console.log(">>> SYNC INICIADO: MODO ROBUSTO <<<");
 
-    console.log(">>> INICIANDO SYNC (MODO ID CORRIGIDO) <<<");
-
-    // 1. Período de Busca (Ampliado para garantir)
+    // Datas
     const hoje = new Date();
     const dataInicio = new Date();
     dataInicio.setDate(hoje.getDate() - 60); 
@@ -40,20 +47,51 @@ serve(async (req) => {
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
 
-      // 2. Busca Listagem Resumida
-      const urlPesquisa = `https://api.tiny.com.br/api2/conta.pagar.pesquisa.php?token=${TINY_TOKEN}&data_inicial_vencimento=${dataIniStr}&data_final_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
-      const resp = await fetch(urlPesquisa);
-      const json = await resp.json();
+      // 1. URL da API (Verifique se não há espaços extras)
+      const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_inicial_vencimento=${dataIniStr}&data_final_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
+      
+      console.log(`Buscando URL: ${urlPesquisa.replace(TINY_TOKEN, '***')}`);
 
-      if (json.retorno.status !== 'OK' || !json.retorno.contas) {
+      const resp = await fetch(urlPesquisa);
+      
+      // Checagem de Erro de Rede/API
+      if (!resp.ok) {
+        throw new Error(`Erro HTTP Tiny: ${resp.status} - ${resp.statusText}`);
+      }
+
+      // Leitura Segura do JSON
+      const textResponse = await resp.text();
+      let json;
+      try {
+        json = JSON.parse(textResponse);
+      } catch (e) {
+        console.error("Resposta não é JSON:", textResponse);
+        throw new Error(`Tiny retornou resposta inválida: ${textResponse.substring(0, 100)}...`);
+      }
+
+      // Validação da Resposta do Tiny
+      if (json.retorno.status !== 'OK') {
+        if (json.retorno.codigo_erro === '20') { // Nenhum registro encontrado
+             console.log("Fim da paginação (código 20).");
+             continuar = false;
+             break;
+        }
+        // Se houver erro real, loga mas não quebra se for apenas "sem dados"
+        if (!json.retorno.contas) {
+            continuar = false;
+            break;
+        }
+      }
+
+      const listaContas = json.retorno.contas || [];
+      console.log(`Página ${pagina}: ${listaContas.length} itens.`);
+
+      if (listaContas.length === 0) {
         continuar = false;
         break;
       }
 
-      const listaContas = json.retorno.contas;
-      console.log(`Página ${pagina}: Processando ${listaContas.length} itens...`);
-
-      // 3. Processamento Item a Item
+      // Processamento
       for (const itemWrapper of listaContas) {
         const itemBasico = itemWrapper.conta;
         
@@ -62,44 +100,42 @@ serve(async (req) => {
           break;
         }
 
-        // Delay anti-bloqueio
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
 
-        // 4. Busca Detalhes (Pente Fino)
+        // Detalhes (Try-catch isolado para não parar o loop)
         let dadosDetalhados = {};
         try {
             const urlDetalhe = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${itemBasico.id}&formato=json`;
             const respDet = await fetch(urlDetalhe);
-            const jsonDet = await respDet.json();
+            const textDet = await respDet.text();
+            const jsonDet = JSON.parse(textDet);
+            
             if (jsonDet.retorno.status === 'OK' && jsonDet.retorno.conta) {
                 dadosDetalhados = jsonDet.retorno.conta;
             }
         } catch (err) {
-            console.error(`Erro ao buscar detalhe ${itemBasico.id}`, err);
+            console.warn(`Aviso: Falha ao buscar detalhes ID ${itemBasico.id}`, err);
         }
 
-        // Mescla: O que vier no detalhe sobrescreve o básico
         const final = { ...itemBasico, ...dadosDetalhados };
 
-        // 5. Tratamento de Valores e Status
+        // Normalização
         const valorDoc = parseFloat(final.valor || 0);
         const valorPago = parseFloat(final.valor_pago || 0);
         const saldo = parseFloat(final.saldo || (valorDoc - valorPago));
         
-        // Status Inteligente (Corrige erros do Tiny)
         let situacaoReal = final.situacao;
-        if (Math.abs(saldo) < 0.05) situacaoReal = "LIQUIDADO"; // Se deve centavos, considera pago
+        // Lógica de Status
+        if (Math.abs(saldo) < 0.05) situacaoReal = "LIQUIDADO";
         else if (situacaoReal === 'Aberto' && final.data_vencimento) {
              const venc = final.data_vencimento.split('/').reverse().join('-');
              if (new Date(venc) < new Date()) situacaoReal = "ATRASADO";
         }
 
-        // Fornecedor: Tenta de todas as formas
         const nomeFornecedor = final.nome_fornecedor || final.cliente?.nome || itemBasico.nome_fornecedor || "Fornecedor Não Identificado";
 
-        // 6. Objeto para o Banco
         const contaPayload = {
-          id: final.id.toString(), // AGORA O BANCO ACEITA ISSO COMO CHAVE ÚNICA
+          id: final.id.toString(),
           fornecedor: nomeFornecedor,
           data_emissao: final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null,
           data_vencimento: final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null,
@@ -116,26 +152,30 @@ serve(async (req) => {
           updated_at: new Date().toISOString()
         };
 
-        // 7. Salvar (UPSERT)
-        // Agora sim: Se o ID "389677613" já existe, ele ATUALIZA. Não cria novo.
         const { error } = await supabase
           .from('accounts_payable')
           .upsert(contaPayload, { onConflict: 'id' });
 
-        if (error) console.error(`Erro BD ${final.id}:`, error);
-        else totalProcessado++;
+        if (error) {
+            console.error(`Erro BD ID ${final.id}:`, error.message);
+        } else {
+            totalProcessado++;
+        }
       }
       pagina++;
     }
 
     return new Response(
-      JSON.stringify({ message: "Sync Sucesso", count: totalProcessado }),
+      JSON.stringify({ message: "Sync Finalizado", count: totalProcessado }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), { 
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-    });
+  } catch (err: any) {
+    console.error("ERRO CRÍTICO NA FUNCTION:", err);
+    // Retorna erro formatado para o front-end não ficar "cego"
+    return new Response(
+      JSON.stringify({ error: err.message, detail: "Verifique os logs do Supabase" }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 });
