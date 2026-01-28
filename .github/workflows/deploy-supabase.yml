@@ -22,3 +22,5 @@ jobs:
 
       # CORREÇÃO: Agora fazemos deploy das 3 funções (Vendas, Financeiro e Despesas)
       - run: supabase functions deploy olist-integration finance-integration expense-integration --project-ref $PROJECT_ID --no-verify-jwt
+# ... (restante do arquivo igual) ...
+      - run: supabase functions deploy olist-integration finance-integration expense-integration revenue-integration expense-enricher --project-ref $PROJECT_ID --no-verify-jwt
