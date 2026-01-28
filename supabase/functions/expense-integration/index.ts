@@ -7,13 +7,15 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// SEU TOKEN NOVO (Já incluído)
+// SEU TOKEN NOVO (Mantido)
 const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
 const TIME_LIMIT_MS = 55000; 
 
-// === ACELERAÇÃO MÁXIMA ===
-// De 800ms para 50ms. Aumenta a velocidade em ~10x
-const PAUSA_ENTRE_DETALHES = 50; 
+// === AJUSTE DE SEGURANÇA ===
+// 1. Pausa de 1000ms (1s) para respeitar o limite de 60 req/min do Tiny
+const PAUSA_ENTRE_DETALHES = 1000; 
+// 2. Limite de 50 itens por vez para não estourar o tempo limite da Function
+const MAX_ITEMS_POR_EXECUCAO = 50;
 
 function formatDateBR(date: Date): string {
   const d = new Date(date);
@@ -33,7 +35,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC INICIADO: MODO TURBO (BAIXA LATÊNCIA) <<<");
+    console.log(">>> SYNC INICIADO: MODO SEGURO (50 ITENS/LOTE) <<<");
 
     const hoje = new Date();
     const dataInicio = new Date(hoje);
@@ -53,6 +55,12 @@ serve(async (req) => {
 
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
+
+      // Se já atingiu o limite de itens por lote, para a paginação
+      if (totalProcessado >= MAX_ITEMS_POR_EXECUCAO) {
+        console.log("Limite de lote atingido. Encerrando paginação.");
+        break;
+      }
 
       const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_ini_vencimento=${dataIniStr}&data_fim_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
@@ -82,15 +90,21 @@ serve(async (req) => {
         break;
       }
 
-      console.log(`Página ${pagina}: ${listaContas.length} contas.`);
+      console.log(`Página ${pagina}: Processando itens...`);
 
       for (const itemWrapper of listaContas) {
         const itemBasico = itemWrapper.conta;
-        // Verifica tempo antes de cada item para não estourar
+
+        // Verifica tempo e limite de quantidade
         if (Date.now() - startTime > TIME_LIMIT_MS) { 
-            console.log("Tempo limite atingido. Encerrando lote.");
+            console.log("Tempo limite atingido.");
             continuar = false; 
             break; 
+        }
+        if (totalProcessado >= MAX_ITEMS_POR_EXECUCAO) {
+            console.log(`Limite de ${MAX_ITEMS_POR_EXECUCAO} itens atingido. Parando.`);
+            continuar = false;
+            break;
         }
 
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
