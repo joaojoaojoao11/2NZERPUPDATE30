@@ -7,15 +7,14 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// SEU TOKEN NOVO (Mantido)
+// SEU TOKEN NOVO
 const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
 const TIME_LIMIT_MS = 55000; 
 
-// === AJUSTE DE SEGURANÇA ===
-// 1. Pausa de 1000ms (1s) para respeitar o limite de 60 req/min do Tiny
-const PAUSA_ENTRE_DETALHES = 1000; 
-// 2. Limite de 50 itens por vez para não estourar o tempo limite da Function
-const MAX_ITEMS_POR_EXECUCAO = 50;
+// === AJUSTE FINO (EQUILÍBRIO) ===
+// 700ms é seguro e permite processar ~45 itens/minuto
+const PAUSA_ENTRE_DETALHES = 700; 
+const MAX_ITEMS_POR_EXECUCAO = 40; 
 
 function formatDateBR(date: Date): string {
   const d = new Date(date);
@@ -35,7 +34,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC INICIADO: MODO SEGURO (50 ITENS/LOTE) <<<");
+    console.log(`>>> SYNC: Lote de ${MAX_ITEMS_POR_EXECUCAO} itens (Pausa ${PAUSA_ENTRE_DETALHES}ms) <<<`);
 
     const hoje = new Date();
     const dataInicio = new Date(hoje);
@@ -47,20 +46,13 @@ serve(async (req) => {
     const dataIniStr = formatDateBR(dataInicio);
     const dataFimStr = formatDateBR(dataFim);
 
-    console.log(`Periodo: ${dataIniStr} ate ${dataFimStr}`);
-
     let pagina = 1;
     let totalProcessado = 0;
     let continuar = true;
 
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
-
-      // Se já atingiu o limite de itens por lote, para a paginação
-      if (totalProcessado >= MAX_ITEMS_POR_EXECUCAO) {
-        console.log("Limite de lote atingido. Encerrando paginação.");
-        break;
-      }
+      if (totalProcessado >= MAX_ITEMS_POR_EXECUCAO) break;
 
       const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_ini_vencimento=${dataIniStr}&data_fim_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
@@ -90,19 +82,18 @@ serve(async (req) => {
         break;
       }
 
-      console.log(`Página ${pagina}: Processando itens...`);
+      console.log(`Página ${pagina}: ${listaContas.length} contas.`);
 
       for (const itemWrapper of listaContas) {
         const itemBasico = itemWrapper.conta;
 
-        // Verifica tempo e limite de quantidade
         if (Date.now() - startTime > TIME_LIMIT_MS) { 
-            console.log("Tempo limite atingido.");
+            console.log("Tempo limite. Parando.");
             continuar = false; 
             break; 
         }
         if (totalProcessado >= MAX_ITEMS_POR_EXECUCAO) {
-            console.log(`Limite de ${MAX_ITEMS_POR_EXECUCAO} itens atingido. Parando.`);
+            console.log("Limite de lote atingido.");
             continuar = false;
             break;
         }
@@ -117,7 +108,6 @@ serve(async (req) => {
           if (jsonDet.retorno.status === 'OK') det = jsonDet.retorno.conta;
         } catch (e) { console.warn("Erro detalhe:", itemBasico.id); }
 
-        // Detetive de Nomes
         let nomeFinal = "Desconhecido";
         if (det.cliente && det.cliente.nome) nomeFinal = det.cliente.nome;
         else if (det.nome_cliente) nomeFinal = det.nome_cliente;
