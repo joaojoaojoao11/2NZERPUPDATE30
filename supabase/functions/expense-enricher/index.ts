@@ -33,7 +33,7 @@ serve(async (req) => {
     // 2. BUSCA DINÂMICA DOS SECRETS (Pega o que você cadastrou no painel)
     // Atualizado para usar token fixo conforme expense-integration
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const supabaseKey = (Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) || '';
 
     // Validacao simplificada
     if (!supabaseKey) throw new Error("SERVICE_ROLE_KEY (ou SUPABASE_SERVICE_ROLE_KEY) não configurada.");
