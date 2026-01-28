@@ -7,15 +7,14 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
+// Se você gerou um token novo, garanta que ele esteja aqui!
+const TINY_TOKEN = "df0900959326f5540306233267d345c267a32900"; 
 const TIME_LIMIT_MS = 50000; 
 const PAUSA_ENTRE_DETALHES = 800;
 
-// === CORREÇÃO CRÍTICA ===
-// Função manual para garantir DD/MM/AAAA independente do servidor
 function formatDateBR(date: Date): string {
   const d = new Date(date);
-  const dia = d.getUTCDate().toString().padStart(2, '0'); // Usa UTC para não sofrer com fuso
+  const dia = d.getUTCDate().toString().padStart(2, '0');
   const mes = (d.getUTCMonth() + 1).toString().padStart(2, '0');
   const ano = d.getUTCFullYear();
   return `${dia}/${mes}/${ano}`;
@@ -31,22 +30,19 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC INICIADO: MODO DATA MANUAL (DD/MM/AAAA) <<<");
+    console.log(">>> SYNC INICIADO: CORREÇÃO DE PARAMETROS (INI/FIM) <<<");
 
-    // Definição de Período Robusta
     const hoje = new Date();
-    // Força datas seguras
     const dataInicio = new Date(hoje);
-    dataInicio.setDate(hoje.getDate() - 60); // 2 meses atrás
+    dataInicio.setDate(hoje.getDate() - 60); 
     
     const dataFim = new Date(hoje);
-    dataFim.setDate(hoje.getDate() + 120); // 4 meses pra frente
+    dataFim.setDate(hoje.getDate() + 120); 
 
-    // Usa a formatação manual
     const dataIniStr = formatDateBR(dataInicio);
     const dataFimStr = formatDateBR(dataFim);
 
-    console.log(`Buscando no Tiny de: ${dataIniStr} até ${dataFimStr}`);
+    console.log(`Buscando de: ${dataIniStr} até ${dataFimStr}`);
 
     let pagina = 1;
     let totalProcessado = 0;
@@ -55,8 +51,10 @@ serve(async (req) => {
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
 
-      // URL com data formatada manualmente e PLURAL (contas)
-      const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_inicial_vencimento=${dataIniStr}&data_final_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
+      // === CORREÇÃO AQUI ===
+      // Mudamos de 'data_inicial_vencimento' para 'data_ini_vencimento'
+      // Mudamos de 'data_final_vencimento' para 'data_fim_vencimento'
+      const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_ini_vencimento=${dataIniStr}&data_fim_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
       const resp = await fetch(urlPesquisa);
       const text = await resp.text();
@@ -66,15 +64,15 @@ serve(async (req) => {
         json = JSON.parse(text);
       } catch (e) {
         console.error("Erro Tiny JSON:", text);
-        throw new Error("Tiny retornou erro. Verifique Logs.");
+        throw new Error("Tiny retornou resposta inválida.");
       }
 
-      // Se der erro 20 (sem dados), para o loop
       if (json.retorno.status !== 'OK') {
         if (json.retorno.codigo_erro == '20') {
-             console.log("Fim da paginação ou nenhum dado encontrado.");
+             console.log("Fim da paginação.");
         } else {
-             console.error("Erro API Tiny:", json.retorno.erros);
+             // Loga o erro exato se não for código 20
+             console.error("Erro API Tiny:", JSON.stringify(json.retorno));
         }
         continuar = false; 
         break;
@@ -86,7 +84,7 @@ serve(async (req) => {
         break;
       }
 
-      console.log(`Página ${pagina}: ${listaContas.length} contas encontradas.`);
+      console.log(`Página ${pagina}: ${listaContas.length} contas.`);
 
       for (const itemWrapper of listaContas) {
         const itemBasico = itemWrapper.conta;
@@ -94,7 +92,6 @@ serve(async (req) => {
 
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_DETALHES));
 
-        // Busca Detalhes (SINGULAR)
         let det = {};
         try {
           const urlObter = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${itemBasico.id}&formato=json`;
