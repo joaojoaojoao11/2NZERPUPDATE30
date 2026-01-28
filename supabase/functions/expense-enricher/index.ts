@@ -17,24 +17,27 @@ function safeDate(raw: any): string | null {
 }
 
 serve(async (req) => {
+  // 1. Resposta imediata para o Preflight do Navegador (Resolve o erro de CORS)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const TINY_TOKEN = Deno.env.get('TINY_TOKEN');
+    // 2. BUSCA DINÂMICA DOS SECRETS (Pega o que você cadastrou no painel)
+    const TINY_TOKEN = Deno.env.get('OLIST_API_KEY');
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY') || '';
     
-    if (!TINY_TOKEN) throw new Error("TINY_TOKEN não configurado.");
-    if (!supabaseKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY não configurada.");
+    if (!TINY_TOKEN) throw new Error("OLIST_API_KEY não encontrado nos Secrets do Supabase.");
+    if (!supabaseKey) throw new Error("SERVICE_ROLE_KEY não configurada.");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const PAUSA_ENTRE_REQUISICOES = 1000; 
     const LIMITE_POR_EXECUCAO = 20; 
 
-    console.log(">>> INICIANDO ENRIQUECIMENTO <<<");
+    console.log(">>> EXPENSE ENRICHER: Iniciando ciclo...");
 
+    // 3. Busca contas pagas sem data de liquidação
     const { data: incompletos, error } = await supabase
       .from('accounts_payable')
       .select('id, fornecedor')
@@ -45,15 +48,17 @@ serve(async (req) => {
     if (error) throw error;
 
     if (!incompletos || incompletos.length === 0) {
-        return new Response(JSON.stringify({ message: "Nada para corrigir", corrigidos: 0 }), {
+        return new Response(JSON.stringify({ message: "Nada pendente.", corrigidos: 0 }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             status: 200
         });
     }
 
     let corrigidos = 0;
+
     for (const item of incompletos) {
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_REQUISICOES));
+
         try {
             const url = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${item.id}&formato=json`;
             const resp = await fetch(url);
@@ -64,7 +69,10 @@ serve(async (req) => {
                 const dataLiq = det.data_pagamento || det.data_baixa;
                 const dataFormatada = safeDate(dataLiq);
                 
-                const updatePayload: any = { ult_atuali: new Date().toISOString() };
+                const updatePayload: any = {
+                    ult_atuali: new Date().toISOString()
+                };
+
                 if (dataFormatada) updatePayload.data_liquidacao = dataFormatada;
                 if (det.data_competencia) updatePayload.competencia = det.data_competencia;
                 if (det.linha_digitavel || det.codigo_barras) updatePayload.chave_pix_boleto = det.linha_digitavel || det.codigo_barras;
@@ -78,11 +86,11 @@ serve(async (req) => {
                 corrigidos++;
             }
         } catch (err) {
-            console.error(`Erro ID ${item.id}:`, err);
+            console.error(`Erro no ID ${item.id}:`, err);
         }
     }
 
-    return new Response(JSON.stringify({ message: "Sucesso", corrigidos }), {
+    return new Response(JSON.stringify({ message: "Concluído", corrigidos }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200
     });
