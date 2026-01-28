@@ -6,7 +6,8 @@ import {
   StockItem, User, MasterProduct, AuditLog, 
   InventoryUpdateStaging, WithdrawalReason, 
   ApprovalCase, InboundRequest, DebtorInfo, 
-  SalesHistoryItem, CRMOpportunity, CompanySettings, InventorySession, CRMInteraction
+  SalesHistoryItem, CRMOpportunity, CompanySettings, 
+  InventorySession, CRMInteraction, FinancialTransaction
 } from '../types';
 
 export class DataService {
@@ -118,6 +119,43 @@ export class DataService {
 
   static async commitAPBatch(staging: any[], user: User, fileName?: string) {
     return FinanceService.commitAPBatch(staging, user, fileName);
+  }
+
+  // NOVO MÉTODO PARA BUSCAR DADOS FINANCEIROS REAIS (CORREÇÃO DO ERRO)
+  static async getFinancialData(type: 'payable' | 'receivable'): Promise<FinancialTransaction[]> {
+    if (!supabase) return [];
+    
+    const table = type === 'payable' ? 'accounts_payable' : 'accounts_receivable';
+    
+    // Busca tudo ordenado por vencimento
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .order('data_vencimento', { ascending: true });
+
+    if (error) {
+      console.error(`Erro ao buscar ${table}:`, error);
+      throw error;
+    }
+
+    return (data || []).map(item => ({
+        id: item.id,
+        // Tenta pegar fornecedor ou cliente ou nomes com letra maiúscula (legado)
+        fornecedor: item.fornecedor || item.cliente || item.Fornecedor || item.Cliente || 'Desconhecido',
+        data_vencimento: item.data_vencimento || item['Data Vencimento'],
+        data_emissao: item.data_emissao,
+        data_liquidacao: item.data_liquidacao,
+        valor_documento: Number(item.valor_documento || 0),
+        valor_pago: Number(item.valor_pago || 0),
+        saldo: Number(item.saldo || item.Saldo || 0),
+        situacao: item.situacao,
+        forma_pagamento: item.forma_pagamento,
+        categoria: item.categoria,
+        competencia: item.competencia,
+        historico: item.historico,
+        numero_documento: item.numero_documento,
+        ult_atuali: item.ult_atuali
+    }));
   }
 
   // --- MASTER CATALOG ---

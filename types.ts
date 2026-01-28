@@ -425,3 +425,20 @@ export interface CRMInteraction {
   content: string;
   createdAt: string;
 }
+export interface FinancialTransaction {
+  id: string;
+  fornecedor: string; // No contexto de receber, isso é o Cliente
+  data_emissao?: string;
+  data_vencimento: string;
+  data_liquidacao?: string;
+  valor_documento: number;
+  valor_pago: number;
+  saldo: number;
+  situacao: string;
+  numero_documento?: string;
+  categoria?: string;
+  historico?: string;
+  competencia?: string;
+  forma_pagamento: string;
+  ult_atuali?: string;
+}
