@@ -12,8 +12,9 @@ const TIME_LIMIT_MS = 55000;
 const PAUSA_NOVO_ITEM = 1000; 
 const PAUSA_ITEM_EXISTENTE = 0; 
 
-// Limite seguro de 40 para não bloquear a API
-const LIMITE_REQUISICOES_TINY = 40; 
+// === AJUSTE FINO FINAL ===
+// De 40 para 35. Mais segurança contra bloqueio.
+const LIMITE_REQUISICOES_TINY = 35; 
 
 function formatDateBR(date: Date): string {
   const d = new Date(date);
