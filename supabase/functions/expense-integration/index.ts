@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 // Se você gerou um token novo, garanta que ele esteja aqui!
-const TINY_TOKEN = "df0900959326f5540306233267d345c267a32900"; 
+const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
 const TIME_LIMIT_MS = 50000; 
 const PAUSA_ENTRE_DETALHES = 800;
 
