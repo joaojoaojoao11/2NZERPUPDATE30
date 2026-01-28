@@ -17,7 +17,6 @@ function safeDate(raw: any): string | null {
 }
 
 serve(async (req) => {
-  // 1. Resposta para o teste de segurança do navegador (OPTIONS)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -34,7 +33,7 @@ serve(async (req) => {
     const PAUSA_ENTRE_REQUISICOES = 1000; 
     const LIMITE_POR_EXECUCAO = 20; 
 
-    console.log(">>> INICIANDO ENRIQUECIMENTO DE DESPESAS <<<");
+    console.log(">>> INICIANDO ENRIQUECIMENTO <<<");
 
     const { data: incompletos, error } = await supabase
       .from('accounts_payable')
@@ -53,7 +52,6 @@ serve(async (req) => {
     }
 
     let corrigidos = 0;
-
     for (const item of incompletos) {
         await new Promise(r => setTimeout(r, PAUSA_ENTRE_REQUISICOES));
         try {
@@ -78,7 +76,6 @@ serve(async (req) => {
 
                 await supabase.from('accounts_payable').update(updatePayload).eq('id', item.id);
                 corrigidos++;
-                console.log(`ID ${item.id} atualizado.`);
             }
         } catch (err) {
             console.error(`Erro ID ${item.id}:`, err);
