@@ -1,6 +1,7 @@
 import React from 'react';
 import { ViewType } from './types';
 
+// ... (Mantenha as constantes CATEGORIES, REASONS, INBOUND_REASONS, SALES_TEAM, SYSTEM_FEATURES como estão) ...
 export const CATEGORIES = ['PPF', 'PPF FUME', 'ENVELOPAMENTO', 'SPEED WRAPPING', 'VINYLFROG'];
 export const REASONS = ['Venda', 'Troca', 'Defeito', 'Ajuste'];
 export const INBOUND_REASONS = ['Compra', 'Devolução de Cliente', 'Ajuste de Inventário', 'Retorno de Demonstração', 'Outros'];
@@ -91,7 +92,6 @@ export const ICONS = {
   Instagram: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
   ),
-  // Ícone adicionado manualmente (FileText equivalent)
   Document: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
@@ -99,6 +99,14 @@ export const ICONS = {
       <line x1="16" y1="13" x2="8" y2="13" />
       <line x1="16" y1="17" x2="8" y2="17" />
       <line x1="10" y1="9" x2="8" y2="9" />
+    </svg>
+  ),
+  // NOVO ÍCONE: LIVRINHO COM MAIS (BookPlus)
+  BookPlus: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+      <path d="M9 10h6" />
+      <path d="M12 7v6" />
     </svg>
   )
 };

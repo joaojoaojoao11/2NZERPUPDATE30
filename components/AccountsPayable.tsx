@@ -29,6 +29,7 @@ const AccountsPayableModule: React.FC = () => {
   const [data, setData] = useState<AccountsPayable[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false); // Estado para o novo botão
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'info' } | null>(null);
   
@@ -95,7 +96,7 @@ const AccountsPayableModule: React.FC = () => {
 
   const handleSyncExpenses = async () => {
     setIsSyncing(true);
-    setToast({ msg: 'Sincronizando...', type: 'info' });
+    setToast({ msg: 'Sincronizando novas contas...', type: 'info' });
 
     try {
       const { data, error } = await supabase.functions.invoke('expense-integration', {
@@ -109,16 +110,47 @@ const AccountsPayableModule: React.FC = () => {
       const novos = data?.novos || 0;
       const atualizados = data?.atualizados || 0;
       
-      setToast({ msg: `Sucesso! ${novos} novos, ${atualizados} atualizados.`, type: 'success' });
+      setToast({ msg: `Sync OK! ${novos} novos, ${atualizados} atualizados.`, type: 'success' });
       
       setTimeout(() => fetchItems(), 1000);
       
     } catch (err: any) {
       console.error("Erro Sync:", err);
-      setToast({ msg: `Processo enviado. Atualize a tabela em instantes.`, type: 'info' });
-      setTimeout(() => fetchItems(), 3000);
+      setToast({ msg: `Erro ao sincronizar. Tente novamente.`, type: 'error' });
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  // --- NOVA FUNÇÃO: CHAMAR O ROBÔ ENRIQUECEDOR ---
+  const handleEnrichExpenses = async () => {
+    setIsEnriching(true);
+    setToast({ msg: 'Buscando detalhes faltantes (Data/Pix)...', type: 'info' });
+
+    try {
+      const { data, error } = await supabase.functions.invoke('expense-enricher', {
+        method: 'POST',
+      });
+
+      if (error) throw error;
+
+      console.log('Enrich Sucesso:', data);
+      
+      const corrigidos = data?.corrigidos || 0;
+      const analisados = data?.analisados || 0;
+
+      if (corrigidos > 0) {
+          setToast({ msg: `Sucesso! ${corrigidos} contas foram detalhadas.`, type: 'success' });
+          setTimeout(() => fetchItems(), 1500); // Recarrega para mostrar as datas novas
+      } else {
+          setToast({ msg: `Tudo certo! Nenhuma conta precisava de correção.`, type: 'success' });
+      }
+      
+    } catch (err: any) {
+      console.error("Erro Enrich:", err);
+      setToast({ msg: `Erro ao detalhar. Tente novamente.`, type: 'error' });
+    } finally {
+      setIsEnriching(false);
     }
   };
 
@@ -219,11 +251,13 @@ const AccountsPayableModule: React.FC = () => {
         
         <div className="flex items-center gap-3">
            <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm flex-1 md:w-auto">
+              
+              {/* BOTÃO DE SINCRONIZAÇÃO RÁPIDA (INTEGRATION) */}
               <button
                 onClick={handleSyncExpenses}
-                disabled={isSyncing}
+                disabled={isSyncing || isEnriching}
                 className="p-2 rounded-xl transition-all text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                title={isSyncing ? "Sincronizando..." : "Sincronizar com Tiny"}
+                title="Sincronizar Novas Contas (Rápido)"
               >
                 {isSyncing ? (
                    <div className="w-5 h-5 border-2 border-emerald-200 border-t-emerald-600 rounded-full animate-spin" />
@@ -231,6 +265,23 @@ const AccountsPayableModule: React.FC = () => {
                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 )}
               </button>
+
+              <div className="h-6 w-px bg-slate-100"></div>
+
+              {/* NOVO BOTÃO: ENRIQUECIMENTO (LIVRINHO COM MAIS) */}
+              <button
+                onClick={handleEnrichExpenses}
+                disabled={isSyncing || isEnriching}
+                className="p-2 rounded-xl transition-all text-blue-600 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Forçar Correção de Detalhes (Data Liq, Pix, Comp)"
+              >
+                {isEnriching ? (
+                   <div className="w-5 h-5 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+                ) : (
+                   <ICONS.BookPlus className="w-5 h-5" />
+                )}
+              </button>
+
               <div className="h-6 w-px bg-slate-100"></div>
 
               <input 
