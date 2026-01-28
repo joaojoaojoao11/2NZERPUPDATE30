@@ -7,13 +7,20 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0";
+
+// --- NOVA FUNÇÃO SEGURA PARA DATA DE LIQUIDAÇÃO (Espelhado de expense-integration) ---
 function safeDate(raw: any): string | null {
-    if (!raw || typeof raw !== 'string' || raw.trim() === '') return null;
-    try {
-        const parts = raw.split('/');
-        if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
-    } catch (e) { return null; }
-    return null;
+  // Tenta pegar data_pagamento OU data_baixa se vier um objeto, ou usa o proprio valor se for string
+  // Mas no enricher o 'raw' passado ja é o valor escolhido. 
+  // Vamos manter a assinatura mas melhorar a logica interna com base na integration.
+
+  if (!raw || typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    const parts = raw.split('/');
+    if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  } catch (e) { return null; }
+  return null;
 }
 
 serve(async (req) => {
@@ -24,16 +31,16 @@ serve(async (req) => {
 
   try {
     // 2. BUSCA DINÂMICA DOS SECRETS (Pega o que você cadastrou no painel)
-    const TINY_TOKEN = Deno.env.get('OLIST_API_KEY') ?? Deno.env.get('TINY_TOKEN');
+    // Atualizado para usar token fixo conforme expense-integration
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const supabaseKey = Deno.env.get('SERVICE_ROLE_KEY') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-    
-    if (!TINY_TOKEN) throw new Error("OLIST_API_KEY (ou TINY_TOKEN) não encontrado nos Secrets do Supabase.");
+
+    // Validacao simplificada
     if (!supabaseKey) throw new Error("SERVICE_ROLE_KEY (ou SUPABASE_SERVICE_ROLE_KEY) não configurada.");
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const PAUSA_ENTRE_REQUISICOES = 1000; 
-    const LIMITE_POR_EXECUCAO = 20; 
+    const PAUSA_ENTRE_REQUISICOES = 1000;
+    const LIMITE_POR_EXECUCAO = 20;
 
     console.log(">>> EXPENSE ENRICHER: Iniciando ciclo...");
 
@@ -48,51 +55,51 @@ serve(async (req) => {
     if (error) throw error;
 
     if (!incompletos || incompletos.length === 0) {
-        return new Response(JSON.stringify({ message: "Nada pendente.", corrigidos: 0 }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200
-        });
+      return new Response(JSON.stringify({ message: "Nada pendente.", corrigidos: 0 }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      });
     }
 
     let corrigidos = 0;
 
     for (const item of incompletos) {
-        await new Promise(r => setTimeout(r, PAUSA_ENTRE_REQUISICOES));
+      await new Promise(r => setTimeout(r, PAUSA_ENTRE_REQUISICOES));
 
-        try {
-            const url = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${item.id}&formato=json`;
-            const resp = await fetch(url);
-            const json = await resp.json();
+      try {
+        const url = `https://api.tiny.com.br/api2/conta.pagar.obter.php?token=${TINY_TOKEN}&id=${item.id}&formato=json`;
+        const resp = await fetch(url);
+        const json = await resp.json();
 
-            if (json.retorno.status === 'OK') {
-                const det = json.retorno.conta;
-                const dataLiq = det.data_pagamento || det.data_baixa;
-                const dataFormatada = safeDate(dataLiq);
-                
-                const updatePayload: any = {
-                    ult_atuali: new Date().toISOString()
-                };
+        if (json.retorno.status === 'OK') {
+          const det = json.retorno.conta;
+          const dataLiq = det.data_pagamento || det.data_baixa;
+          const dataFormatada = safeDate(dataLiq);
 
-                if (dataFormatada) updatePayload.data_liquidacao = dataFormatada;
-                if (det.data_competencia) updatePayload.competencia = det.data_competencia;
-                if (det.linha_digitavel || det.codigo_barras) updatePayload.chave_pix_boleto = det.linha_digitavel || det.codigo_barras;
+          const updatePayload: any = {
+            ult_atuali: new Date().toISOString()
+          };
 
-                if (item.fornecedor === 'Desconhecido') {
-                     if (det.cliente?.nome) updatePayload.fornecedor = det.cliente.nome;
-                     else if (det.nome_cliente) updatePayload.fornecedor = det.nome_cliente;
-                }
+          if (dataFormatada) updatePayload.data_liquidacao = dataFormatada;
+          if (det.data_competencia) updatePayload.competencia = det.data_competencia;
+          if (det.linha_digitavel || det.codigo_barras) updatePayload.chave_pix_boleto = det.linha_digitavel || det.codigo_barras;
 
-                await supabase.from('accounts_payable').update(updatePayload).eq('id', item.id);
-                corrigidos++;
-            }
-        } catch (err) {
-            console.error(`Erro no ID ${item.id}:`, err);
+          if (item.fornecedor === 'Desconhecido') {
+            if (det.cliente?.nome) updatePayload.fornecedor = det.cliente.nome;
+            else if (det.nome_cliente) updatePayload.fornecedor = det.nome_cliente;
+          }
+
+          await supabase.from('accounts_payable').update(updatePayload).eq('id', item.id);
+          corrigidos++;
         }
+      } catch (err) {
+        console.error(`Erro no ID ${item.id}:`, err);
+      }
     }
 
     return new Response(JSON.stringify({ message: "Concluído", corrigidos }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200
     });
 
   } catch (err: any) {
