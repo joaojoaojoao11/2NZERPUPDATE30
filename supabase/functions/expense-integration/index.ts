@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// Se você gerou um token novo, garanta que ele esteja aqui!
+// Seu Token Válido
 const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0"; 
 const TIME_LIMIT_MS = 50000; 
 const PAUSA_ENTRE_DETALHES = 800;
@@ -30,7 +30,7 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log(">>> SYNC INICIADO: CORREÇÃO DE PARAMETROS (INI/FIM) <<<");
+    console.log(">>> SYNC INICIADO: CORREÇÃO NOME FORNECEDOR <<<");
 
     const hoje = new Date();
     const dataInicio = new Date(hoje);
@@ -51,9 +51,6 @@ serve(async (req) => {
     while (continuar) {
       if (Date.now() - startTime > TIME_LIMIT_MS) break;
 
-      // === CORREÇÃO AQUI ===
-      // Mudamos de 'data_inicial_vencimento' para 'data_ini_vencimento'
-      // Mudamos de 'data_final_vencimento' para 'data_fim_vencimento'
       const urlPesquisa = `https://api.tiny.com.br/api2/contas.pagar.pesquisa.php?token=${TINY_TOKEN}&data_ini_vencimento=${dataIniStr}&data_fim_vencimento=${dataFimStr}&pagina=${pagina}&formato=json`;
       
       const resp = await fetch(urlPesquisa);
@@ -63,15 +60,13 @@ serve(async (req) => {
       try {
         json = JSON.parse(text);
       } catch (e) {
-        console.error("Erro Tiny JSON:", text);
-        throw new Error("Tiny retornou resposta inválida.");
+        throw new Error(`Resposta inválida do Tiny: ${text.substring(0, 50)}...`);
       }
 
       if (json.retorno.status !== 'OK') {
         if (json.retorno.codigo_erro == '20') {
              console.log("Fim da paginação.");
         } else {
-             // Loga o erro exato se não for código 20
              console.error("Erro API Tiny:", JSON.stringify(json.retorno));
         }
         continuar = false; 
@@ -100,11 +95,31 @@ serve(async (req) => {
           if (jsonDet.retorno.status === 'OK') det = jsonDet.retorno.conta;
         } catch (e) { console.warn("Erro detalhe:", itemBasico.id); }
 
+        // === CORREÇÃO: DETETIVE DE NOME ===
+        // O Tiny é bagunçado. O nome pode estar em vários lugares.
+        // Ordem de preferência: 
+        // 1. nome_cliente (no detalhe)
+        // 2. cliente.nome (objeto cliente no detalhe)
+        // 3. nome_fornecedor (no detalhe)
+        // 4. cliente.nome (no básico)
+        // 5. nome_cliente (no básico)
+        
+        let nomeFinal = "Desconhecido";
+
+        // Tenta pegar do detalhe primeiro (mais confiável)
+        if (det.cliente && det.cliente.nome) nomeFinal = det.cliente.nome;
+        else if (det.nome_cliente) nomeFinal = det.nome_cliente;
+        else if (det.nome_fornecedor) nomeFinal = det.nome_fornecedor;
+        // Se falhar, tenta do básico
+        else if (itemBasico.cliente && itemBasico.cliente.nome) nomeFinal = itemBasico.cliente.nome;
+        else if (itemBasico.nome_cliente) nomeFinal = itemBasico.nome_cliente;
+        else if (itemBasico.nome_fornecedor) nomeFinal = itemBasico.nome_fornecedor;
+
         const final = { ...itemBasico, ...det };
 
         const payload = {
           id: final.id.toString(),
-          fornecedor: final.nome_fornecedor || final.cliente?.nome || "Desconhecido",
+          fornecedor: nomeFinal, // Usa o nome descoberto
           data_emissao: final.data_emissao ? final.data_emissao.split('/').reverse().join('-') : null,
           data_vencimento: final.data_vencimento ? final.data_vencimento.split('/').reverse().join('-') : null,
           data_liquidacao: final.data_pagamento ? final.data_pagamento.split('/').reverse().join('-') : null,
