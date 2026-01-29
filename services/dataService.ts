@@ -303,12 +303,18 @@ export class DataService {
   // --- CRM: Opportunities ---
   static async getCRMOpportunities(): Promise<CRMOpportunity[]> {
     if (!supabase) return [];
-    const { data, error } = await supabase.from('crm_opportunities').select('*').order('created_at', { ascending: false });
+
+    // Join para pegar count de interações
+    const { data, error } = await supabase
+      .from('crm_opportunities')
+      .select('*, crm_interactions(count)')
+      .order('created_at', { ascending: false });
+
     if (error) {
       if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
       throw error;
     }
-    return (data || []).map(d => ({
+    return (data || []).map((d: any) => ({
       id: d.id,
       clientName: d.client_name,
       companyName: d.company_name,
@@ -320,7 +326,8 @@ export class DataService {
       ownerId: d.owner_id,
       instagramLink: d.instagram_link,
       prospector: d.prospector,
-      attendant: d.attendant
+      attendant: d.attendant,
+      interactionCount: d.crm_interactions && d.crm_interactions[0] ? d.crm_interactions[0].count : 0
     }));
   }
 
@@ -384,6 +391,61 @@ export class DataService {
       created_at: new Date().toISOString()
     });
     return !error;
+  }
+
+  static async syncTinySalesToInteractions(opportunityId: string, orders: any[]): Promise<number> {
+    if (!supabase) return 0;
+
+    const existing = await this.getCRMInteractions(opportunityId);
+    let addedCount = 0;
+
+    for (const order of orders) {
+      const signature = `[TINY_ORDER:${order.id}]`;
+      const exists = existing.some(i => i.content.includes(signature));
+
+      if (!exists) {
+        const payload = {
+          id: order.id,
+          numero: order.numero,
+          data: order.data,
+          valor: order.valor,
+          situacao: order.situacao,
+          // Se tiver details, salva, senão salva o proprio order
+          details: order.details || order
+        };
+
+        // Formato Híbrido: Texto legível + JSON Oculto/Separado
+        const content = `${signature} Pedido #${order.numero} integrado do Tiny.\n::JSON::${JSON.stringify(payload)}`;
+
+        // Usamos a data do pedido como created_at? 
+        // O banco usa created_at automatico na inserção (insert acima usa new Date), 
+        // mas podemos tentar forçar se o banco permitir ou se alterarmos saveCRMInteraction.
+        // O saveCRMInteraction usa new Date().
+        // Para ficar na ordem certa na timeline, seria ideal usar a data do pedido.
+        // Vou criar um overload ou parâmetro opcional no saveCRMInteraction, ou insert direto aqui.
+
+        let saleDate = new Date().toISOString();
+        if (order.data) {
+          // Tenta parsear dd/mm/yyyy
+          const parts = order.data.split('/');
+          if (parts.length === 3) {
+            // Seta hora para meio dia para evitar fuso
+            saleDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`).toISOString();
+          }
+        }
+
+        const { error } = await supabase.from('crm_interactions').insert({
+          opportunity_id: opportunityId,
+          user_name: 'TINY ERP',
+          content: content,
+          created_at: saleDate
+        });
+
+        if (!error) addedCount++;
+      }
+    }
+
+    return addedCount;
   }
 
   static async getGlobalCRMFeed(limit = 50): Promise<any[]> {
@@ -602,5 +664,71 @@ export class DataService {
     }
     console.log(`[DataService] Clientes carregados: ${data?.length}`);
     return data as Client[];
+  }
+
+  static async upsertClients(clients: Partial<Client>[]): Promise<{ success: boolean; count: number }> {
+    if (!supabase) return { success: false, count: 0 };
+    if (clients.length === 0) return { success: true, count: 0 };
+
+    console.log(`[DataService] Processando ${clients.length} clientes do Tiny...`);
+
+    // 1. Extrair ID Tiny para verificação (mais seguro que CPF)
+    const idsToCheck = clients
+      .map(c => c.id_tiny)
+      .filter(id => id !== null && id !== undefined && id !== '') as string[];
+
+    // Se por acaso vier cliente sem id_tiny, fall back para CPF? 
+    // Vamos focar no ID Tiny pois o erro foi violação de constraint de ID Tiny.
+    const cpfsToCheck = clients
+      .map(c => c.cpf_cnpj)
+      .filter(c => c && !c.id_tiny) as string[]; // Checa CPF apenas se não tiver ID Tiny (casos raros)
+
+    // 2. Buscar quais já existem no banco
+    let existingSet: Set<string> = new Set();
+
+    // Check IDs
+    if (idsToCheck.length > 0) {
+      const { data, error } = await supabase.from('clients').select('id_tiny').in('id_tiny', idsToCheck);
+      if (error) throw error;
+      data?.forEach((d: any) => existingSet.add(String(d.id_tiny)));
+    }
+
+    // Check CPFs (fallback)
+    if (cpfsToCheck.length > 0) {
+      const { data, error } = await supabase.from('clients').select('cpf_cnpj').in('cpf_cnpj', cpfsToCheck);
+      if (!error && data) {
+        data.forEach((d: any) => existingSet.add(String(d.cpf_cnpj)));
+      }
+    }
+
+    // 3. Filtrar apenas os novos
+    const newClients = clients.filter(c => {
+      // Se tem ID Tiny e já existe, pula
+      if (c.id_tiny && existingSet.has(String(c.id_tiny))) return false;
+      // Se não tem ID Tiny mas tem CPF e já existe, pula
+      if (!c.id_tiny && c.cpf_cnpj && existingSet.has(String(c.cpf_cnpj))) return false;
+      return true;
+    });
+
+    console.log(`[DataService] ${newClients.length} novos clientes reais identificados.`);
+
+    if (newClients.length === 0) {
+      return { success: true, count: 0 };
+    }
+
+    // 4. Inserir os novos
+    // NOTA: Para garantir que o trigger funcione conforme o plano (Status = QUALIFICADO se tiver Tiny),
+    // o DB trigger já foi ajustado para setar QUALIFICADO como padrão.
+    // O que falta é a validação de histórico de vendas, que no plano original seria um modal.
+    // O trigger vai cuidar da criação do card. 
+
+    const { error: insertError } = await supabase.from('clients').insert(newClients);
+
+    if (insertError) {
+      console.error("Erro ao inserir novos clientes:", insertError);
+      throw insertError;
+    }
+
+    return { success: true, count: newClients.length };
   }
 }

@@ -412,6 +412,7 @@ export interface CRMOpportunity {
   instagramLink?: string;
   prospector?: string;
   attendant?: string;
+  interactionCount?: number;
   status: CRMStatus;
   nextFollowUp?: string;
   notes?: string;

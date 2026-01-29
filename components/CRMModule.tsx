@@ -9,6 +9,7 @@ import { AIAssistant } from './crm/AIAssistant';
 
 interface CRMModuleProps {
     user: User;
+    onNavigate?: (view: any) => void;
 }
 
 const COLUMNS: { id: CRMStatus; label: string; color: string; headerColor: string; icon: any }[] = [
@@ -19,7 +20,7 @@ const COLUMNS: { id: CRMStatus; label: string; color: string; headerColor: strin
     { id: 'PERDIDO', label: 'Perdido', color: 'bg-red-50/30', headerColor: 'border-red-300 text-red-600', icon: ICONS.Alert },
 ];
 
-const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
+const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
     // --- STATE: GERAL ---
     const [viewMode, setViewMode] = useState<'KANBAN' | 'FEED'>('KANBAN');
     const [loading, setLoading] = useState(true);
@@ -30,6 +31,7 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
 
     // --- STATE: KANBAN ---
     const [filterMode, setFilterMode] = useState<'ALL' | 'MINE'>('ALL');
+    const [searchTerm, setSearchTerm] = useState('');
 
     // --- STATE: MODAL & INTERAÇÕES ---
     const [selectedOpp, setSelectedOpp] = useState<CRMOpportunity | null>(null); // Se null, modal fechado
@@ -37,6 +39,8 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
     const [newInteractionText, setNewInteractionText] = useState('');
     const [isSavingInteraction, setIsSavingInteraction] = useState(false);
     const [isSavingOpp, setIsSavingOpp] = useState(false);
+    const [salesHistory, setSalesHistory] = useState<any[] | null>(null); // Histórico de Compras Tiny
+    const [showSalesWidget, setShowSalesWidget] = useState(false);
 
     // Ref para scroll do feed
     const feedScrollRef = useRef<HTMLDivElement>(null);
@@ -82,6 +86,8 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
 
     const filteredOpportunities = useMemo(() => {
         let list = opportunities;
+
+        // Filter by Owner
         if (filterMode === 'MINE') {
             const myName = user.name.toUpperCase();
             list = list.filter(o =>
@@ -89,10 +95,57 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
                 (o.prospector && o.prospector.toUpperCase() === myName)
             );
         }
+
+        // Filter by Search Term
+        if (searchTerm.trim()) {
+            const term = searchTerm.toUpperCase().trim();
+            list = list.filter(o => o.clientName.toUpperCase().includes(term));
+        }
+
         return list;
-    }, [opportunities, filterMode, user.name]);
+    }, [opportunities, filterMode, user.name, searchTerm]);
 
     // --- HANDLERS MODAL ---
+
+    // --- TIMELINE (INTERAÇÕES + VENDAS SINCRONIZADAS) ---
+    const mergedTimeline = useMemo(() => {
+        return oppInteractions.map(i => {
+            // Detecta Venda Tiny Persistida
+            if (i.content && i.content.includes('::JSON::')) {
+                try {
+                    const parts = i.content.split('::JSON::');
+                    const jsonStr = parts[1];
+                    const payload = JSON.parse(jsonStr);
+
+                    // Se tiver data no payload, usar para display, mas a ordenação usa i.createdAt
+                    return {
+                        type: 'SALE',
+                        id: `sale-${payload.id}`,
+                        date: i.createdAt,
+                        user: 'TINY ERP',
+                        initial: 'T',
+                        content: `Pedido #${payload.numero}`,
+                        total: payload.valor,
+                        status: payload.situacao,
+                        details: payload
+                    };
+                } catch (e) {
+                    console.error("Erro parse json timeline", e);
+                }
+            }
+
+            // Interação Normal CRM
+            return {
+                type: 'CRM',
+                id: `crm-${i.id}`,
+                date: i.createdAt,
+                user: i.userName,
+                initial: i.userName ? i.userName[0] : '?',
+                content: i.content.replace(/\[TINY_ORDER:.*?\]/, '').trim(), // Limpa assinatura visualmente se houver
+                details: null
+            };
+        }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }, [oppInteractions]);
 
     const handleOpenCard = async (opp: CRMOpportunity | 'NEW') => {
         if (opp === 'NEW') {
@@ -104,6 +157,8 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
             setOppInteractions([]);
         } else {
             setSelectedOpp({ ...opp }); // Clone para edição
+            setSalesHistory(null); // Reset history view
+            setShowSalesWidget(false); // Reset widget visibility
             // Carrega interações
             try {
                 const interactions = await DataService.getCRMInteractions(opp.id!);
@@ -223,46 +278,116 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
                                 <option value="MINE">Meus Cards</option>
                             </select>
                         </div>
+                        {/* SEARCH BAR & IMPORT */}
+                        <div className="flex items-center gap-2">
+                            <div className="bg-white border border-slate-200 p-1 rounded-xl flex items-center shadow-sm w-64">
+                                <ICONS.Search className="w-3 h-3 text-slate-400 ml-3 mr-2" />
+                                <input
+                                    type="text"
+                                    placeholder="BUSCAR CLIENTE..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="bg-transparent text-[10px] font-bold text-slate-700 uppercase outline-none py-2 w-full placeholder:text-slate-300"
+                                />
+                            </div>
+                            {searchTerm.length > 2 && (
+                                <button
+                                    onClick={async () => {
+                                        setToast({ msg: `Buscando '${searchTerm}' no Tiny ERP...`, type: 'success' });
+                                        try {
+                                            const { TinyService } = await import('../services/tinyService');
+                                            const results = await TinyService.searchFullClients(searchTerm);
+
+                                            if (results.length > 0) {
+                                                const { count } = await DataService.upsertClients(results);
+                                                if (count > 0) {
+                                                    setToast({ msg: `${count} cliente(s) importado(s) do Tiny!`, type: 'success' });
+                                                    setTimeout(fetchData, 1000);
+                                                } else {
+                                                    setToast({ msg: 'Cliente encontrado no Tiny mas já existe no CRM (ou erro de atualização).', type: 'error' });
+                                                }
+                                            } else {
+                                                setToast({ msg: 'Nenhum cliente encontrado no Tiny com este nome.', type: 'error' });
+                                            }
+                                        } catch (e) { console.error(e); setToast({ msg: 'Erro na busca Tiny.', type: 'error' }); }
+                                    }}
+                                    className="px-3 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl font-bold text-[9px] uppercase hover:bg-indigo-100 transition-colors whitespace-nowrap"
+                                    title="Buscar e importar do Tiny"
+                                >
+                                    Buscar no Tiny
+                                </button>
+                            )}
+                        </div>
                         <button
                             onClick={() => handleOpenCard('NEW')}
-                            className="px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all flex items-center gap-2 italic"
+                            className="px-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-slate-800 transition-all flex items-center gap-2 italic"
                         >
                             <ICONS.Add className="w-4 h-4" />
                             Novo Cliente
+                        </button>
+                        <button
+                            onClick={async () => {
+                                setToast({ msg: 'Importando clientes do Tiny...', type: 'success' });
+                                try {
+                                    const { TinyService } = await import('../services/tinyService');
+                                    const newClients = await TinyService.getRecentClients();
+
+                                    if (newClients.length > 0) {
+                                        const { count } = await DataService.upsertClients(newClients);
+                                        setToast({ msg: `${count} Clientes processados. O CRM será atualizado.`, type: 'success' });
+                                        // A automação do banco deve criar os cards. Recarregamos:
+                                        setTimeout(fetchData, 2000);
+                                    } else {
+                                        setToast({ msg: 'Nenhum cliente novo encontrado para importar.', type: 'error' });
+                                    }
+                                } catch (e: any) {
+                                    console.error("Erro Sync Tiny:", JSON.stringify(e, null, 2));
+                                    setToast({ msg: `Erro: ${e.message || JSON.stringify(e)}`, type: 'error' });
+                                }
+                            }}
+                            className="px-4 py-4 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-indigo-700 transition-all flex items-center gap-2 italic"
+                            title="Importar clientes recentes do Tiny ERP"
+                        >
+                            <ICONS.History className="w-4 h-4" />
+                            Sync Tiny
                         </button>
                     </div>
                 )}
             </div>
 
             {/* --- CONTENT AREA --- */}
-            <div className="flex-1 min-h-0 overflow-hidden relative">
+            <div className="flex-1 min-h-0 overflow-hidden relative bg-slate-200 rounded-t-[2.5rem] shadow-inner border-t border-slate-300">
+                {/* Background Pattern for Texture */}
+                <div className="absolute inset-0 opacity-[0.05]" style={{ backgroundImage: 'radial-gradient(#475569 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
 
                 {/* VIEW 1: FEED GERENCIAL */}
                 {viewMode === 'FEED' && (
-                    <div className="h-full overflow-y-auto custom-scrollbar p-4 max-w-4xl mx-auto space-y-6">
+                    <div className="h-full overflow-y-auto custom-scrollbar p-8 max-w-5xl mx-auto space-y-8 relative z-10">
                         {globalFeed.length === 0 ? (
-                            <div className="text-center py-20 opacity-40">
-                                <ICONS.History className="w-16 h-16 mx-auto mb-4 text-slate-300" />
-                                <p className="font-black text-xs uppercase text-slate-400">Nenhuma interação registrada recentemente.</p>
+                            <div className="text-center py-32 opacity-40">
+                                <div className="bg-slate-300 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
+                                    <ICONS.History className="w-10 h-10 text-slate-500" />
+                                </div>
+                                <p className="font-black text-sm uppercase text-slate-500 tracking-widest">Nenhuma interação recente</p>
                             </div>
                         ) : (
                             globalFeed.map((item, idx) => (
-                                <div key={item.id || idx} className="flex gap-4 animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 50}ms` }}>
-                                    <div className="flex flex-col items-center">
-                                        <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-black text-xs shadow-md border-2 border-white">
+                                <div key={item.id || idx} className="flex gap-6 animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${idx * 50}ms` }}>
+                                    <div className="flex flex-col items-center pt-2">
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm shadow-indigo-200 shadow-lg border-2 border-white transform rotate-3">
                                             {item.userName?.[0] || '?'}
                                         </div>
-                                        <div className="w-0.5 flex-1 bg-slate-200 my-2"></div>
+                                        <div className="w-0.5 flex-1 bg-gradient-to-b from-slate-300 to-transparent my-2"></div>
                                     </div>
-                                    <div className="flex-1 bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-shadow mb-4">
-                                        <div className="flex justify-between items-start mb-2">
+                                    <div className="flex-1 bg-white p-8 rounded-[2rem] rounded-tl-none border border-slate-200 shadow-sm hover:shadow-md transition-all hover:-translate-y-1">
+                                        <div className="flex justify-between items-start mb-4">
                                             <div>
-                                                <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wide mr-2">@{item.userName}</span>
-                                                <span className="text-[10px] text-slate-400 font-medium">em <span className="font-bold text-slate-600 uppercase">{item.clientName}</span></span>
+                                                <span className="inline-block bg-indigo-50 text-indigo-700 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-md mb-1">@{item.userName}</span>
+                                                <div className="text-xs text-slate-400 font-medium mt-1">em <span className="font-bold text-slate-700 uppercase">{item.clientName}</span></div>
                                             </div>
-                                            <span className="text-[9px] font-bold text-slate-300 uppercase">{new Date(item.createdAt).toLocaleString()}</span>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase bg-slate-50 px-3 py-1 rounded-full border border-slate-100">{new Date(item.createdAt).toLocaleString()}</span>
                                         </div>
-                                        <p className="text-xs text-slate-600 leading-relaxed font-medium">"{item.content}"</p>
+                                        <p className="text-sm text-slate-600 leading-relaxed font-medium">"{item.content}"</p>
                                     </div>
                                 </div>
                             ))
@@ -270,82 +395,98 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
                     </div>
                 )}
 
-                {/* VIEW 2: KANBAN INTELIGENTE */}
+                {/* VIEW 2: KANBAN INTELIGENTE (PREMIUM) */}
                 {viewMode === 'KANBAN' && (
-                    <div className="h-full overflow-x-auto overflow-y-hidden pb-4">
-                        <div className="flex gap-6 h-full min-w-[1400px] px-2">
+                    <div className="h-full overflow-x-auto overflow-y-hidden pb-4 pt-6 px-6 relative z-10">
+                        <div className="flex gap-6 h-full min-w-max">
                             {COLUMNS.map(col => {
                                 const colItems = filteredOpportunities.filter(o => o.status === col.id);
-
-                                // Lógica de Separação (Prioridade vs Agendados)
                                 const todayStr = new Date().toISOString().split('T')[0];
 
+                                // 1. Não Contatados (Cold)
+                                const notContactedItems = colItems.filter(i => (i.interactionCount || 0) === 0 && !i.nextFollowUp);
+
+                                // 2. Agendados (Scheduled)
+                                const scheduledItems = colItems.filter(i => i.nextFollowUp && i.nextFollowUp > todayStr)
+                                    .sort((a, b) => a.nextFollowUp!.localeCompare(b.nextFollowUp!));
+
+                                // 3. Em Atendimento (Priority)
                                 const priorityItems = colItems.filter(i => {
-                                    if (!i.nextFollowUp) return true; // Sem data = Prioridade (Não esquecer)
-                                    return i.nextFollowUp <= todayStr;
+                                    const isCold = (i.interactionCount || 0) === 0 && !i.nextFollowUp;
+                                    const isScheduled = i.nextFollowUp && i.nextFollowUp > todayStr;
+                                    return !isCold && !isScheduled;
                                 }).sort((a, b) => (a.nextFollowUp || '').localeCompare(b.nextFollowUp || ''));
 
-                                const scheduledItems = colItems.filter(i => {
-                                    return i.nextFollowUp && i.nextFollowUp > todayStr;
-                                }).sort((a, b) => a.nextFollowUp!.localeCompare(b.nextFollowUp!));
+                                const accentColor = col.color.includes('blue') ? 'bg-blue-500' :
+                                    col.color.includes('emerald') ? 'bg-emerald-500' :
+                                        col.color.includes('amber') ? 'bg-amber-500' :
+                                            col.color.includes('red') ? 'bg-red-500' : 'bg-slate-500';
 
                                 return (
-                                    <div key={col.id} className="flex-1 flex flex-col min-w-[280px] h-full">
-                                        {/* Column Header */}
-                                        <div className={`p-4 rounded-t-3xl border-t-4 bg-white border-x border-b border-slate-100 shadow-sm mb-4 shrink-0 flex items-center justify-between ${col.headerColor.replace('text', 'border')}`}>
-                                            <div className="flex items-center gap-2">
-                                                <col.icon className={`w-4 h-4 ${col.headerColor.split(' ')[1]}`} />
-                                                <h3 className={`font-black uppercase text-xs tracking-wide ${col.headerColor.split(' ')[1]}`}>{col.label}</h3>
+                                    <div key={col.id} className="flex-1 flex flex-col min-w-[320px] w-[320px] h-full group">
+                                        <div className="mb-5 flex items-center justify-between px-1">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-1.5 h-1.5 rounded-full ${accentColor} shadow-[0_0_10px_rgba(0,0,0,0.2)]`}></div>
+                                                <h3 className="font-black uppercase text-xs tracking-widest text-slate-600">{col.label}</h3>
                                             </div>
-                                            <span className="bg-slate-100 text-slate-500 px-2 py-0.5 rounded-lg text-[9px] font-black">{colItems.length}</span>
+                                            <div className="bg-white border border-slate-200 text-slate-500 px-2.5 py-0.5 rounded-md text-[10px] font-black shadow-sm">
+                                                {colItems.length}
+                                            </div>
                                         </div>
 
-                                        {/* Column Body */}
-                                        <div className={`flex-1 overflow-y-auto custom-scrollbar p-2 rounded-3xl ${col.color} space-y-2`}>
+                                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 -mr-2 space-y-4 pb-20">
 
-                                            {/* Zona de Prioridade */}
+                                            {/* SEÇÃO 1: EM ATENDIMENTO */}
                                             {priorityItems.length > 0 && (
-                                                <div className="space-y-3 mb-6">
-                                                    <div className="flex items-center gap-2 px-2 opacity-50">
-                                                        <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></div>
-                                                        <span className="text-[8px] font-black text-red-500 uppercase tracking-widest">Atenção / Hoje</span>
+                                                <div className="space-y-3">
+                                                    <div className="flex items-center gap-2 px-1 opacity-50 mb-2">
+                                                        <ICONS.Fire className="w-3 h-3 text-red-500" />
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Em Foco</span>
                                                     </div>
-                                                    {priorityItems.map(opp => (
-                                                        <SocialCard
-                                                            key={opp.id}
-                                                            opp={opp}
-                                                            onClick={() => handleOpenCard(opp)}
-                                                            onMove={(dir) => handleMoveCard(opp, dir)}
-                                                            isFirstCol={COLUMNS.findIndex(c => c.id === col.id) === 0}
-                                                            isLastCol={COLUMNS.findIndex(c => c.id === col.id) === COLUMNS.length - 1}
-                                                        />
+                                                    {priorityItems.map((opp) => (
+                                                        <div key={opp.id} className="transform transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02]">
+                                                            <SocialCard opp={opp} onClick={() => handleOpenCard(opp)} />
+                                                        </div>
                                                     ))}
                                                 </div>
                                             )}
 
-                                            {/* Zona Agendada */}
+                                            {/* SEÇÃO 2: AGENDADOS */}
                                             {scheduledItems.length > 0 && (
-                                                <div className="space-y-3">
-                                                    <div className="flex items-center gap-2 px-2 opacity-40 mt-4">
-                                                        <ICONS.History className="w-3 h-3 text-slate-500" />
-                                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Futuro</span>
+                                                <div className="space-y-3 pt-6 border-t border-slate-200/50">
+                                                    <div className="flex items-center gap-2 px-1 opacity-50 mb-2">
+                                                        <ICONS.Calendar className="w-3 h-3 text-indigo-500" />
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Próximos</span>
                                                     </div>
-                                                    {scheduledItems.map(opp => (
-                                                        <SocialCard
-                                                            key={opp.id}
-                                                            opp={opp}
-                                                            onClick={() => handleOpenCard(opp)}
-                                                            onMove={(dir) => handleMoveCard(opp, dir)}
-                                                            isFirstCol={COLUMNS.findIndex(c => c.id === col.id) === 0}
-                                                            isLastCol={COLUMNS.findIndex(c => c.id === col.id) === COLUMNS.length - 1}
-                                                        />
+                                                    {scheduledItems.map((opp) => (
+                                                        <div key={opp.id} className="transform transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02] opacity-90 hover:opacity-100">
+                                                            <SocialCard opp={opp} onClick={() => handleOpenCard(opp)} />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* SEÇÃO 3: NÃO CONTATADOS */}
+                                            {notContactedItems.length > 0 && (
+                                                <div className="space-y-3 pt-6 border-t border-slate-200/50">
+                                                    <div className="flex items-center gap-2 px-1 opacity-50 mb-2">
+                                                        <div className="w-3 h-3 bg-slate-200 rounded-full flex items-center justify-center"><div className="w-1.5 h-1.5 bg-slate-400 rounded-full"></div></div>
+                                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Sem Contato</span>
+                                                    </div>
+                                                    {notContactedItems.map((opp) => (
+                                                        <div key={opp.id} className="transform transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02] opacity-80 hover:opacity-100 grayscale hover:grayscale-0">
+                                                            <SocialCard opp={opp} onClick={() => handleOpenCard(opp)} />
+                                                        </div>
                                                     ))}
                                                 </div>
                                             )}
 
                                             {colItems.length === 0 && (
-                                                <div className="h-full flex items-center justify-center opacity-10">
-                                                    <ICONS.Chart className="w-12 h-12 text-slate-900" />
+                                                <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed border-slate-200 rounded-3xl m-1 opacity-50">
+                                                    <div className="bg-slate-100 p-4 rounded-full mb-3">
+                                                        <col.icon className="w-5 h-5 text-slate-400" />
+                                                    </div>
+                                                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Sem Cards</span>
                                                 </div>
                                             )}
                                         </div>
@@ -353,158 +494,370 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user }) => {
                                 );
                             })}
                         </div>
-                    </div>
+                    </div >
                 )}
-            </div>
+            </div >
 
             {/* --- MODAL DETALHES (SPLIT SCREEN) --- */}
-            {selectedOpp && (
-                <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in zoom-in-95 duration-200">
-                    <div className="bg-white w-full max-w-6xl h-[90vh] rounded-[3rem] shadow-2xl overflow-hidden flex border border-slate-200">
+            {
+                selectedOpp && (
+                    <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in zoom-in-95 duration-200">
+                        <div className="bg-white w-full max-w-6xl h-[90vh] rounded-[3rem] shadow-2xl overflow-hidden flex border border-slate-200">
 
-                        {/* ESQUERDA: FORMULÁRIO DE EDIÇÃO */}
-                        <div className="w-1/2 flex flex-col border-r border-slate-100 bg-slate-50/30">
-                            <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-                                <div>
-                                    <h3 className="text-xl font-black text-slate-900 uppercase italic">Ficha do Cliente</h3>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Dados Cadastrais & Status</p>
+                            {/* ESQUERDA: FORMULÁRIO DE EDIÇÃO */}
+                            <div className="w-1/2 flex flex-col border-r border-slate-100 bg-slate-50/30">
+                                <div className="p-8 border-b border-slate-100 flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-xl font-black text-slate-900 uppercase italic">Ficha do Cliente</h3>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Dados Cadastrais & Status</p>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-                                <form id="oppForm" onSubmit={handleSaveOpp} className="space-y-6">
-                                    <div className="space-y-4">
-                                        <div>
-                                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Cliente / Lead *</label>
-                                            <input
-                                                required
-                                                value={selectedOpp.clientName}
-                                                onChange={e => setSelectedOpp({ ...selectedOpp, clientName: e.target.value.toUpperCase() })}
-                                                className="w-full px-5 py-4 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-2xl outline-none font-black text-sm uppercase transition-all"
-                                                placeholder="NOME DO CLIENTE"
-                                            />
+                                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                                    <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl mb-4">
+                                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic ml-2">Inteligência de Cliente</h4>
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                if (!selectedOpp) return;
+                                                setToast({ msg: 'Buscando dados no Tiny...', type: 'success' });
+                                                try {
+                                                    const { TinyService } = await import('../services/tinyService');
+                                                    const enriched = await TinyService.enrichOpportunity(selectedOpp);
+
+                                                    if (Object.keys(enriched).length > 0) {
+                                                        // Auto-fill logic: Merge enriched data + potentially client details if available
+                                                        // Por enquanto, enrichOpportunity traz LTV e Datas. 
+                                                        // TODO: Buscar dados cadastrais (telefone, cidade) se o backend suportar no futuro.
+
+                                                        setSelectedOpp(prev => prev ? { ...prev, ...enriched } : null);
+                                                        setToast({ msg: 'Dados enriquecidos com sucesso!', type: 'success' });
+                                                    } else {
+                                                        setToast({ msg: 'Cliente não encontrado ou sem histórico no Tiny.', type: 'error' });
+                                                    }
+                                                } catch (e) {
+                                                    console.error(e);
+                                                    setToast({ msg: 'Erro na integração Tiny.', type: 'error' });
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg text-[9px] font-black uppercase tracking-wide hover:bg-indigo-100 transition-colors flex items-center gap-2"
+                                        >
+                                            <ICONS.History className="w-3 h-3" />
+                                            Sincronizar Tiny
+                                        </button>
+                                    </div>
+
+                                    {/* PAINEL DE MÉTRICAS (LTV & ENGAGEMENT) - REMOVIDO LTV TOTAL (User Request) */}
+                                    <div className="grid grid-cols-2 gap-3 mb-6">
+                                        <div className="bg-gradient-to-br from-amber-50 to-white p-4 rounded-2xl border border-amber-100 shadow-sm flex flex-col items-center justify-center text-center">
+                                            <span className="text-[9px] font-bold text-amber-400 uppercase tracking-wider mb-1">XP Reward</span>
+                                            <span className="text-lg font-black text-amber-600 leading-none">
+                                                ★ {selectedOpp.xpReward || 0}
+                                            </span>
                                         </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Empresa</label>
-                                                <input value={selectedOpp.companyName || ''} onChange={e => setSelectedOpp({ ...selectedOpp, companyName: e.target.value.toUpperCase() })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" />
+                                        <div className="bg-gradient-to-br from-blue-50 to-white p-4 rounded-2xl border border-blue-100 shadow-sm flex flex-col items-center justify-center text-center">
+                                            <span className="text-[9px] font-bold text-blue-400 uppercase tracking-wider mb-1">Engajamento</span>
+                                            <div className="w-full bg-blue-100/50 h-1.5 rounded-full mt-2 mb-1 overflow-hidden">
+                                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${selectedOpp.engagementScore || 50}%` }}></div>
                                             </div>
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Telefone / Whats</label>
-                                                <input value={selectedOpp.phone || ''} onChange={e => setSelectedOpp({ ...selectedOpp, phone: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Link Instagram</label>
-                                            <div className="relative">
-                                                <ICONS.Instagram className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-pink-600" />
-                                                <input value={selectedOpp.instagramLink || ''} onChange={e => setSelectedOpp({ ...selectedOpp, instagramLink: e.target.value })} className="w-full pl-10 pr-4 py-3 bg-white border-2 border-slate-100 focus:border-pink-500 rounded-xl outline-none font-bold text-xs" placeholder="https://instagram.com/..." />
-                                            </div>
+                                            <span className="text-[8px] font-black text-blue-600">{selectedOpp.engagementScore || 50}/100</span>
                                         </div>
                                     </div>
 
-                                    <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-50 space-y-4">
-                                        <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest italic">Responsáveis</h4>
+                                    {/* Botão de Histórico de Vendas (NOVO) */}
+                                    <div className="mb-6">
+                                        <button
+                                            type="button"
+                                            onClick={async () => {
+                                                if (salesHistory) {
+                                                    setShowSalesWidget(!showSalesWidget);
+                                                    return;
+                                                }
+
+                                                setToast({ msg: 'Buscando histórico de compras...', type: 'success' });
+                                                try {
+                                                    const { TinyService } = await import('../services/tinyService');
+                                                    const history = await TinyService.getClientSales('', selectedOpp.clientName);
+
+                                                    if (history && history.length > 0) {
+                                                        // 1. Persistir na Timeline
+                                                        if (selectedOpp && selectedOpp.id) {
+                                                            const count = await DataService.syncTinySalesToInteractions(selectedOpp.id, history);
+                                                            if (count > 0) {
+                                                                const updatedInteractions = await DataService.getCRMInteractions(selectedOpp.id);
+                                                                setOppInteractions(updatedInteractions);
+                                                                setToast({ msg: `${count} novos pedidos salvos na timeline.`, type: 'success' });
+                                                            } else {
+                                                                setToast({ msg: `Histórico atualizado.`, type: 'success' });
+                                                            }
+                                                        }
+
+                                                        setSalesHistory(history);
+                                                        setShowSalesWidget(true);
+                                                    } else {
+                                                        setSalesHistory([]); // Empty state
+                                                        setShowSalesWidget(true);
+                                                        setToast({ msg: 'Nenhuma venda encontrada para este cliente.', type: 'error' });
+                                                    }
+                                                } catch (e) {
+                                                    console.error(e);
+                                                    setToast({ msg: 'Erro ao buscar vendas.', type: 'error' });
+                                                }
+                                            }}
+                                            className={`w-full py-3 border rounded-xl font-bold text-xs uppercase transition-colors flex items-center justify-center gap-2 ${showSalesWidget ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                                }`}
+                                        >
+                                            <ICONS.Inventory className={`w-4 h-4 ${showSalesWidget ? 'text-indigo-500' : 'text-slate-400'}`} />
+                                            {showSalesWidget ? 'Ocultar Histórico' : 'Ver Histórico de Compras (Tiny)'}
+                                        </button>
+
+                                        {/* LISTA DE HISTÓRICO EXPANSÍVEL */}
+                                        {showSalesWidget && salesHistory && (
+                                            <div className="mt-3 animate-in slide-in-from-top-2 duration-300">
+                                                {salesHistory.length === 0 ? (
+                                                    <div className="p-4 text-center text-xs text-slate-400 font-bold uppercase bg-slate-50 rounded-xl border border-slate-200">Sem registros.</div>
+                                                ) : (
+                                                    <div className="flex flex-col gap-2">
+                                                        <div className="grid grid-cols-2 gap-3">
+                                                            <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl flex flex-col items-center justify-center text-center shadow-sm">
+                                                                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-wider mb-1">Pedidos</span>
+                                                                <span className="text-2xl font-black text-emerald-600 leading-none">{salesHistory.length}</span>
+                                                            </div>
+                                                            <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex flex-col items-center justify-center text-center shadow-sm">
+                                                                <span className="text-[9px] font-black text-indigo-400 uppercase tracking-wider mb-1">Total Comprado</span>
+                                                                <span className="text-xl font-black text-indigo-600 leading-none">
+                                                                    {Number(salesHistory.reduce((acc, curr) => acc + (Number(curr.valor) || 0), 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (onNavigate) {
+                                                                    // Tenta limpar nome de sufixos se houver, mas geralmente o nome vem limpo do tiny
+                                                                    sessionStorage.setItem('SALES_HISTORY_FILTER', selectedOpp.clientName);
+                                                                    onNavigate('SALES_HISTORY');
+                                                                }
+                                                            }}
+                                                            className="text-[9px] font-black text-slate-400 uppercase tracking-widest hover:text-indigo-500 transition-colors flex items-center justify-center gap-1 py-1 cursor-pointer"
+                                                        >
+                                                            Ver detalhado no Histórico <ICONS.Search className="w-3 h-3" />
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <form id="oppForm" onSubmit={handleSaveOpp} className="space-y-6">
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Cliente / Lead *</label>
+                                                <input
+                                                    required
+                                                    value={selectedOpp.clientName}
+                                                    onChange={e => setSelectedOpp({ ...selectedOpp, clientName: e.target.value.toUpperCase() })}
+                                                    className="w-full px-5 py-4 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-2xl outline-none font-black text-sm uppercase transition-all"
+                                                    placeholder="NOME DO CLIENTE"
+                                                />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Empresa</label>
+                                                    <input value={selectedOpp.companyName || ''} onChange={e => setSelectedOpp({ ...selectedOpp, companyName: e.target.value.toUpperCase() })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Telefone / Whats</label>
+                                                    <input value={selectedOpp.phone || ''} onChange={e => setSelectedOpp({ ...selectedOpp, phone: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" />
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Link Instagram</label>
+                                                <div className="relative">
+                                                    <ICONS.Instagram className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-pink-600" />
+                                                    <input value={selectedOpp.instagramLink || ''} onChange={e => setSelectedOpp({ ...selectedOpp, instagramLink: e.target.value })} className="w-full pl-10 pr-4 py-3 bg-white border-2 border-slate-100 focus:border-pink-500 rounded-xl outline-none font-bold text-xs" placeholder="https://instagram.com/..." />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* TAGS (NOVO) */}
+                                        <div>
+                                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1 mb-1 block">Tags e Segmentação</label>
+                                            <div className="flex flex-wrap gap-2">
+                                                {selectedOpp.tags?.map(tag => (
+                                                    <span key={tag} className="bg-slate-200 text-slate-600 px-2 py-1 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 group cursor-pointer hover:bg-red-100 hover:text-red-500 transition-colors"
+                                                        onClick={() => setSelectedOpp({ ...selectedOpp, tags: selectedOpp.tags?.filter(t => t !== tag) })}
+                                                    >
+                                                        {tag}
+                                                        <span className="hidden group-hover:inline">×</span>
+                                                    </span>
+                                                ))}
+                                                <input
+                                                    placeholder="+ Tag"
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            const val = e.currentTarget.value.trim().toUpperCase();
+                                                            if (val && !selectedOpp.tags?.includes(val)) {
+                                                                setSelectedOpp({ ...selectedOpp, tags: [...(selectedOpp.tags || []), val] });
+                                                                e.currentTarget.value = '';
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="w-20 bg-transparent border border-dashed border-slate-300 rounded-lg px-2 py-1 text-[9px] font-bold uppercase focus:w-32 transition-all outline-none focus:border-indigo-400"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-50 space-y-4">
+                                            <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest italic">Responsáveis</h4>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">SDR (Prospecção)</label>
+                                                    <select value={selectedOpp.prospector || ''} onChange={e => setSelectedOpp({ ...selectedOpp, prospector: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer">
+                                                        <option value="">Selecione...</option>
+                                                        {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Closer (Vendedor)</label>
+                                                    <select value={selectedOpp.attendant || ''} onChange={e => setSelectedOpp({ ...selectedOpp, attendant: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer">
+                                                        <option value="">Selecione...</option>
+                                                        {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">SDR (Prospecção)</label>
-                                                <select value={selectedOpp.prospector || ''} onChange={e => setSelectedOpp({ ...selectedOpp, prospector: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer">
-                                                    <option value="">Selecione...</option>
-                                                    {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Status Funil</label>
+                                                <select value={selectedOpp.status} onChange={e => setSelectedOpp({ ...selectedOpp, status: e.target.value as CRMStatus })} className="w-full px-4 py-3 bg-slate-100 border-2 border-transparent focus:border-slate-400 rounded-xl outline-none font-black text-xs uppercase cursor-pointer">
+                                                    {COLUMNS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                                                 </select>
                                             </div>
                                             <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Closer (Vendedor)</label>
-                                                <select value={selectedOpp.attendant || ''} onChange={e => setSelectedOpp({ ...selectedOpp, attendant: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer">
-                                                    <option value="">Selecione...</option>
-                                                    {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                                                </select>
+                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Próx. Follow-up</label>
+                                                <input type="date" value={selectedOpp.nextFollowUp || ''} onChange={e => setSelectedOpp({ ...selectedOpp, nextFollowUp: e.target.value })} className="w-full px-4 py-3 bg-slate-100 border-2 border-transparent focus:border-slate-400 rounded-xl outline-none font-black text-xs uppercase mb-2" />
+                                                {/* BOTOES RAPIDOS DE DATA */}
+                                                <div className="flex gap-1 justify-between">
+                                                    {[7, 15, 30].map(days => (
+                                                        <button
+                                                            type="button"
+                                                            key={days}
+                                                            onClick={() => {
+                                                                const d = new Date();
+                                                                d.setDate(d.getDate() + days);
+                                                                setSelectedOpp({ ...selectedOpp, nextFollowUp: d.toISOString().split('T')[0] });
+                                                            }}
+                                                            className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-[9px] font-bold text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all uppercase"
+                                                        >
+                                                            +{days} dias
+                                                        </button>
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Status Funil</label>
-                                            <select value={selectedOpp.status} onChange={e => setSelectedOpp({ ...selectedOpp, status: e.target.value as CRMStatus })} className="w-full px-4 py-3 bg-slate-100 border-2 border-transparent focus:border-slate-400 rounded-xl outline-none font-black text-xs uppercase cursor-pointer">
-                                                {COLUMNS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Próx. Follow-up</label>
-                                            <input type="date" value={selectedOpp.nextFollowUp || ''} onChange={e => setSelectedOpp({ ...selectedOpp, nextFollowUp: e.target.value })} className="w-full px-4 py-3 bg-slate-100 border-2 border-transparent focus:border-slate-400 rounded-xl outline-none font-black text-xs uppercase" />
-                                        </div>
-                                    </div>
-                                </form>
-                            </div>
-                            <div className="p-6 border-t border-slate-100 flex justify-between items-center bg-white">
-                                <button type="button" onClick={() => setSelectedOpp(null)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase hover:text-red-500 transition-colors">Cancelar</button>
-                                <button type="submit" form="oppForm" disabled={isSavingOpp} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all disabled:opacity-50 italic">
-                                    {isSavingOpp ? 'Salvando...' : 'Salvar Alterações'}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* DIREITA: TIMELINE & INTERAÇÕES */}
-                        <div className="w-1/2 flex flex-col bg-white">
-                            <div className="p-8 border-b border-slate-100 flex justify-between items-center">
-                                <div>
-                                    <h3 className="text-xl font-black text-slate-900 uppercase italic">Linha do Tempo</h3>
-                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Histórico de Interações</p>
+                                    </form>
                                 </div>
-                                <div className="bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-[9px] font-black">{oppInteractions.length} Notas</div>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/50 space-y-6" ref={feedScrollRef}>
-                                {oppInteractions.length === 0 ? (
-                                    <div className="text-center py-20 opacity-30">
-                                        <ICONS.History className="w-12 h-12 mx-auto mb-3" />
-                                        <p className="text-[10px] font-black uppercase">Nenhum registro encontrado.</p>
-                                    </div>
-                                ) : (
-                                    oppInteractions.map((interaction) => (
-                                        <div key={interaction.id} className="flex gap-4">
-                                            <div className="flex flex-col items-center">
-                                                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-[10px] shadow-md uppercase">
-                                                    {interaction.userName[0]}
-                                                </div>
-                                                <div className="w-0.5 flex-1 bg-indigo-100 my-2"></div>
-                                            </div>
-                                            <div className="flex-1 bg-white p-5 rounded-2xl rounded-tl-none border border-slate-100 shadow-sm">
-                                                <div className="flex justify-between items-center mb-2">
-                                                    <span className="text-[9px] font-black text-indigo-600 uppercase tracking-wider">@{interaction.userName}</span>
-                                                    <span className="text-[8px] font-bold text-slate-400">{new Date(interaction.createdAt).toLocaleString()}</span>
-                                                </div>
-                                                <p className="text-xs text-slate-600 font-medium leading-relaxed whitespace-pre-wrap">{interaction.content}</p>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-
-                            <div className="p-6 border-t border-slate-100 bg-white space-y-4">
-                                <AIAssistant onSummaryGenerated={(text) => setNewInteractionText(prev => prev ? prev + '\n\n' + text : text)} />
-                                <div className="relative">
-                                    <textarea
-                                        value={newInteractionText}
-                                        onChange={e => setNewInteractionText(e.target.value)}
-                                        placeholder="Digite uma nova nota, resumo de ligação ou atualização..."
-                                        className="w-full pl-6 pr-20 py-4 bg-slate-50 border-2 border-slate-100 focus:border-indigo-500 rounded-2xl outline-none font-medium text-xs resize-none h-24"
-                                    />
-                                    <button
-                                        onClick={handlePostInteraction}
-                                        disabled={!newInteractionText.trim() || isSavingInteraction}
-                                        className="absolute bottom-4 right-4 bg-indigo-600 text-white p-2 rounded-xl shadow-lg hover:bg-indigo-700 transition-all disabled:opacity-50"
-                                    >
-                                        {isSavingInteraction ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                                <div className="p-6 border-t border-slate-100 flex justify-between items-center bg-white">
+                                    <button type="button" onClick={() => setSelectedOpp(null)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase hover:text-red-500 transition-colors">Cancelar</button>
+                                    <button type="submit" form="oppForm" disabled={isSavingOpp} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all disabled:opacity-50 italic">
+                                        {isSavingOpp ? 'Salvando...' : 'Salvar Alterações'}
                                     </button>
                                 </div>
                             </div>
-                        </div>
 
+                            {/* DIREITA: TIMELINE & INTERAÇÕES */}
+                            <div className="w-1/2 flex flex-col bg-white">
+                                <div className="p-8 border-b border-slate-100 flex justify-between items-center">
+                                    <div>
+                                        <h3 className="text-xl font-black text-slate-900 uppercase italic">Linha do Tempo</h3>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Histórico de Interações</p>
+                                    </div>
+                                    <div className="bg-slate-100 text-slate-500 px-3 py-1 rounded-lg text-[9px] font-black">{mergedTimeline.length} Registros</div>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/50 space-y-6" ref={feedScrollRef}>
+                                    {mergedTimeline.length === 0 ? (
+                                        <div className="text-center py-20 opacity-30">
+                                            <ICONS.History className="w-12 h-12 mx-auto mb-3" />
+                                            <p className="text-[10px] font-black uppercase">Nenhum registro encontrado.</p>
+                                        </div>
+                                    ) : (
+                                        mergedTimeline.map((item) => {
+                                            if (item.type === 'SALE') {
+                                                return (
+                                                    <div key={item.id} className="flex gap-4">
+                                                        <div className="flex flex-col items-center">
+                                                            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center font-black text-[10px] shadow-sm uppercase z-10">
+                                                                <ICONS.Inventory className="w-4 h-4" />
+                                                            </div>
+                                                            <div className="w-0.5 flex-1 bg-emerald-100/50 my-2"></div>
+                                                        </div>
+                                                        <div className="flex-1 bg-white p-4 rounded-2xl rounded-tl-none border border-emerald-100 shadow-sm relative group hover:border-emerald-300 transition-colors">
+                                                            <div className="flex justify-between items-start mb-2">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-2 py-0.5 rounded-md">Venda Tiny</span>
+                                                                    <span className="text-[9px] font-bold text-slate-400">{item.date}</span>
+                                                                </div>
+                                                                <div className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.status}</div>
+                                                            </div>
+                                                            <div className="text-xs font-black text-slate-700 uppercase flex justify-between items-center">
+                                                                <span>{item.content}</span>
+                                                                <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">
+                                                                    {Number(item.total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return (
+                                                <div key={item.id} className="flex gap-4">
+                                                    <div className="flex flex-col items-center">
+                                                        <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-[10px] shadow-md uppercase z-10">
+                                                            {item.initial}
+                                                        </div>
+                                                        <div className="w-0.5 flex-1 bg-indigo-100 my-2"></div>
+                                                    </div>
+                                                    <div className="flex-1 bg-white p-5 rounded-2xl rounded-tl-none border border-slate-100 shadow-sm">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <span className="text-[9px] font-black text-indigo-600 uppercase tracking-wider">@{item.user}</span>
+                                                            <span className="text-[8px] font-bold text-slate-400">{new Date(item.date).toLocaleString()}</span>
+                                                        </div>
+                                                        <p className="text-xs text-slate-600 font-medium leading-relaxed whitespace-pre-wrap">{item.content}</p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+
+                                <div className="p-6 border-t border-slate-100 bg-white space-y-4">
+                                    <AIAssistant onSummaryGenerated={(text) => setNewInteractionText(prev => prev ? prev + '\n\n' + text : text)} />
+                                    <div className="relative">
+                                        <textarea
+                                            value={newInteractionText}
+                                            onChange={e => setNewInteractionText(e.target.value)}
+                                            placeholder="Digite uma nova nota, resumo de ligação ou atualização..."
+                                            className="w-full pl-6 pr-20 py-4 bg-slate-50 border-2 border-slate-100 focus:border-indigo-500 rounded-2xl outline-none font-medium text-xs resize-none h-24"
+                                        />
+                                        <button
+                                            onClick={handlePostInteraction}
+                                            disabled={!newInteractionText.trim() || isSavingInteraction}
+                                            className="absolute bottom-4 right-4 bg-indigo-600 text-white p-2 rounded-xl shadow-lg hover:bg-indigo-700 transition-all disabled:opacity-50"
+                                        >
+                                            {isSavingInteraction ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 

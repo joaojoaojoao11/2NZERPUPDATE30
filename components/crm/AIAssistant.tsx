@@ -17,40 +17,97 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ onSummaryGenerated }) 
 
         setLoading(true);
         try {
-            // Chama a Edge Function que você acabou de criar
-            // Assumindo que o Supabase client está disponível globalmente ou via prop,
-            // mas aqui vamos usar fetch direto no endpoint público da function por simplicidade (requires anon key)
-            // O ideal é usar supabase.functions.invoke('crm-ai-assistant') se disponível no contexto.
+            const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+            if (!GEMINI_KEY) {
+                alert('Chave API Gemini não configurada no .env local.');
+                setLoading(false);
+                return;
+            }
 
-            // Vamos usar fetch direto na URL da function que sabemos do projeto
-            // ATENÇÃO: Em produção, usar supabase-js
-            const { createClient } = await import('@supabase/supabase-js');
-            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-            const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-            const supabase = createClient(supabaseUrl, supabaseKey);
+            const prompt = `
+            Você é um assistente comercial experiente. Analise a seguinte conversa ou texto copiado de um chat (WhatsApp/Instagram):
+            
+            "${inputText.substring(0, 5000)}"
 
-            const { data, error } = await supabase.functions.invoke('crm-ai-assistant', {
-                body: { text: inputText }
+            Gere um resumo JSON estrito com os seguintes campos:
+            - resumo (string): Resumo conciso do que foi falado.
+            - interesse (string): Qual produto ou serviço o cliente quer.
+            - objecoes (string): Dúvidas ou impedimentos citados.
+            - sentimento (string): "Positivo", "Neutro" ou "Negativo".
+            - tags (array de strings): Ex: ["Urgente", "Preço", "Dúvida Técnica"].
+            - proximo_passo (string): Sugestão de ação para o vendedor.
+            
+            Responda APENAS o JSON. Sem markdown em volta.
+            `;
+
+            // 1. Descobrir Modelo Disponível
+            let modelName = 'gemini-1.5-flash'; // Fallback inicial
+            try {
+                const listResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${GEMINI_KEY}`);
+                if (listResp.ok) {
+                    const listData = await listResp.json();
+                    // Procura primeiro modelo gemini compatível
+                    const model = listData.models?.find((m: any) =>
+                        m.name.includes('gemini') &&
+                        m.supportedGenerationMethods?.includes('generateContent')
+                    );
+                    if (model) {
+                        modelName = model.name.replace('models/', '');
+                        console.log("Modelo Auto-Detectado:", modelName);
+                    } else {
+                        console.warn("Nenhum modelo 'gemini' encontrado na listagem. Usando fallback.");
+                        console.log("Modelos disponíveis:", listData.models);
+                    }
+                }
+            } catch (e) {
+                console.warn("Falha ao listar modelos, usando fallback", e);
+            }
+
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_KEY}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
             });
 
-            if (error) throw error;
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error("Erro Detalhado API Gemini:", response.status, response.statusText, errorData);
+                throw new Error(`Erro API Gemini (${response.status}) [Modelo: ${modelName}]: ${errorData.error?.message || response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            // Parsing seguro
+            let aiText = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+            // Limpa md code blocks se houver
+            aiText = aiText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+            let result;
+            try {
+                result = JSON.parse(aiText);
+            } catch (e) {
+                console.error("Erro parse JSON IA", e);
+                throw new Error("Resposta da IA inválida");
+            }
 
             // Formata o resultado como markdown para o campo de notas
             const md = `🤖 **Resumo IA:**\n\n` +
-                `📌 **Resumo:** ${data.resumo}\n` +
-                `🎯 **Interesse:** ${data.interesse}\n` +
-                `⚠️ **Objeções:** ${data.objecoes}\n` +
-                `🔥 **Sentimento:** ${data.sentimento}\n` +
-                `📅 **Próx. Passo:** ${data.proximo_passo}\n` +
-                `🏷️ **Tags:** ${data.tags?.join(', ')}`;
+                `📌 **Resumo:** ${result.resumo || '-'}\n` +
+                `🎯 **Interesse:** ${result.interesse || '-'}\n` +
+                `⚠️ **Objeções:** ${result.objecoes || '-'}\n` +
+                `🔥 **Sentimento:** ${result.sentimento || '-'}\n` +
+                `📅 **Próx. Passo:** ${result.proximo_passo || '-'}\n` +
+                `🏷️ **Tags:** ${result.tags?.join(', ') || '-'}`;
 
             onSummaryGenerated(md);
             setInputText('');
             setIsExpanded(false);
 
-        } catch (e) {
+        } catch (e: any) {
             console.error("Erro IA:", e);
-            alert('Erro ao gerar resumo. Verifique se a chave Gemini está configurada.');
+            alert(`Erro ao gerar resumo: ${e.message}`);
         } finally {
             setLoading(false);
         }

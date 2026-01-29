@@ -83,6 +83,39 @@ const ClientsModule: React.FC<{ user: User }> = ({ user }) => {
                         />
                     </div>
 
+                    {searchTerm.length > 2 && (
+                        <button
+                            onClick={async () => {
+                                // const confirm = window.confirm(`Deseja buscar '${searchTerm}' no Tiny ERP?`);
+                                // if(!confirm) return;
+
+                                setIsSyncing(true);
+                                try {
+                                    const { TinyService } = await import('../services/tinyService');
+                                    const results = await TinyService.searchFullClients(searchTerm);
+
+                                    if (results.length > 0) {
+                                        const { count } = await DataService.upsertClients(results);
+                                        if (count > 0) {
+                                            alert(`${count} cliente(s) importado(s) do Tiny!`);
+                                            fetchClients(true);
+                                        } else {
+                                            alert('Cliente encontrado no Tiny mas já atualizado no sistema.');
+                                        }
+                                    } else {
+                                        alert('Nenhum cliente encontrado no Tiny com este nome.');
+                                    }
+                                } catch (e) { console.error(e); alert('Erro ao buscar no Tiny.'); }
+                                finally { setIsSyncing(false); }
+                            }}
+                            disabled={isSyncing}
+                            className="px-4 py-3 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-2xl font-black text-[10px] uppercase hover:bg-indigo-100 transition-colors whitespace-nowrap shadow-sm h-full"
+                            title="Buscar e importar do Tiny"
+                        >
+                            {isSyncing ? '...' : 'Buscar no Tiny'}
+                        </button>
+                    )}
+
                     <button
                         onClick={handleSync}
                         disabled={isSyncing}
@@ -148,8 +181,8 @@ const ClientsModule: React.FC<{ user: User }> = ({ user }) => {
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <span className={`px-2 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${client.situacao === 'I' || client.situacao === 'Inativo'
-                                                ? 'bg-red-50 text-red-600 border border-red-100'
-                                                : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                            ? 'bg-red-50 text-red-600 border border-red-100'
+                                            : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
                                             }`}>
                                             {client.situacao === 'I' ? 'Inativo' : 'Ativo'}
                                         </span>

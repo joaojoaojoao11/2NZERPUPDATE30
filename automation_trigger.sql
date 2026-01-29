@@ -24,11 +24,11 @@ BEGIN
         NEW.nome,             -- client_name
         NEW.fantasia,         -- company_name
         NEW.telefone,         -- phone
-        'PROSPECCAO',         -- status inicial padrão
+        'QUALIFICADO',        -- status inicial padrão (Clientes Tiny já compraram)
         NOW(),                -- created_at
         'SISTEMA',            -- prospector (identifica que veio da automação)
         NULL,                 -- attendant (será atribuído depois)
-        ARRAY['NOVO', 'TINY'],-- tags iniciais
+        ARRAY['NOVO', 'TINY', 'CLIENTE CADASTRADO'],-- tags iniciais
         0,                    -- ltv 
         50                    -- xp_reward base
     WHERE NOT EXISTS (

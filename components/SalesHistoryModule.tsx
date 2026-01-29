@@ -26,7 +26,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'info' | 'warning' } | null>(null);
-  
+
   const [showImportModal, setShowImportModal] = useState(false);
   const [stagingData, setStagingData] = useState<SalesStagingItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -39,16 +39,16 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
 
   const [selectedCommissionRep, setSelectedCommissionRep] = useState<string>('');
   const [commissionMonth, setCommissionMonth] = useState(new Date().toISOString().slice(0, 7));
-  
-  const [commissionSortConfig, setCommissionSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ 
-    key: 'date', 
-    direction: 'desc' 
+
+  const [commissionSortConfig, setCommissionSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
+    key: 'date',
+    direction: 'desc'
   });
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const data = await DataService.getSalesHistory(1000); 
+      const data = await DataService.getSalesHistory(1000);
       setHistoryData(data);
     } catch (e) {
       console.error(e);
@@ -59,6 +59,12 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
   };
 
   useEffect(() => {
+    const autoFilter = sessionStorage.getItem('SALES_HISTORY_FILTER');
+    if (autoFilter) {
+      setSearchTerm(autoFilter);
+      sessionStorage.removeItem('SALES_HISTORY_FILTER');
+      setToast({ msg: `Visualizando histórico de: ${autoFilter}`, type: 'info' });
+    }
     fetchData();
   }, []);
 
@@ -81,7 +87,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
 
       const syncCount = data?.upserted_count || 0;
       const readCount = data?.orders_read || 0;
-      
+
       // A lógica de salvar foi removida. O frontend apenas reage ao resultado.
       if (syncCount > 0) {
         setToast({ msg: `${syncCount} pedidos novos foram salvos com sucesso!`, type: 'success' });
@@ -122,7 +128,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
   const filteredData = useMemo(() => {
     return historyData.filter(item => {
       const term = searchTerm.toLowerCase();
-      const matchesText = 
+      const matchesText =
         (item.orderNumber || '').toLowerCase().includes(term) ||
         (item.contactName || '').toLowerCase().includes(term) ||
         (item.sku || '').toLowerCase().includes(term) ||
@@ -148,14 +154,14 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     if (!rep) return { orders: [], totalSales: 0, totalItems: 0, orderCount: 0 };
 
     const repItems = historyData.filter(i => {
-        const isRepMatch = getNormalizedRep(i.salesRep) === rep;
-        if (!isRepMatch) return false;
-        if (commissionMonth) {
-            if (!i.saleDate) return false;
-            const itemMonth = i.saleDate.slice(0, 7);
-            if (itemMonth !== commissionMonth) return false;
-        }
-        return true;
+      const isRepMatch = getNormalizedRep(i.salesRep) === rep;
+      if (!isRepMatch) return false;
+      if (commissionMonth) {
+        if (!i.saleDate) return false;
+        const itemMonth = i.saleDate.slice(0, 7);
+        if (itemMonth !== commissionMonth) return false;
+      }
+      return true;
     });
 
     const ordersMap = new Map<string, {
@@ -187,22 +193,22 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     });
 
     const orders = Array.from(ordersMap.values()).sort((a, b) => {
-        const { key, direction } = commissionSortConfig;
-        let valA = a[key as keyof typeof a];
-        let valB = b[key as keyof typeof b];
-        if (typeof valA === 'string') valA = valA.toLowerCase();
-        if (typeof valB === 'string') valB = valB.toLowerCase();
-        if (valA < valB) return direction === 'asc' ? -1 : 1;
-        if (valA > valB) return direction === 'asc' ? 1 : -1;
-        return 0;
+      const { key, direction } = commissionSortConfig;
+      let valA = a[key as keyof typeof a];
+      let valB = b[key as keyof typeof b];
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+      if (valA < valB) return direction === 'asc' ? -1 : 1;
+      if (valA > valB) return direction === 'asc' ? 1 : -1;
+      return 0;
     });
 
     const totalSales = orders.reduce((acc, o) => {
-        const statusNormalized = (o.status || '').toUpperCase().trim();
-        if (statusNormalized === 'ENTREGUE') {
-            return acc + o.totalValue;
-        }
-        return acc;
+      const statusNormalized = (o.status || '').toUpperCase().trim();
+      if (statusNormalized === 'ENTREGUE') {
+        return acc + o.totalValue;
+      }
+      return acc;
     }, 0);
     const totalItems = orders.reduce((acc, o) => acc + o.itemCount, 0);
     return { orders, totalSales, totalItems, orderCount: orders.length };
@@ -229,17 +235,17 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
 
     doc.setFillColor(16, 185, 129);
     doc.rect(0, 0, pageWidth, 35, 'F');
-    
+
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
     doc.text('RELATÓRIO DE APURAÇÃO DE VENDAS', 15, 18);
-    
+
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text(`VENDEDOR: ${selectedCommissionRep}`, 15, 26);
     doc.text(`COMPETÊNCIA: ${commissionMonth}`, 15, 31);
-    
+
     doc.text(`EMISSÃO: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}`, pageWidth - 15, 31, { align: 'right' });
 
     y = 50;
@@ -247,7 +253,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.text('RESUMO DO PERÍODO', 15, y);
-    
+
     y += 8;
     doc.setDrawColor(200, 200, 200);
     doc.setFillColor(245, 245, 245);
@@ -256,7 +262,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     doc.text('BASE CÁLCULO (ENTREGUES)', 20, y + 6);
     doc.setFontSize(12);
     doc.setTextColor(16, 185, 129);
-    doc.text(`R$ ${commissionStats.totalSales.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`, 20, y + 15);
+    doc.text(`R$ ${commissionStats.totalSales.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 20, y + 15);
 
     doc.setFillColor(245, 245, 245);
     doc.roundedRect(80, y, 50, 20, 2, 2, 'FD');
@@ -279,7 +285,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     doc.setFontSize(7);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(80, 80, 80);
-    
+
     doc.text('DATA', 18, y + 5);
     doc.text('PEDIDO', 40, y + 5);
     doc.text('CLIENTE', 65, y + 5);
@@ -292,44 +298,44 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     doc.setTextColor(0, 0, 0);
 
     commissionStats.orders.forEach((order, index) => {
-        if (y > 275) {
-            doc.addPage();
-            y = 20;
-            doc.setFillColor(230, 230, 230);
-            doc.rect(15, y, pageWidth - 30, 8, 'F');
-            doc.setFontSize(7);
-            doc.setFont('helvetica', 'bold');
-            doc.setTextColor(80, 80, 80);
-            doc.text('DATA', 18, y + 5);
-            doc.text('PEDIDO', 40, y + 5);
-            doc.text('CLIENTE', 65, y + 5);
-            doc.text('STATUS', 130, y + 5);
-            doc.text('ITENS', 155, y + 5);
-            doc.text('VALOR TOTAL', 190, y + 5, { align: 'right' });
-            y += 10;
-            doc.setFont('helvetica', 'normal');
-            doc.setTextColor(0, 0, 0);
-        }
-
-        if (index % 2 === 0) {
-            doc.setFillColor(250, 250, 250);
-            doc.rect(15, y - 4, pageWidth - 30, 8, 'F');
-        }
-
-        const dateStr = order.date ? new Date(order.date).toLocaleDateString('pt-BR') : '-';
-        doc.text(dateStr, 18, y);
-        doc.text(order.orderNumber, 40, y);
-        const clientName = doc.splitTextToSize(order.client, 60);
-        doc.text(clientName, 65, y);
-        
-        if (order.status.includes('CANCEL')) doc.setTextColor(200, 0, 0);
-        else if (order.status === 'ENTREGUE') doc.setTextColor(0, 150, 0);
-        doc.text(order.status, 130, y);
+      if (y > 275) {
+        doc.addPage();
+        y = 20;
+        doc.setFillColor(230, 230, 230);
+        doc.rect(15, y, pageWidth - 30, 8, 'F');
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(80, 80, 80);
+        doc.text('DATA', 18, y + 5);
+        doc.text('PEDIDO', 40, y + 5);
+        doc.text('CLIENTE', 65, y + 5);
+        doc.text('STATUS', 130, y + 5);
+        doc.text('ITENS', 155, y + 5);
+        doc.text('VALOR TOTAL', 190, y + 5, { align: 'right' });
+        y += 10;
+        doc.setFont('helvetica', 'normal');
         doc.setTextColor(0, 0, 0);
+      }
 
-        doc.text(String(order.itemCount), 160, y, { align: 'center' });
-        doc.text(order.totalValue.toLocaleString('pt-BR', {minimumFractionDigits: 2}), 190, y, { align: 'right' });
-        y += Math.max(6, clientName.length * 4);
+      if (index % 2 === 0) {
+        doc.setFillColor(250, 250, 250);
+        doc.rect(15, y - 4, pageWidth - 30, 8, 'F');
+      }
+
+      const dateStr = order.date ? new Date(order.date).toLocaleDateString('pt-BR') : '-';
+      doc.text(dateStr, 18, y);
+      doc.text(order.orderNumber, 40, y);
+      const clientName = doc.splitTextToSize(order.client, 60);
+      doc.text(clientName, 65, y);
+
+      if (order.status.includes('CANCEL')) doc.setTextColor(200, 0, 0);
+      else if (order.status === 'ENTREGUE') doc.setTextColor(0, 150, 0);
+      doc.text(order.status, 130, y);
+      doc.setTextColor(0, 0, 0);
+
+      doc.text(String(order.itemCount), 160, y, { align: 'center' });
+      doc.text(order.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 }), 190, y, { align: 'right' });
+      y += Math.max(6, clientName.length * 4);
     });
 
     y += 5;
@@ -384,67 +390,67 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
       </div>
 
       <div className="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
-         <div className="lg:col-span-3 relative">
-            <svg className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <input 
-              type="text" 
-              placeholder="Buscar Pedido, Cliente ou SKU..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase transition-all"
+        <div className="lg:col-span-3 relative">
+          <svg className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <input
+            type="text"
+            placeholder="Buscar Pedido, Cliente ou SKU..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase transition-all"
+          />
+        </div>
+        <div className="lg:col-span-3 flex gap-2">
+          <div className="flex-1">
+            <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">De</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase"
             />
-         </div>
-         <div className="lg:col-span-3 flex gap-2">
-            <div className="flex-1">
-               <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">De</label>
-               <input 
-                 type="date" 
-                 value={startDate}
-                 onChange={(e) => setStartDate(e.target.value)}
-                 className="w-full px-3 py-2 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase"
-               />
-            </div>
-            <div className="flex-1">
-               <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">Até</label>
-               <input 
-                 type="date" 
-                 value={endDate}
-                 onChange={(e) => setEndDate(e.target.value)}
-                 className="w-full px-3 py-2 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase"
-               />
-            </div>
-         </div>
-         <div className="lg:col-span-2">
-            <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">Status</label>
-            <select 
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase cursor-pointer"
-            >
-               <option value="TODOS">Todos</option>
-               {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-         </div>
-         <div className="lg:col-span-2">
-            <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">Vendedor</label>
-            <select 
-              value={salesRepFilter}
-              onChange={(e) => setSalesRepFilter(e.target.value)}
-              className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase cursor-pointer"
-            >
-               <option value="TODOS">Todos</option>
-               {uniqueReps.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-         </div>
-         <div className="lg:col-span-2 flex justify-end">
-            <button 
-              onClick={clearFilters}
-              className="px-4 py-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
-            >
-               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-               Limpar
-            </button>
-         </div>
+          </div>
+          <div className="flex-1">
+            <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">Até</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase"
+            />
+          </div>
+        </div>
+        <div className="lg:col-span-2">
+          <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">Status</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase cursor-pointer"
+          >
+            <option value="TODOS">Todos</option>
+            {uniqueStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div className="lg:col-span-2">
+          <label className="text-[8px] font-black text-slate-400 uppercase ml-2 mb-1 block">Vendedor</label>
+          <select
+            value={salesRepFilter}
+            onChange={(e) => setSalesRepFilter(e.target.value)}
+            className="w-full px-3 py-2.5 bg-slate-50 border-2 border-transparent focus:border-blue-500 rounded-xl outline-none text-xs font-bold uppercase cursor-pointer"
+          >
+            <option value="TODOS">Todos</option>
+            {uniqueReps.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div className="lg:col-span-2 flex justify-end">
+          <button
+            onClick={clearFilters}
+            className="px-4 py-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            Limpar
+          </button>
+        </div>
       </div>
 
       <div className="table-container flex-1 overflow-auto border border-slate-200 rounded-[2rem] bg-white shadow-sm custom-scrollbar">
@@ -474,20 +480,19 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
               {filteredData.map((item, idx) => (
                 <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors group">
                   <td className="px-6 py-4 sticky left-0 bg-white group-hover:bg-slate-50 border-r border-slate-100 font-mono text-[9px] font-bold text-slate-400">{item.externalId || item.id}</td>
-<td className="px-6 py-4 text-center text-[10px] font-bold text-slate-600">
-  {item.saleDate ? item.saleDate.split('T')[0].split('-').reverse().join('/') : '-'}
-</td>                  <td className="px-6 py-4 font-black text-blue-600 text-[10px]">{item.orderNumber}</td>
+                  <td className="px-6 py-4 text-center text-[10px] font-bold text-slate-600">
+                    {item.saleDate ? item.saleDate.split('T')[0].split('-').reverse().join('/') : '-'}
+                  </td>                  <td className="px-6 py-4 font-black text-blue-600 text-[10px]">{item.orderNumber}</td>
                   <td className="px-6 py-4 text-[10px] font-bold text-slate-700 uppercase truncate max-w-[150px]" title={item.contactName}>{item.contactName}</td>
                   <td className="px-6 py-4 font-black text-slate-900 text-[10px]">{item.sku}</td>
                   <td className="px-6 py-4 text-[9px] text-slate-500 uppercase truncate max-w-[200px]" title={item.description}>{item.description}</td>
                   <td className="px-6 py-4 text-center font-black text-slate-800 text-[11px]">{item.quantity}</td>
                   <td className="px-6 py-4 text-right font-black text-slate-900 text-[11px]">R$ {item.totalAmount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                   <td className="px-6 py-4 text-center">
-                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${
-                      (item.status || '').includes('CANCEL') ? 'bg-red-50 text-red-600 border-red-100' :
-                      (item.status || '').includes('PENDENTE') ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                      'bg-emerald-50 text-emerald-600 border-emerald-100'
-                    }`}>
+                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${(item.status || '').includes('CANCEL') ? 'bg-red-50 text-red-600 border-red-100' :
+                        (item.status || '').includes('PENDENTE') ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                          'bg-emerald-50 text-emerald-600 border-emerald-100'
+                      }`}>
                       {item.status}
                     </span>
                   </td>

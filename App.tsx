@@ -164,7 +164,7 @@ const App: React.FC = () => {
         case 'SALES_PRICETABLE': return <SalesPriceTable user={currentUser} />;
         case 'SALES_HISTORY': return <SalesHistoryModule user={currentUser} />;
         case 'SALES_BI': return <SalesBI />;
-        case 'CRM': return <CRMModule user={currentUser} />;
+        case 'CRM': return <CRMModule user={currentUser} onNavigate={navigate} />;
         case 'CADASTRO_CLIENTES': return <ClientsModule user={currentUser} />;
 
         case 'RH_COLLABORATORS': return <HREmployees currentUser={currentUser} />;

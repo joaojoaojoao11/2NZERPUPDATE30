@@ -111,5 +111,14 @@ export const ICONS = {
   ),
   Close: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+  ),
+  Fire: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-3.15-2.002-4.14-0.457A3.498 3.498 0 0 0 5 10.5C5 12.98 7 15 8.5 14.5Z" /><path d="M12.5 19.5c.34 0 .66-.04.97-.1.95-.2 1.93-.8 2.53-1.9.89-1.63.4-3.13-.3-4.5-.4-1.2-1.3-2.4-2.6-3.8-1.5 1.5-3.3 3.6-3.3 6.3 0 2.2 1.3 4 2.7 4Z" /><path d="M14.5 10c1.7-1.3 3.5-3.6 3.5-6.3 0 2.2-1.3 4-2.7 4Z" /></svg>
+  ),
+  Calendar: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="18" height="18" x="3" y="4" rx="2" ry="2" /><line x1="16" x2="16" y1="2" y2="6" /><line x1="8" x2="8" y1="2" y2="6" /><line x1="3" x2="21" y1="10" y2="10" /></svg>
+  ),
+  Snow: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="2" x2="22" y1="12" y2="12" /><line x1="12" x2="12" y1="2" y2="22" /><path d="m20 16-4-4 4-4" /><path d="m4 8 4 4-4 4" /><path d="m16 4-4 4-4-4" /><path d="m8 20 4-4 4 4" /></svg>
   )
 };

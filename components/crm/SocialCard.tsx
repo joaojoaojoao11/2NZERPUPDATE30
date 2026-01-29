@@ -86,7 +86,7 @@ const SocialCard: React.FC<SocialCardProps> = ({ opp, onClick, onMove, isFirstCo
                         <ICONS.History className="w-3 h-3 text-slate-300" />
                         {opp.lastPurchaseDate ? new Date(opp.lastPurchaseDate).toLocaleDateString().substring(0, 5) : '-'}
                     </div>
-                    <div className="text-[9px] font-bold text-yellow-500 flex items-center gap-1 bg-yellow-50 px-2 py-0.5 rounded-lg">
+                    <div className="text-[9px] font-bold text-slate-700 flex items-center gap-1 bg-yellow-400/20 border border-yellow-400/30 px-2 py-0.5 rounded-lg shadow-sm">
                         ✨ {opp.xpReward || 50} XP
                     </div>
                 </div>
