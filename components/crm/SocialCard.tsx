@@ -25,14 +25,20 @@ const SocialCard: React.FC<SocialCardProps> = ({ opp, onClick, onMove, isFirstCo
 
                 {/* Badges Flutuantes */}
                 <div className="absolute top-2 right-2 flex gap-1">
+                    {!opp.idTiny ? (
+                        <span className="px-2 py-0.5 rounded-full bg-orange-500 text-white text-[8px] font-black uppercase shadow-sm animate-pulse">Prospect</span>
+                    ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[8px] font-black uppercase shadow-sm">Cliente</span>
+                    )}
                     {opp.tags?.map(tag => (
                         <span key={tag} className="px-2 py-0.5 rounded-full bg-white/20 backdrop-blur-md text-white text-[8px] font-black uppercase border border-white/30 shadow-sm">{tag}</span>
                     ))}
                 </div>
             </div>
 
-            {/* Corpo do Card */}
-            <div className="p-4 pt-10 relative">
+            {/* Background Style dinâmico */}
+            {/* Se for Prospect, usa um estilo mais 'frio' ou discreto */}
+            <div className={`p-4 pt-10 relative ${!opp.idTiny ? 'bg-slate-50/50' : ''}`}>
 
                 {/* Avatar do Cliente (Iniciais) */}
                 <div className="absolute -top-10 left-4 w-16 h-16 rounded-2xl bg-white p-1 shadow-lg ring-1 ring-slate-100 rotate-3 group-hover:rotate-0 transition-all duration-500">
@@ -90,6 +96,16 @@ const SocialCard: React.FC<SocialCardProps> = ({ opp, onClick, onMove, isFirstCo
                         ✨ {opp.xpReward || 50} XP
                     </div>
                 </div>
+
+                {/* LTV Display (CRM 2.0) */}
+                {opp.ltv && opp.ltv > 0 ? (
+                    <div className="mt-3 bg-indigo-50/50 border border-indigo-100/50 rounded-xl p-2 flex justify-between items-center group/ltv hover:bg-indigo-50 transition-colors">
+                        <span className="text-[8px] font-black text-indigo-400 uppercase tracking-widest leading-none">LTV Cliente</span>
+                        <span className="text-[10px] font-black text-indigo-700">
+                            {Number(opp.ltv).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                    </div>
+                ) : null}
             </div>
 
             {/* Controles de Movimento (Só aparecem no Hover) */}

@@ -18,6 +18,7 @@ const COLUMNS: { id: CRMStatus; label: string; color: string; headerColor: strin
     { id: 'NEGOCIACAO', label: 'Negociação', color: 'bg-amber-50/30', headerColor: 'border-amber-300 text-amber-600', icon: ICONS.Inventory },
     { id: 'GANHO', label: 'Ganho', color: 'bg-emerald-50/30', headerColor: 'border-emerald-300 text-emerald-600', icon: ICONS.Finance },
     { id: 'PERDIDO', label: 'Perdido', color: 'bg-red-50/30', headerColor: 'border-red-300 text-red-600', icon: ICONS.Alert },
+    { id: 'DESQUALIFICADO', label: 'Desqualificado', color: 'bg-slate-200/50', headerColor: 'border-slate-400 text-slate-500', icon: ICONS.Inventory },
 ];
 
 const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
@@ -41,6 +42,7 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
     const [isSavingOpp, setIsSavingOpp] = useState(false);
     const [salesHistory, setSalesHistory] = useState<any[] | null>(null); // Histórico de Compras Tiny
     const [showSalesWidget, setShowSalesWidget] = useState(false);
+    const isLocked = selectedOpp?.status === 'DESQUALIFICADO';
 
     // Ref para scroll do feed
     const feedScrollRef = useRef<HTMLDivElement>(null);
@@ -159,6 +161,24 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
             setSelectedOpp({ ...opp }); // Clone para edição
             setSalesHistory(null); // Reset history view
             setShowSalesWidget(false); // Reset widget visibility
+
+            // --- CRM 2.0: Enriquecimento de Dados (Cadastro Clientes) ---
+            DataService.getClients(5, 0, opp.clientName).then(clients => {
+                const exactMatch = clients.find(c => c.nome.toUpperCase() === opp.clientName.toUpperCase());
+                if (exactMatch) {
+                    setSelectedOpp(prev => {
+                        if (!prev || prev.id !== opp.id) return prev;
+                        return {
+                            ...prev,
+                            cpfCnpj: prev.cpfCnpj || exactMatch.cpf_cnpj,
+                            address: prev.address || [exactMatch.endereco, exactMatch.bairro, exactMatch.cidade, exactMatch.estado].filter(Boolean).join(', '),
+                            clientId: exactMatch.id,
+                            idTiny: exactMatch.id_tiny
+                        };
+                    });
+                }
+            }).catch(err => console.error("Erro ao carregar dados mestre do cliente:", err));
+
             // Carrega interações
             try {
                 const interactions = await DataService.getCRMInteractions(opp.id!);
@@ -576,7 +596,7 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                 setToast({ msg: 'Buscando histórico de compras...', type: 'success' });
                                                 try {
                                                     const { TinyService } = await import('../services/tinyService');
-                                                    const history = await TinyService.getClientSales('', selectedOpp.clientName);
+                                                    const history = await TinyService.getClientSales(selectedOpp.cpfCnpj || '', selectedOpp.clientName);
 
                                                     if (history && history.length > 0) {
                                                         // 1. Persistir na Timeline
@@ -589,6 +609,35 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                             } else {
                                                                 setToast({ msg: `Histórico atualizado.`, type: 'success' });
                                                             }
+                                                        }
+
+                                                        // 2. Atualizar Closer (Vendedor) com base na última venda
+                                                        try {
+                                                            const sortedHistory = [...history].sort((a, b) => {
+                                                                const toTime = (d: string) => {
+                                                                    if (!d) return 0;
+                                                                    const p = d.split('/');
+                                                                    return p.length === 3
+                                                                        ? new Date(`${p[2]}-${p[1]}-${p[0]}`).getTime()
+                                                                        : 0;
+                                                                };
+                                                                return toTime(b.data) - toTime(a.data);
+                                                            });
+
+                                                            const lastSale = sortedHistory[0];
+                                                            if (lastSale && lastSale.vendedor && lastSale.vendedor !== selectedOpp.attendant) {
+                                                                const newAttendant = lastSale.vendedor.trim(); // Trim para evitar espaços extras
+                                                                await DataService.saveCRMOpportunity({
+                                                                    ...selectedOpp,
+                                                                    attendant: newAttendant
+                                                                });
+
+                                                                setSelectedOpp(prev => prev ? ({ ...prev, attendant: newAttendant }) : null);
+                                                                setOpportunities(prev => prev.map(o => o.id === selectedOpp.id ? { ...o, attendant: newAttendant } : o));
+                                                                setToast({ msg: `Closer atualizado para: ${newAttendant}`, type: 'success' });
+                                                            }
+                                                        } catch (errUpdater) {
+                                                            console.error("Erro ao atualizar closer automático", errUpdater);
                                                         }
 
                                                         setSalesHistory(history);
@@ -633,7 +682,6 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                             type="button"
                                                             onClick={() => {
                                                                 if (onNavigate) {
-                                                                    // Tenta limpar nome de sufixos se houver, mas geralmente o nome vem limpo do tiny
                                                                     sessionStorage.setItem('SALES_HISTORY_FILTER', selectedOpp.clientName);
                                                                     onNavigate('SALES_HISTORY');
                                                                 }
@@ -648,118 +696,183 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                         )}
                                     </div>
 
-                                    <form id="oppForm" onSubmit={handleSaveOpp} className="space-y-6">
-                                        <div className="space-y-4">
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Cliente / Lead *</label>
-                                                <input
-                                                    required
-                                                    value={selectedOpp.clientName}
-                                                    onChange={e => setSelectedOpp({ ...selectedOpp, clientName: e.target.value.toUpperCase() })}
-                                                    className="w-full px-5 py-4 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-2xl outline-none font-black text-sm uppercase transition-all"
-                                                    placeholder="NOME DO CLIENTE"
-                                                />
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-8 mt-8">
+                                        {/* CRM 2.0: BOTÃO DE CONVERSÃO PROSPECT -> TINY */}
+                                        {(!selectedOpp.idTiny && !selectedOpp.clientId) && (
+                                            <div className={`p-6 rounded-2xl border-2 transition-all duration-500 flex flex-col items-center gap-4 text-center ${selectedOpp.clientName && selectedOpp.cpfCnpj && selectedOpp.email && selectedOpp.phone && selectedOpp.address
+                                                ? 'bg-emerald-50 border-emerald-100'
+                                                : 'bg-slate-50 border-slate-100 opacity-60'
+                                                }`}>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Empresa</label>
-                                                    <input value={selectedOpp.companyName || ''} onChange={e => setSelectedOpp({ ...selectedOpp, companyName: e.target.value.toUpperCase() })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" />
+                                                    <h4 className={`text-sm font-black uppercase italic ${selectedOpp.clientName && selectedOpp.cpfCnpj && selectedOpp.email && selectedOpp.phone && selectedOpp.address ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                        {selectedOpp.clientName && selectedOpp.cpfCnpj && selectedOpp.email && selectedOpp.phone && selectedOpp.address ? '✨ Pronto para Cadastro!' : '📝 Complete os dados'}
+                                                    </h4>
+                                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                                                        {selectedOpp.clientName && selectedOpp.cpfCnpj && selectedOpp.email && selectedOpp.phone && selectedOpp.address
+                                                            ? 'Todos os campos obrigatórios foram preenchidos.'
+                                                            : 'Faltam campos: Nome, CPF/CNPJ, E-mail, Telefone e Endereço.'}
+                                                    </p>
                                                 </div>
-                                                <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Telefone / Whats</label>
-                                                    <input value={selectedOpp.phone || ''} onChange={e => setSelectedOpp({ ...selectedOpp, phone: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" />
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Link Instagram</label>
-                                                <div className="relative">
-                                                    <ICONS.Instagram className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-pink-600" />
-                                                    <input value={selectedOpp.instagramLink || ''} onChange={e => setSelectedOpp({ ...selectedOpp, instagramLink: e.target.value })} className="w-full pl-10 pr-4 py-3 bg-white border-2 border-slate-100 focus:border-pink-500 rounded-xl outline-none font-bold text-xs" placeholder="https://instagram.com/..." />
-                                                </div>
-                                            </div>
-                                        </div>
 
-                                        {/* TAGS (NOVO) */}
-                                        <div>
-                                            <label className="text-[9px] font-black text-slate-400 uppercase ml-1 mb-1 block">Tags e Segmentação</label>
-                                            <div className="flex flex-wrap gap-2">
-                                                {selectedOpp.tags?.map(tag => (
-                                                    <span key={tag} className="bg-slate-200 text-slate-600 px-2 py-1 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 group cursor-pointer hover:bg-red-100 hover:text-red-500 transition-colors"
-                                                        onClick={() => setSelectedOpp({ ...selectedOpp, tags: selectedOpp.tags?.filter(t => t !== tag) })}
-                                                    >
-                                                        {tag}
-                                                        <span className="hidden group-hover:inline">×</span>
-                                                    </span>
-                                                ))}
-                                                <input
-                                                    placeholder="+ Tag"
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === 'Enter') {
-                                                            e.preventDefault();
-                                                            const val = e.currentTarget.value.trim().toUpperCase();
-                                                            if (val && !selectedOpp.tags?.includes(val)) {
-                                                                setSelectedOpp({ ...selectedOpp, tags: [...(selectedOpp.tags || []), val] });
-                                                                e.currentTarget.value = '';
+                                                {selectedOpp.clientName && selectedOpp.cpfCnpj && selectedOpp.email && selectedOpp.phone && selectedOpp.address && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            setToast({ msg: 'Cadastrando no Tiny ERP...', type: 'success' });
+                                                            try {
+                                                                const res = await DataService.registerProspectAtTiny(selectedOpp);
+                                                                if (res.success) {
+                                                                    setToast({ msg: 'Cliente cadastrado no Tiny com sucesso!', type: 'success' });
+                                                                    const up = await DataService.getCRMOpportunities();
+                                                                    setOpportunities(up);
+                                                                    const found = up.find(o => o.id === selectedOpp.id);
+                                                                    if (found) setSelectedOpp(found);
+                                                                } else {
+                                                                    setToast({ msg: res.message || 'Falha ao cadastrar no Tiny.', type: 'error' });
+                                                                }
+                                                            } catch (e: any) {
+                                                                setToast({ msg: e.message || 'Erro de conexão.', type: 'error' });
                                                             }
-                                                        }
-                                                    }}
-                                                    className="w-20 bg-transparent border border-dashed border-slate-300 rounded-lg px-2 py-1 text-[9px] font-bold uppercase focus:w-32 transition-all outline-none focus:border-indigo-400"
-                                                />
+                                                        }}
+                                                        className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-black text-[11px] uppercase tracking-tighter shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-all active:scale-95"
+                                                    >
+                                                        🚀 Cadastrar no Tiny Agora
+                                                    </button>
+                                                )}
                                             </div>
-                                        </div>
+                                        )}
 
-                                        <div className="bg-indigo-50/50 p-6 rounded-3xl border border-indigo-50 space-y-4">
-                                            <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest italic">Responsáveis</h4>
+                                        <form id="oppForm" onSubmit={handleSaveOpp} className="space-y-6">
+                                            <div className={`space-y-4 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Cliente / Lead *</label>
+                                                    <input
+                                                        required
+                                                        value={selectedOpp.clientName}
+                                                        onChange={e => setSelectedOpp({ ...selectedOpp, clientName: e.target.value.toUpperCase() })}
+                                                        className="w-full px-5 py-4 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-2xl outline-none font-black text-sm uppercase transition-all"
+                                                        placeholder="NOME DO CLIENTE"
+                                                        disabled={isLocked}
+                                                    />
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Empresa</label>
+                                                        <input value={selectedOpp.companyName || ''} onChange={e => setSelectedOpp({ ...selectedOpp, companyName: e.target.value.toUpperCase() })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" disabled={isLocked} />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Telefone / Whats</label>
+                                                        <input value={selectedOpp.phone || ''} onChange={e => setSelectedOpp({ ...selectedOpp, phone: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" disabled={isLocked} />
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-[1fr_2fr] gap-4">
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">CPF / CNPJ</label>
+                                                        <input value={selectedOpp.cpfCnpj || ''} onChange={e => setSelectedOpp({ ...selectedOpp, cpfCnpj: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" placeholder="000.000.000-00" disabled={isLocked} />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Endereço</label>
+                                                        <input value={selectedOpp.address || ''} onChange={e => setSelectedOpp({ ...selectedOpp, address: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" disabled={isLocked} />
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">E-mail</label>
+                                                    <input value={selectedOpp.email || ''} onChange={e => setSelectedOpp({ ...selectedOpp, email: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-slate-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase" placeholder="EMAIL@EXEMPLO.COM" disabled={isLocked} />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Link Instagram</label>
+                                                    <div className="relative">
+                                                        <ICONS.Instagram className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-pink-600" />
+                                                        <input value={selectedOpp.instagramLink || ''} onChange={e => setSelectedOpp({ ...selectedOpp, instagramLink: e.target.value })} className="w-full pl-10 pr-4 py-3 bg-white border-2 border-slate-100 focus:border-pink-500 rounded-xl outline-none font-bold text-xs" placeholder="https://instagram.com/..." disabled={isLocked} />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* TAGS */}
+                                            <div className={isLocked ? 'opacity-50 pointer-events-none' : ''}>
+                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1 mb-1 block">Tags e Segmentação</label>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {selectedOpp.tags?.map(tag => (
+                                                        <span key={tag} className="bg-slate-200 text-slate-600 px-2 py-1 rounded-lg text-[9px] font-black uppercase flex items-center gap-1 group cursor-pointer hover:bg-red-100 hover:text-red-500 transition-colors"
+                                                            onClick={() => !isLocked && setSelectedOpp({ ...selectedOpp, tags: selectedOpp.tags?.filter(t => t !== tag) })}
+                                                        >
+                                                            {tag}
+                                                            {!isLocked && <span className="hidden group-hover:inline">×</span>}
+                                                        </span>
+                                                    ))}
+                                                    {!isLocked && (
+                                                        <input
+                                                            placeholder="+ Tag"
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    e.preventDefault();
+                                                                    const val = e.currentTarget.value.trim().toUpperCase();
+                                                                    if (val && !selectedOpp.tags?.includes(val)) {
+                                                                        setSelectedOpp({ ...selectedOpp, tags: [...(selectedOpp.tags || []), val] });
+                                                                        e.currentTarget.value = '';
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className="w-20 bg-transparent border border-dashed border-slate-300 rounded-lg px-2 py-1 text-[9px] font-bold uppercase focus:w-32 transition-all outline-none focus:border-indigo-400"
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className={`bg-indigo-50/50 p-6 rounded-3xl border border-indigo-50 space-y-4 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}>
+                                                <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest italic">Responsáveis</h4>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">SDR (Prospecção)</label>
+                                                        <select value={selectedOpp.prospector || ''} onChange={e => setSelectedOpp({ ...selectedOpp, prospector: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer" disabled={isLocked}>
+                                                            <option value="">Selecione...</option>
+                                                            {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Closer (Vendedor)</label>
+                                                        <select value={selectedOpp.attendant || ''} onChange={e => setSelectedOpp({ ...selectedOpp, attendant: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer" disabled={isLocked}>
+                                                            <option value="">Selecione...</option>
+                                                            {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">SDR (Prospecção)</label>
-                                                    <select value={selectedOpp.prospector || ''} onChange={e => setSelectedOpp({ ...selectedOpp, prospector: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer">
-                                                        <option value="">Selecione...</option>
-                                                        {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Status Funil</label>
+                                                    <select value={selectedOpp.status} onChange={e => setSelectedOpp({ ...selectedOpp, status: e.target.value as CRMStatus })} className={`w-full px-4 py-3 border-2 rounded-xl outline-none font-black text-xs uppercase cursor-pointer transition-all ${isLocked ? 'bg-slate-900 text-white border-slate-900 shadow-xl' : 'bg-slate-100 border-transparent focus:border-slate-400 text-slate-700'}`}>
+                                                        {COLUMNS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                                                     </select>
+                                                    {isLocked && <p className="text-[8px] font-black text-indigo-500 uppercase mt-2 animate-pulse">🔒 Ficha Bloqueada - Altere o status para editar</p>}
                                                 </div>
-                                                <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Closer (Vendedor)</label>
-                                                    <select value={selectedOpp.attendant || ''} onChange={e => setSelectedOpp({ ...selectedOpp, attendant: e.target.value })} className="w-full px-4 py-3 bg-white border-2 border-indigo-100 focus:border-indigo-600 rounded-xl outline-none font-bold text-xs uppercase cursor-pointer">
-                                                        <option value="">Selecione...</option>
-                                                        {systemUsers.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Status Funil</label>
-                                                <select value={selectedOpp.status} onChange={e => setSelectedOpp({ ...selectedOpp, status: e.target.value as CRMStatus })} className="w-full px-4 py-3 bg-slate-100 border-2 border-transparent focus:border-slate-400 rounded-xl outline-none font-black text-xs uppercase cursor-pointer">
-                                                    {COLUMNS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Próx. Follow-up</label>
-                                                <input type="date" value={selectedOpp.nextFollowUp || ''} onChange={e => setSelectedOpp({ ...selectedOpp, nextFollowUp: e.target.value })} className="w-full px-4 py-3 bg-slate-100 border-2 border-transparent focus:border-slate-400 rounded-xl outline-none font-black text-xs uppercase mb-2" />
-                                                {/* BOTOES RAPIDOS DE DATA */}
-                                                <div className="flex gap-1 justify-between">
-                                                    {[7, 15, 30].map(days => (
-                                                        <button
-                                                            type="button"
-                                                            key={days}
-                                                            onClick={() => {
-                                                                const d = new Date();
-                                                                d.setDate(d.getDate() + days);
-                                                                setSelectedOpp({ ...selectedOpp, nextFollowUp: d.toISOString().split('T')[0] });
-                                                            }}
-                                                            className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-[9px] font-bold text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all uppercase"
-                                                        >
-                                                            +{days} dias
-                                                        </button>
-                                                    ))}
+                                                <div className={isLocked ? 'opacity-50 pointer-events-none' : ''}>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase ml-1">Próx. Follow-up</label>
+                                                    <input type="date" value={selectedOpp.nextFollowUp || ''} onChange={e => setSelectedOpp({ ...selectedOpp, nextFollowUp: e.target.value })} className="w-full px-4 py-3 bg-slate-100 border-2 border-transparent focus:border-slate-400 rounded-xl outline-none font-black text-xs uppercase mb-2" disabled={isLocked} />
+                                                    <div className="flex gap-1 justify-between">
+                                                        {[7, 15, 30].map(days => (
+                                                            <button
+                                                                type="button"
+                                                                key={days}
+                                                                onClick={() => {
+                                                                    const d = new Date();
+                                                                    d.setDate(d.getDate() + days);
+                                                                    setSelectedOpp({ ...selectedOpp, nextFollowUp: d.toISOString().split('T')[0] });
+                                                                }}
+                                                                className="flex-1 py-2 bg-white border border-slate-200 rounded-lg text-[9px] font-bold text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all uppercase"
+                                                                disabled={isLocked}
+                                                            >
+                                                                +{days} dias
+                                                            </button>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    </form>
+                                        </form>
+                                    </div>
                                 </div>
-                                <div className="p-6 border-t border-slate-100 flex justify-between items-center bg-white">
+                                <div className="p-6 border-t border-slate-100 flex justify-between items-center bg-white shrink-0">
                                     <button type="button" onClick={() => setSelectedOpp(null)} className="px-6 py-3 text-slate-400 font-black text-[10px] uppercase hover:text-red-500 transition-colors">Cancelar</button>
                                     <button type="submit" form="oppForm" disabled={isSavingOpp} className="px-10 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-indigo-600 transition-all disabled:opacity-50 italic">
                                         {isSavingOpp ? 'Salvando...' : 'Salvar Alterações'}
@@ -852,15 +965,12 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                     </div>
                                 </div>
                             </div>
-
                         </div>
                     </div>
                 )
             }
-        </div >
+        </div>
     );
 };
-
-// --- FIM DO COMPONENTE ---
 
 export default CRMModule;

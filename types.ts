@@ -402,13 +402,18 @@ export interface SalesHistoryItem {
 }
 
 // --- TIPOS DO CRM ---
-export type CRMStatus = 'PROSPECCAO' | 'QUALIFICADO' | 'NEGOCIACAO' | 'GANHO' | 'PERDIDO';
+export type CRMStatus = 'PROSPECCAO' | 'QUALIFICADO' | 'NEGOCIACAO' | 'GANHO' | 'PERDIDO' | 'DESQUALIFICADO';
 
 export interface CRMOpportunity {
   id?: string;
+  clientId?: string; // ID do Cliente vinculado
+  idTiny?: string; // ID do Tiny ERP
   clientName: string;
   companyName?: string;
+  cpfCnpj?: string;
+  address?: string; // CRM 2.0: Endereço completo
   phone?: string;
+  email?: string; // CRM 2.0: E-mail do cliente
   instagramLink?: string;
   prospector?: string;
   attendant?: string;

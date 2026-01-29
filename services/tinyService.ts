@@ -252,70 +252,122 @@ export const TinyService = {
 
     /**
      * Busca histórico de vendas detalhado para exibição no CRM
+     * Estratégia: Tenta CPF/CNPJ removendo pontuação -> Tenta Nome
      */
     async getClientSales(cpfCnpj: string, clientName: string): Promise<any[]> {
         if (!TOKEN) return [];
+
+        const fetchSalesInternal = async (query: string) => {
+            try {
+                const params = new URLSearchParams({
+                    token: TOKEN,
+                    cliente: query,
+                    formato: 'json'
+                });
+                const response = await fetch(`${TINY_API_URL}/pedidos.pesquisa.php?${params.toString()}`);
+                const data = await response.json();
+
+                if (data.retorno.status === 'OK' && data.retorno.pedidos) {
+                    return data.retorno.pedidos.map((p: any) => {
+                        let val = p.pedido.valor_total || p.pedido.valor || p.pedido.total_venda || 0;
+                        let numVal = 0;
+                        if (typeof val === 'number') {
+                            numVal = val;
+                        } else if (val) {
+                            let v = String(val).trim();
+                            v = v.replace(/[^\d.,-]/g, '');
+                            if (v.indexOf(',') > -1 && v.indexOf('.') > -1) {
+                                if (v.indexOf(',') > v.indexOf('.')) v = v.replace(/\./g, '').replace(',', '.');
+                                else v = v.replace(/,/g, '');
+                            } else if (v.indexOf(',') > -1) {
+                                v = v.replace(',', '.');
+                            }
+                            numVal = parseFloat(v);
+                        }
+
+                        return {
+                            id: p.pedido.id,
+                            numero: p.pedido.numero,
+                            data: p.pedido.data_pedido || '',
+                            valor: isNaN(numVal) ? 0 : numVal,
+                            situacao: p.pedido.situacao,
+                            vendedor: p.pedido.nome_vendedor || p.pedido.vendedor || ''
+                        };
+                    });
+                }
+                return [];
+            } catch (e) {
+                console.error("Erro fetch sales tiny:", query, e);
+                return [];
+            }
+        };
+
+        // 1. Tenta por CPF/CNPJ (Numérico)
+        if (cpfCnpj && cpfCnpj.length > 5) {
+            const cleanDoc = cpfCnpj.replace(/\D/g, '');
+            const salesByDoc = await fetchSalesInternal(cleanDoc);
+            if (salesByDoc.length > 0) return salesByDoc;
+
+            // Debug: Se falhou por DOC, avisa e tenta Nome
+            console.log(`[Tiny] Busca por CPF ${cleanDoc} falhou ou vazia. Tentando fallback para nome...`);
+        }
+
+        // 2. Fallback: Tenta por Nome
+        if (clientName) {
+            return await fetchSalesInternal(clientName);
+        }
+
+        return [];
+    },
+
+    /**
+     * Cria ou atualiza um contato no Tiny ERP
+     */
+    async saveClient(client: Partial<CRMOpportunity>): Promise<{ success: boolean; id_tiny?: string; message?: string }> {
+        if (!TOKEN) return { success: false, message: 'Token não configurado' };
+
         try {
-            // Tenta buscar por CPF/CNPJ primeiro se válido, senão Nome
-            const query = (cpfCnpj && cpfCnpj.length > 5) ? cpfCnpj.replace(/\D/g, '') : clientName;
+            // Prepara o XML (Tiny prefere XML para inclusão de contatos em massa/unitária via POST)
+            // ou JSON se o endpoint suportar (contato.incluir geralmente aceita XML)
+
+            const tipoPessoa = (client.cpfCnpj?.replace(/\D/g, '').length || 0) > 11 ? 'J' : 'F';
+
+            // Montando XML básico
+            const xml = `
+                <contato>
+                    <nome>${client.clientName}</nome>
+                    <tipo_pessoa>${tipoPessoa}</tipo_pessoa>
+                    <cpf_cnpj>${client.cpfCnpj || ''}</cpf_cnpj>
+                    <endereco>${client.address || ''}</endereco>
+                    <fone>${client.phone || ''}</fone>
+                    <email>${client.email || ''}</email>
+                </contato>
+            `.trim();
 
             const params = new URLSearchParams({
                 token: TOKEN,
-                cliente: query,
+                contato: xml,
                 formato: 'json'
             });
 
-            // Note: Tiny API 'pedidos.pesquisa' searches by client name or CPF/CNPJ in the 'cliente' field often matches better with name.
-            // If CPF fails, we might need a specific filter or strictly use name.
+            const response = await fetch(`${TINY_API_URL}/contato.incluir.php`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            });
 
-            const response = await fetch(`${TINY_API_URL}/pedidos.pesquisa.php?${params.toString()}`);
             const data = await response.json();
 
-            if (data.retorno.status === 'OK' && data.retorno.pedidos) {
-                return data.retorno.pedidos.map((p: any) => {
-                    // Fallback para diferentes nomes de campo possíveis
-                    let val = p.pedido.valor_total || p.pedido.valor || p.pedido.total_venda || 0;
-
-                    // console.log(`[Tiny Debug] ID: ${p.pedido.id} Raw:`, val); // Descomente para debug
-
-                    let numVal = 0;
-                    if (typeof val === 'number') {
-                        numVal = val;
-                    } else if (val) {
-                        let v = String(val).trim();
-                        // Remove R$, espaços e chars estranhos, mantendo apenas digitos, ponto, virgula e menos
-                        v = v.replace(/[^\d.,-]/g, '');
-
-                        if (v.indexOf(',') > -1 && v.indexOf('.') > -1) {
-                            if (v.indexOf(',') > v.indexOf('.')) {
-                                // Formato BR: 1.000,00 -> virgula é decimal
-                                v = v.replace(/\./g, '').replace(',', '.');
-                            } else {
-                                // Formato US: 1,000.00 -> ponto é decimal
-                                v = v.replace(/,/g, '');
-                            }
-                        } else if (v.indexOf(',') > -1) {
-                            // Apenas virgula: 100,00 -> vira 100.00
-                            v = v.replace(',', '.');
-                        }
-                        // else: Apenas ponto ou sem separador -> parseFloat nativo resolve
-
-                        numVal = parseFloat(v);
-                    }
-
-                    return {
-                        id: p.pedido.id,
-                        numero: p.pedido.numero,
-                        data: p.pedido.data_pedido || '',
-                        valor: isNaN(numVal) ? 0 : numVal,
-                        situacao: p.pedido.situacao
-                    };
-                });
+            if (data.retorno.status === 'OK' && data.retorno.registros) {
+                const idTiny = data.retorno.registros[0].registro.id;
+                return { success: true, id_tiny: idTiny };
+            } else {
+                const errorMsg = data.retorno.erros ? data.retorno.erros[0].erro : 'Erro desconhecido no Tiny';
+                return { success: false, message: errorMsg };
             }
-            return [];
-        } catch (error) {
-            console.error("Erro ao buscar vendas do cliente no Tiny:", error);
-            return [];
+        } catch (error: any) {
+            console.error("Erro ao salvar cliente no Tiny:", error);
+            return { success: false, message: error.message };
         }
     }
 };

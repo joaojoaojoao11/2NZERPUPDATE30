@@ -304,39 +304,107 @@ export class DataService {
   static async getCRMOpportunities(): Promise<CRMOpportunity[]> {
     if (!supabase) return [];
 
-    // Join para pegar count de interações
+    // Join para pegar count de interações e dados do cliente
     const { data, error } = await supabase
       .from('crm_opportunities')
-      .select('*, crm_interactions(count)')
+      .select('*, crm_interactions(count), clients(id, id_tiny, cpf_cnpj, endereco, bairro, cidade, estado, cep, email)')
       .order('created_at', { ascending: false });
 
     if (error) {
-      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist') || error.message?.includes('Could not find')) {
+        // Tenta fallback sem join de clients, caso a FK não exista
+        console.warn("[DataService] JOIN clients falhou, tentando fallback...", error.message);
+        const { data: fbData, error: fbError } = await supabase.from('crm_opportunities').select('*, crm_interactions(count)').order('created_at', { ascending: false });
+        if (fbError) throw fbError;
+        return (fbData || []).map((d: any) => ({
+          id: d.id,
+          clientName: d.client_name,
+          companyName: d.company_name,
+          cpfCnpj: d.cpf_cnpj || d.cnpj || d.cpf || d.documento || d.document,
+          address: d.address || d.endereco,
+          phone: d.phone,
+          email: d.email || d.email_cli,
+          status: d.status,
+          nextFollowUp: d.next_follow_up,
+          notes: d.notes,
+          createdAt: d.created_at,
+          ownerId: d.owner_id,
+          instagramLink: d.instagram_link,
+          prospector: d.prospector,
+          attendant: d.attendant,
+          interactionCount: d.crm_interactions && d.crm_interactions[0] ? d.crm_interactions[0].count : 0,
+
+          // CRM 2.0
+          ltv: Number(d.ltv || 0),
+          xpReward: d.xp_reward || 0,
+          engagementScore: d.engagement_score || 50,
+          tags: d.tags || [],
+          lastPurchaseDate: d.last_purchase_date
+        }));
+      }
       throw error;
     }
-    return (data || []).map((d: any) => ({
-      id: d.id,
-      clientName: d.client_name,
-      companyName: d.company_name,
-      phone: d.phone,
-      status: d.status,
-      nextFollowUp: d.next_follow_up,
-      notes: d.notes,
-      createdAt: d.created_at,
-      ownerId: d.owner_id,
-      instagramLink: d.instagram_link,
-      prospector: d.prospector,
-      attendant: d.attendant,
-      interactionCount: d.crm_interactions && d.crm_interactions[0] ? d.crm_interactions[0].count : 0
-    }));
+
+    return (data || []).map((d: any) => {
+      // Resolve client join data
+      const cli = Array.isArray(d.clients) ? d.clients[0] : d.clients;
+
+      // Resolve document
+      const doc = d.cpf_cnpj || d.cnpj || d.cpf || d.documento || d.document || (cli?.cpf_cnpj);
+
+      // Resolve address
+      let addr = d.address || d.endereco;
+      if (!addr && cli) {
+        const p = [];
+        if (cli.endereco) p.push(cli.endereco);
+        if (cli.bairro) p.push(cli.bairro);
+        if (cli.cidade) p.push(`${cli.cidade}/${cli.estado || ''}`);
+        else if (cli.estado) p.push(cli.estado);
+        if (cli.cep) p.push(`CEP ${cli.cep}`);
+
+        if (p.length > 0) addr = p.join(', ');
+      }
+
+      return {
+        id: d.id,
+        clientId: cli?.id, // ID real da tabela clients
+        idTiny: cli?.id_tiny, // ID do Tiny ERP
+        clientName: d.client_name,
+        companyName: d.company_name,
+        cpfCnpj: doc,
+        address: addr,
+        phone: d.phone,
+        email: d.email || cli?.email,
+        status: d.status,
+        nextFollowUp: d.next_follow_up,
+        notes: d.notes,
+        createdAt: d.created_at,
+        ownerId: d.owner_id,
+        instagramLink: d.instagram_link,
+        prospector: d.prospector,
+        attendant: d.attendant,
+        interactionCount: d.crm_interactions && d.crm_interactions[0] ? d.crm_interactions[0].count : 0,
+
+        // CRM 2.0
+        ltv: Number(d.ltv || 0),
+        xpReward: d.xp_reward || 0,
+        engagementScore: d.engagement_score || 50,
+        tags: d.tags || [],
+        lastPurchaseDate: d.last_purchase_date
+      };
+    });
   }
 
   static async saveCRMOpportunity(opp: CRMOpportunity): Promise<{ success: boolean; message?: string; id?: string }> {
     if (!supabase) return { success: false, message: 'Offline' };
+
     const payload: any = {
       client_name: opp.clientName,
       company_name: opp.companyName,
       phone: opp.phone,
+      email: opp.email || null,
+      cpf_cnpj: opp.cpfCnpj || null,
+      address: opp.address || null,
       status: opp.status,
       next_follow_up: opp.nextFollowUp || null,
       notes: opp.notes || null,
@@ -344,13 +412,71 @@ export class DataService {
       owner_id: opp.ownerId,
       instagram_link: opp.instagramLink || null,
       prospector: opp.prospector || null,
-      attendant: opp.attendant || null
+      attendant: opp.attendant || null,
+      client_id: opp.clientId || null,
+      // CRM 2.0
+      tags: opp.tags || [],
+      ltv: opp.ltv || 0,
+      xp_reward: opp.xpReward || 0,
+      engagement_score: opp.engagementScore || 50,
+      last_purchase_date: opp.lastPurchaseDate || null
     };
+
     if (opp.id) payload.id = opp.id;
 
+    // 1. Upsert na tabela de oportunidades
     const { data, error } = await supabase.from('crm_opportunities').upsert(payload, { onConflict: 'id' }).select('id').single();
     if (error) throw error;
+
+    // 2. Se tiver clientId (vinculado a um cadastro), atualiza os dados básicos lá também
+    if (opp.clientId) {
+      try {
+        const updateClient: any = {};
+        if (opp.cpfCnpj) updateClient.cpf_cnpj = opp.cpfCnpj;
+        if (opp.address) updateClient.endereco = opp.address;
+        if (opp.clientName) updateClient.nome = opp.clientName;
+        if (opp.email) updateClient.email = opp.email;
+
+        if (Object.keys(updateClient).length > 0) {
+          await supabase.from('clients').update(updateClient).eq('id', opp.clientId);
+        }
+      } catch (errCli) {
+        console.warn("[DataService] Erro ao sincronizar update com tabela clients:", errCli);
+      }
+    }
+
     return { success: true, id: data.id };
+  }
+
+  static async registerProspectAtTiny(opp: CRMOpportunity): Promise<{ success: boolean; message?: string }> {
+    if (!supabase) return { success: false, message: 'Offline' };
+
+    try {
+      const { TinyService } = await import('./tinyService');
+      const tinyRes = await TinyService.saveClient(opp);
+
+      if (!tinyRes.success) return { success: false, message: tinyRes.message };
+
+      const clientPayload: any = {
+        nome: opp.clientName,
+        cpf_cnpj: opp.cpfCnpj || null,
+        email: opp.email || null,
+        telefone: opp.phone || null,
+        endereco: opp.address || null,
+        id_tiny: tinyRes.id_tiny
+      };
+
+      if (opp.clientId) {
+        await supabase.from('clients').update(clientPayload).eq('id', opp.clientId);
+      } else {
+        const { data: newCli } = await supabase.from('clients').insert(clientPayload).select('id').single();
+        // O trigger automático não criará duplicado pois já existe a oportunidade com esse nome.
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, message: e.message };
+    }
   }
 
   static async deleteCRMOpportunity(id: string): Promise<boolean> {
@@ -680,8 +806,8 @@ export class DataService {
     // Se por acaso vier cliente sem id_tiny, fall back para CPF? 
     // Vamos focar no ID Tiny pois o erro foi violação de constraint de ID Tiny.
     const cpfsToCheck = clients
-      .map(c => c.cpf_cnpj)
-      .filter(c => c && !c.id_tiny) as string[]; // Checa CPF apenas se não tiver ID Tiny (casos raros)
+      .filter(c => c.cpf_cnpj && !c.id_tiny)
+      .map(c => c.cpf_cnpj) as string[]; // Checa CPF apenas se não tiver ID Tiny
 
     // 2. Buscar quais já existem no banco
     let existingSet: Set<string> = new Set();
