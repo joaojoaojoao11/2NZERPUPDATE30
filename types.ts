@@ -409,14 +409,21 @@ export interface CRMOpportunity {
   clientName: string;
   companyName?: string;
   phone?: string;
-  instagramLink?: string; // Novo
-  prospector?: string;    // Novo (SDR)
-  attendant?: string;     // Novo (Closer)
+  instagramLink?: string;
+  prospector?: string;
+  attendant?: string;
   status: CRMStatus;
   nextFollowUp?: string;
   notes?: string;
   createdAt?: string;
   ownerId?: string;
+
+  // --- CRM 2.0: Dados Ricos e Gamification ---
+  ltv?: number;              // Total vendido (Life Time Value)
+  lastPurchaseDate?: string; // Data da última compra no Tiny
+  engagementScore?: number;  // 0 a 100
+  xpReward?: number;         // XP que este lead vale
+  tags?: string[];           // Tags rápidas (ex: "VIP", "Novo")
 }
 
 export interface CRMInteraction {
