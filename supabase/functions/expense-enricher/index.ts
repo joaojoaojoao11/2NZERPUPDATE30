@@ -47,7 +47,7 @@ serve(async (req) => {
     // 3. Busca contas pagas sem data de liquidação
     const { data: incompletos, error } = await supabase
       .from('accounts_payable')
-      .select('id, fornecedor')
+      .select('id, fornecedor, data_vencimento')
       .or('situacao.ilike.pago,situacao.ilike.liquidado,situacao.ilike.baixado')
       .is('data_liquidacao', null)
       .limit(LIMITE_POR_EXECUCAO);
@@ -87,7 +87,18 @@ serve(async (req) => {
           if (dataFormatada) updatePayload.data_liquidacao = dataFormatada;
 
           // CORRECAO: O Tiny retorna 'competencia' direto
-          if (det.competencia || det.data_competencia) updatePayload.competencia = det.competencia || det.data_competencia;
+          if (det.competencia || det.data_competencia) {
+            updatePayload.competencia = det.competencia || det.data_competencia;
+          } else if (item.data_vencimento) {
+            // Fallback: Se não tem competencia, usa o Mes/Ano do vencimento
+            const [ano, mes] = item.data_vencimento.split('-');
+            if (ano && mes) updatePayload.competencia = `${mes}/${ano}`;
+          }
+
+          // Fallback para Data Liquidacao: Se o Tiny não mandou, usa o vencimento
+          if (!updatePayload.data_liquidacao && item.data_vencimento) {
+            updatePayload.data_liquidacao = item.data_vencimento;
+          }
 
           // CORRECAO: O Tiny retorna 'categoria'
           if (det.categoria) updatePayload.categoria = det.categoria;
