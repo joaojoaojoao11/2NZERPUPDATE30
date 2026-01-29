@@ -75,7 +75,8 @@ serve(async (req) => {
           const det = json.retorno.conta;
           console.log(`[DEBUG ID ${item.id}] Dados Brutos Tiny:`, JSON.stringify(det)); // LOG 1: O que veio do Tiny?
 
-          const dataLiq = det.data_pagamento || det.data_baixa;
+          // CORRECAO: O Tiny retorna 'liquidacao' neste endpoint, nao 'data_pagamento'
+          const dataLiq = det.liquidacao || det.data_pagamento || det.data_baixa;
           const dataFormatada = safeDate(dataLiq);
           console.log(`[DEBUG ID ${item.id}] Data Liq Raw: "${dataLiq}" -> Formatada: "${dataFormatada}"`); // LOG 2: A data funcionou?
 
@@ -84,7 +85,12 @@ serve(async (req) => {
           };
 
           if (dataFormatada) updatePayload.data_liquidacao = dataFormatada;
-          if (det.data_competencia) updatePayload.competencia = det.data_competencia;
+
+          // CORRECAO: O Tiny retorna 'competencia' direto
+          if (det.competencia || det.data_competencia) updatePayload.competencia = det.competencia || det.data_competencia;
+
+          // CORRECAO: O Tiny retorna 'categoria'
+          if (det.categoria) updatePayload.categoria = det.categoria;
 
           // Correção potencial para forma de pagamento que as vezes vem como forma_pagamento ou meiopagamento
           if (det.forma_pagamento) updatePayload.forma_pagamento = det.forma_pagamento;
