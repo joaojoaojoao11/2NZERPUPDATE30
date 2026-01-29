@@ -597,9 +597,10 @@ export class DataService {
     const { data, error } = await query.range(offset, offset + limit - 1).order('nome');
 
     if (error) {
-      console.error('Erro ao buscar clientes:', error);
+      console.error('Erro ao buscar clientes (Supabase):', error);
       return [];
     }
+    console.log(`[DataService] Clientes carregados: ${data?.length}`);
     return data as Client[];
   }
 }

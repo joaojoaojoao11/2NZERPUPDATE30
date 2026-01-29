@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
                 break;
             }
 
-            await sleep(1000); // 1s entre requests
+            await sleep(2000); // 2s entre requests (Aumentado para evitar Bloqueio 429)
 
             const url = new URL('https://api.tiny.com.br/api2/contatos.pesquisa.php');
             url.searchParams.set('token', token);
