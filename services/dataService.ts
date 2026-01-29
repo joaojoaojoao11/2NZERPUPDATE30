@@ -2,11 +2,11 @@ import { supabaseClient as supabase } from './core';
 import { InventoryService } from './inventoryService';
 import { UserService } from './userService';
 import { FinanceService } from './financeService';
-import { 
-  StockItem, User, MasterProduct, AuditLog, 
-  InventoryUpdateStaging, WithdrawalReason, 
-  ApprovalCase, InboundRequest, DebtorInfo, 
-  SalesHistoryItem, CRMOpportunity, CompanySettings, 
+import {
+  StockItem, User, MasterProduct, AuditLog,
+  InventoryUpdateStaging, WithdrawalReason,
+  ApprovalCase, InboundRequest, DebtorInfo,
+  SalesHistoryItem, CRMOpportunity, CompanySettings,
   InventorySession, CRMInteraction, FinancialTransaction
 } from '../types';
 
@@ -20,7 +20,7 @@ export class DataService {
     return InventoryService.getLogsByLpn(lpn);
   }
 
-  static async updateStockItem(item: StockItem, user: User): Promise<{success: boolean, message?: string}> {
+  static async updateStockItem(item: StockItem, user: User): Promise<{ success: boolean, message?: string }> {
     return InventoryService.updateStockItem(item, user);
   }
 
@@ -47,7 +47,7 @@ export class DataService {
   static async processWithdrawalBatch(items: any[], user: User) {
     return InventoryService.processWithdrawalBatchAtomic(items, user);
   }
-  
+
   static async registerWithdrawalBatch(items: any[], user: User) {
     return this.processWithdrawalBatch(items, user);
   }
@@ -70,9 +70,9 @@ export class DataService {
 
   static async setAuditLock(lock: any) {
     if (lock) {
-       localStorage.setItem('nz_audit_lock', JSON.stringify(lock));
+      localStorage.setItem('nz_audit_lock', JSON.stringify(lock));
     } else {
-       localStorage.removeItem('nz_audit_lock');
+      localStorage.removeItem('nz_audit_lock');
     }
     return true;
   }
@@ -124,9 +124,9 @@ export class DataService {
   // NOVO MÉTODO PARA BUSCAR DADOS FINANCEIROS REAIS (CORREÇÃO DO ERRO)
   static async getFinancialData(type: 'payable' | 'receivable'): Promise<FinancialTransaction[]> {
     if (!supabase) return [];
-    
+
     const table = type === 'payable' ? 'accounts_payable' : 'accounts_receivable';
-    
+
     // Busca tudo ordenado por vencimento
     const { data, error } = await supabase
       .from(table)
@@ -139,22 +139,22 @@ export class DataService {
     }
 
     return (data || []).map(item => ({
-        id: item.id,
-        // Tenta pegar fornecedor ou cliente ou nomes com letra maiúscula (legado)
-        fornecedor: item.fornecedor || item.cliente || item.Fornecedor || item.Cliente || 'Desconhecido',
-        data_vencimento: item.data_vencimento || item['Data Vencimento'],
-        data_emissao: item.data_emissao,
-        data_liquidacao: item.data_liquidacao,
-        valor_documento: Number(item.valor_documento || 0),
-        valor_pago: Number(item.valor_pago || 0),
-        saldo: Number(item.saldo || item.Saldo || 0),
-        situacao: item.situacao,
-        forma_pagamento: item.forma_pagamento,
-        categoria: item.categoria,
-        competencia: item.competencia,
-        historico: item.historico,
-        numero_documento: item.numero_documento,
-        ult_atuali: item.ult_atuali
+      id: item.id,
+      // Tenta pegar fornecedor ou cliente ou nomes com letra maiúscula (legado)
+      fornecedor: item.fornecedor || item.cliente || item.Fornecedor || item.Cliente || 'Desconhecido',
+      data_vencimento: item.data_vencimento || item['Data Vencimento'],
+      data_emissao: item.data_emissao,
+      data_liquidacao: item.data_liquidacao,
+      valor_documento: Number(item.valor_documento || 0),
+      valor_pago: Number(item.valor_pago || 0),
+      saldo: Number(item.saldo || item.Saldo || 0),
+      situacao: item.situacao,
+      forma_pagamento: item.forma_pagamento,
+      categoria: item.categoria,
+      competencia: item.competencia,
+      historico: item.historico,
+      numero_documento: item.numero_documento,
+      ult_atuali: item.ult_atuali
     }));
   }
 
@@ -164,60 +164,60 @@ export class DataService {
     const { data, error } = await supabase.from('master_catalog').select('*').order('sku', { ascending: true });
     if (error) throw error;
     return (data || []).map(p => ({
-        sku: p.sku,
-        nome: p.nome,
-        categoria: p.categoria,
-        marca: p.marca,
-        fornecedor: p.fornecedor,
-        larguraL: Number(p.largura_l),
-        metragemPadrao: Number(p.metragem_padrao),
-        estoqueMinimo: Number(p.estoque_minimo),
-        custoUnitario: Number(p.custo_unitario),
-        precoVenda: Number(p.preco_venda),
-        custoUnitarioFrac: Number(p.custo_unitario_frac ?? p.custo_unitario),
-        custoUnitarioRolo: Number(p.custo_unitario_rolo ?? p.custo_unitario),
-        costExtraValue: Number(p.cost_extra_value),
-        costTaxPercent: Number(p.cost_tax_percent),
-        priceRoloMin: Number(p.price_rolo_min),
-        priceRoloIdeal: Number(p.price_rolo_ideal),
-        priceFracMin: Number(p.price_frac_min),
-        priceFracIdeal: Number(p.price_frac_ideal),
-        active: p.active,
-        updatedAt: p.updated_at,
-        taxOrigin: p.tax_origin,
-        ncmCode: p.ncm_code,
-        supplierState: p.supplier_state
+      sku: p.sku,
+      nome: p.nome,
+      categoria: p.categoria,
+      marca: p.marca,
+      fornecedor: p.fornecedor,
+      larguraL: Number(p.largura_l),
+      metragemPadrao: Number(p.metragem_padrao),
+      estoqueMinimo: Number(p.estoque_minimo),
+      custoUnitario: Number(p.custo_unitario),
+      precoVenda: Number(p.preco_venda),
+      custoUnitarioFrac: Number(p.custo_unitario_frac ?? p.custo_unitario),
+      custoUnitarioRolo: Number(p.custo_unitario_rolo ?? p.custo_unitario),
+      costExtraValue: Number(p.cost_extra_value),
+      costTaxPercent: Number(p.cost_tax_percent),
+      priceRoloMin: Number(p.price_rolo_min),
+      priceRoloIdeal: Number(p.price_rolo_ideal),
+      priceFracMin: Number(p.price_frac_min),
+      priceFracIdeal: Number(p.price_frac_ideal),
+      active: p.active,
+      updatedAt: p.updated_at,
+      taxOrigin: p.tax_origin,
+      ncmCode: p.ncm_code,
+      supplierState: p.supplier_state
     }));
   }
 
   static async updateMasterProduct(product: Partial<MasterProduct>, user: User, originalSku: string): Promise<{ success: boolean; message?: string; warning?: string }> {
     if (!supabase) return { success: false, message: 'Offline' };
-    
+
     const payload = {
-        sku: product.sku,
-        nome: product.nome,
-        categoria: product.categoria,
-        marca: product.marca,
-        fornecedor: product.fornecedor,
-        largura_l: product.larguraL,
-        metragem_padrao: product.metragemPadrao,
-        estoque_minimo: product.estoqueMinimo,
-        custo_unitario: product.custoUnitario,
-        preco_venda: product.precoVenda,
-        active: product.active,
-        custo_unitario_frac: product.custoUnitarioFrac,
-        custo_unitario_rolo: product.custoUnitarioRolo,
-        cost_extra_value: product.costExtraValue,
-        cost_tax_percent: product.costTaxPercent,
-        price_rolo_min: product.priceRoloMin,
-        price_rolo_ideal: product.priceRoloIdeal,
-        price_frac_min: product.priceFracMin,
-        price_frac_ideal: product.priceFracIdeal,
-        updated_at: new Date().toISOString(),
-        ncm_code: product.ncmCode,
-        tax_origin: product.taxOrigin,
-        supplier_state: product.supplierState,
-        cost_unit: product.costUnit
+      sku: product.sku,
+      nome: product.nome,
+      categoria: product.categoria,
+      marca: product.marca,
+      fornecedor: product.fornecedor,
+      largura_l: product.larguraL,
+      metragem_padrao: product.metragemPadrao,
+      estoque_minimo: product.estoqueMinimo,
+      custo_unitario: product.custoUnitario,
+      preco_venda: product.precoVenda,
+      active: product.active,
+      custo_unitario_frac: product.custoUnitarioFrac,
+      custo_unitario_rolo: product.custoUnitarioRolo,
+      cost_extra_value: product.costExtraValue,
+      cost_tax_percent: product.costTaxPercent,
+      price_rolo_min: product.priceRoloMin,
+      price_rolo_ideal: product.priceRoloIdeal,
+      price_frac_min: product.priceFracMin,
+      price_frac_ideal: product.priceFracIdeal,
+      updated_at: new Date().toISOString(),
+      ncm_code: product.ncmCode,
+      tax_origin: product.taxOrigin,
+      supplier_state: product.supplierState,
+      cost_unit: product.costUnit
     };
 
     const { error } = await supabase.from('master_catalog').update(payload).eq('sku', originalSku);
@@ -242,24 +242,24 @@ export class DataService {
     const { data, error } = await supabase.from('sales_history').select('*').order('sale_date', { ascending: false }).limit(limit);
     if (error) throw error;
     return (data || []).map(s => ({
-        id: s.id,
-        externalId: s.external_id,
-        orderNumber: s.order_number,
-        saleDate: s.sale_date,
-        status: s.status,
-        contactName: s.contact_name,
-        sku: s.sku,
-        description: s.description,
-        quantity: Number(s.quantity),
-        unitPrice: Number(s.unit_price),
-        salesRep: s.sales_rep,
-        trackingCode: s.tracking_code,
+      id: s.id,
+      externalId: s.external_id,
+      orderNumber: s.order_number,
+      saleDate: s.sale_date,
+      status: s.status,
+      contactName: s.contact_name,
+      sku: s.sku,
+      description: s.description,
+      quantity: Number(s.quantity),
+      unitPrice: Number(s.unit_price),
+      salesRep: s.sales_rep,
+      trackingCode: s.tracking_code,
 
-        // NOVOS CAMPOS PARA O DRE
-        totalAmount: Number(s.total_amount || 0),
-        totalFreight: Number(s.total_freight || 0),
-        orderDiscount: Number(s.order_discount || 0),
-        totalDiscount: Number(s.total_discount || 0)
+      // NOVOS CAMPOS PARA O DRE
+      totalAmount: Number(s.total_amount || 0),
+      totalFreight: Number(s.total_freight || 0),
+      orderDiscount: Number(s.order_discount || 0),
+      totalDiscount: Number(s.total_discount || 0)
     }));
   }
 
@@ -268,31 +268,31 @@ export class DataService {
     const { data, error } = await supabase.from('sales_history').select('*').in('external_id', ids);
     if (error) throw error;
     return (data || []).map(s => ({
-        id: s.id,
-        externalId: s.external_id,
-        status: s.status
+      id: s.id,
+      externalId: s.external_id,
+      status: s.status
     }));
   }
 
   static async importSalesHistoryBatch(items: SalesHistoryItem[], user: User): Promise<{ success: boolean; count: number }> {
     if (!supabase) return { success: false, count: 0 };
-    
+
     const dbItems = items.map(i => ({
-        external_id: i.externalId,
-        order_number: i.orderNumber,
-        sale_date: i.saleDate,
-        status: i.status,
-        contact_name: i.contactName,
-        sku: i.sku,
-        description: i.description,
-        quantity: i.quantity,
-        unit_price: i.unitPrice,
-        total_amount: (i.quantity || 0) * (i.unitPrice || 0),
-        sales_rep: i.salesRep,
-        tracking_code: i.trackingCode,
-        // Adicione também na importação manual, se usar
-        total_freight: i.totalFreight,
-        order_discount: i.orderDiscount
+      external_id: i.externalId,
+      order_number: i.orderNumber,
+      sale_date: i.saleDate,
+      status: i.status,
+      contact_name: i.contactName,
+      sku: i.sku,
+      description: i.description,
+      quantity: i.quantity,
+      unit_price: i.unitPrice,
+      total_amount: (i.quantity || 0) * (i.unitPrice || 0),
+      sales_rep: i.salesRep,
+      tracking_code: i.trackingCode,
+      // Adicione também na importação manual, se usar
+      total_freight: i.totalFreight,
+      order_discount: i.orderDiscount
     }));
 
     const { error } = await supabase.from('sales_history').upsert(dbItems, { onConflict: 'external_id' });
@@ -305,39 +305,39 @@ export class DataService {
     if (!supabase) return [];
     const { data, error } = await supabase.from('crm_opportunities').select('*').order('created_at', { ascending: false });
     if (error) {
-        if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
-        throw error;
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
+      throw error;
     }
     return (data || []).map(d => ({
-        id: d.id,
-        clientName: d.client_name,
-        companyName: d.company_name,
-        phone: d.phone,
-        status: d.status,
-        nextFollowUp: d.next_follow_up,
-        notes: d.notes,
-        createdAt: d.created_at,
-        ownerId: d.owner_id,
-        instagramLink: d.instagram_link,
-        prospector: d.prospector,
-        attendant: d.attendant
+      id: d.id,
+      clientName: d.client_name,
+      companyName: d.company_name,
+      phone: d.phone,
+      status: d.status,
+      nextFollowUp: d.next_follow_up,
+      notes: d.notes,
+      createdAt: d.created_at,
+      ownerId: d.owner_id,
+      instagramLink: d.instagram_link,
+      prospector: d.prospector,
+      attendant: d.attendant
     }));
   }
 
   static async saveCRMOpportunity(opp: CRMOpportunity): Promise<{ success: boolean; message?: string; id?: string }> {
     if (!supabase) return { success: false, message: 'Offline' };
     const payload: any = {
-        client_name: opp.clientName,
-        company_name: opp.companyName,
-        phone: opp.phone,
-        status: opp.status,
-        next_follow_up: opp.nextFollowUp || null,
-        notes: opp.notes || null,
-        updated_at: new Date().toISOString(),
-        owner_id: opp.ownerId, 
-        instagram_link: opp.instagramLink || null,
-        prospector: opp.prospector || null,
-        attendant: opp.attendant || null
+      client_name: opp.clientName,
+      company_name: opp.companyName,
+      phone: opp.phone,
+      status: opp.status,
+      next_follow_up: opp.nextFollowUp || null,
+      notes: opp.notes || null,
+      updated_at: new Date().toISOString(),
+      owner_id: opp.ownerId,
+      instagram_link: opp.instagramLink || null,
+      prospector: opp.prospector || null,
+      attendant: opp.attendant || null
     };
     if (opp.id) payload.id = opp.id;
 
@@ -360,10 +360,10 @@ export class DataService {
       .select('*')
       .eq('opportunity_id', opportunityId)
       .order('created_at', { ascending: false });
-      
+
     if (error) {
-       if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
-       return [];
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
+      return [];
     }
 
     return (data || []).map(i => ({
@@ -395,8 +395,8 @@ export class DataService {
       .limit(limit);
 
     if (error) {
-       if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
-       return [];
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return [];
+      return [];
     }
 
     return (data || []).map(i => ({
@@ -415,39 +415,39 @@ export class DataService {
     const { data, error } = await supabase.from('inbound_requests').select('*').order('created_at', { ascending: false });
     if (error) return [];
     return data.map(r => ({
-        id: r.id,
-        timestamp: r.created_at,
-        solicitante: r.solicitante,
-        status: r.status,
-        items: r.items, // JSONB
-        aprovador: r.aprovador,
-        relato: r.relato
+      id: r.id,
+      timestamp: r.created_at,
+      solicitante: r.solicitante,
+      status: r.status,
+      items: r.items, // JSONB
+      aprovador: r.aprovador,
+      relato: r.relato
     }));
   }
 
   static async processInboundRequest(id: string, action: 'APROVAR' | 'RECUSAR', admin: User, relato: string, costs: Record<string, number>): Promise<boolean> {
     if (!supabase) return false;
-    
+
     const { error } = await supabase.from('inbound_requests').update({
-        status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO',
-        aprovador: admin.name,
-        relato: relato,
-        updated_at: new Date().toISOString()
+      status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO',
+      aprovador: admin.name,
+      relato: relato,
+      updated_at: new Date().toISOString()
     }).eq('id', id);
-    
+
     if (error) return false;
 
     if (action === 'APROVAR') {
-        const { data: req } = await supabase.from('inbound_requests').select('items').eq('id', id).single();
-        if (req && req.items) {
-            const items: StockItem[] = req.items.map((it: any, idx: number) => ({
-                ...it,
-                custoUnitario: costs[`${it.sku}_${idx}`] || 0,
-                responsavel: admin.name,
-                dataEntrada: new Date().toISOString()
-            }));
-            await this.processInboundBatch(items, admin);
-        }
+      const { data: req } = await supabase.from('inbound_requests').select('items').eq('id', id).single();
+      if (req && req.items) {
+        const items: StockItem[] = req.items.map((it: any, idx: number) => ({
+          ...it,
+          custoUnitario: costs[`${it.sku}_${idx}`] || 0,
+          responsavel: admin.name,
+          dataEntrada: new Date().toISOString()
+        }));
+        await this.processInboundBatch(items, admin);
+      }
     }
     return true;
   }
@@ -457,48 +457,48 @@ export class DataService {
     const { data, error } = await supabase.from('approval_cases').select('*').order('created_at', { ascending: false });
     if (error) return [];
     return data.map(c => ({
-        id: c.id,
-        timestamp: c.created_at,
-        status: c.status,
-        sku: c.sku,
-        motivo: c.motivo,
-        lpn: c.lpn,
-        solicitante: c.solicitante,
-        cliente: c.cliente,
-        quantidade: Number(c.quantidade),
-        pedido: c.pedido,
-        aprovador: c.aprovador,
-        parecer: c.parecer
+      id: c.id,
+      timestamp: c.created_at,
+      status: c.status,
+      sku: c.sku,
+      motivo: c.motivo,
+      lpn: c.lpn,
+      solicitante: c.solicitante,
+      cliente: c.cliente,
+      quantidade: Number(c.quantidade),
+      pedido: c.pedido,
+      aprovador: c.aprovador,
+      parecer: c.parecer
     }));
   }
 
   static async processCase(id: string, action: 'APROVAR' | 'RECUSAR', admin: User, relato: string): Promise<{ success: boolean; message?: string }> {
     if (!supabase) return { success: false, message: 'Offline' };
-    
+
     const { data: caseItem } = await supabase.from('approval_cases').select('*').eq('id', id).single();
     if (!caseItem) return { success: false, message: 'Caso não encontrado' };
 
     const { error } = await supabase.from('approval_cases').update({
-        status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO',
-        aprovador: admin.name,
-        parecer: relato,
-        updated_at: new Date().toISOString()
+      status: action === 'APROVAR' ? 'APROVADO' : 'RECUSADO',
+      aprovador: admin.name,
+      parecer: relato,
+      updated_at: new Date().toISOString()
     }).eq('id', id);
 
     if (error) return { success: false, message: error.message };
 
     if (action === 'APROVAR') {
-        const item = {
-            lpn: caseItem.lpn,
-            sku: caseItem.sku,
-            quantidade: caseItem.quantidade,
-            motivo: caseItem.motivo,
-            relato: `Aprovado por ${admin.name}: ${relato}`,
-            extra: { pedido: caseItem.pedido, cliente: caseItem.cliente }
-        };
-        if (caseItem.lpn) {
-            await this.processWithdrawalBatch([item], admin);
-        }
+      const item = {
+        lpn: caseItem.lpn,
+        sku: caseItem.sku,
+        quantidade: caseItem.quantidade,
+        motivo: caseItem.motivo,
+        relato: `Aprovado por ${admin.name}: ${relato}`,
+        extra: { pedido: caseItem.pedido, cliente: caseItem.cliente }
+      };
+      if (caseItem.lpn) {
+        await this.processWithdrawalBatch([item], admin);
+      }
     }
 
     return { success: true };
@@ -513,7 +513,7 @@ export class DataService {
 
   static async getDebtorsSummary(): Promise<DebtorInfo[]> {
     if (!supabase) return [];
-    
+
     const { data: arData, error } = await supabase.from('accounts_receivable').select('*');
     if (error) return [];
 
@@ -521,47 +521,65 @@ export class DataService {
     const today = new Date().toISOString().split('T')[0];
 
     arData.forEach((item: any) => {
-        const cliente = item.Cliente;
-        if (!cliente) return;
+      const cliente = item.Cliente || item.cliente;
+      if (!cliente) return;
 
-        if (!map.has(cliente)) {
-            map.set(cliente, {
-                cliente,
-                totalVencido: 0,
-                vencidoAte15d: 0,
-                vencidoMais15d: 0,
-                enviarCartorio: 0,
-                emAcordo: 0,
-                qtdTitulos: 0,
-                statusCobranca: 'REGULAR',
-                protocoloAtual: '',
-                enviadoCartorio: false,
-                acordoAtrasado: 0
-            });
-        }
+      // 1. Normalização
+      const formaPagamento = String(item['Forma de recebimento'] || item.forma_pagamento || '').toUpperCase().trim();
+      const situacao = String(item.situacao || item['Situação'] || item.Situacao || '').toUpperCase().trim();
+      const statusCobrancaDb = String(item.status_cobranca || '').toUpperCase().trim();
+      const categoria = String(item.Categoria || item.categoria || '').toUpperCase().trim();
 
-        const info = map.get(cliente)!;
-        const saldo = Number(item.Saldo || 0);
-        
-        if (item.situacao === 'EM CARTORIO' || item.status_cobranca === 'CARTORIO') {
-            info.enviadoCartorio = true;
-            info.enviarCartorio += saldo;
-            info.statusCobranca = 'CARTORIO';
-        } else if (item.id_acordo) {
-            info.emAcordo += saldo;
-            if (item['Data Vencimento'] < today && saldo > 0) {
-                info.acordoAtrasado = (info.acordoAtrasado || 0) + saldo;
-            }
-        } else if (saldo > 0.01 && item['Data Vencimento'] < today) {
-            info.totalVencido += saldo;
-            info.qtdTitulos++;
-            
-            const diffDays = (new Date(today).getTime() - new Date(item['Data Vencimento']).getTime()) / (1000 * 3600 * 24);
-            if (diffDays <= 15) info.vencidoAte15d += saldo;
-            else info.vencidoMais15d += saldo;
-            
-            if (info.statusCobranca !== 'CARTORIO') info.statusCobranca = 'COBRANCA';
+      // --- FILTRO 1: Forma de Pagamento 'BOLETO' OU ser uma Parcela de Acordo (que é PIX)
+      const isAcordoComercial = categoria === 'ACORDO COMERCIAL';
+      if (formaPagamento !== 'BOLETO' && !isAcordoComercial) return;
+
+      // --- FILTRO 2: Situação deve ser válida (Ignora CANCELADO, SUSPENSO, etc, mesmo com saldo)
+      // Lista de situações consideradas "Ativas/Cobráveis"
+      const situacoesValidas = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'NEGOCIADO', 'EM CARTORIO'];
+
+      // Se a situação não for válida E não estiver marcado como Cartório no DB, ignora
+      if (!situacoesValidas.includes(situacao) && statusCobrancaDb !== 'CARTORIO') return;
+
+      if (!map.has(cliente)) {
+        map.set(cliente, {
+          cliente,
+          totalVencido: 0,
+          vencidoAte15d: 0,
+          vencidoMais15d: 0,
+          enviarCartorio: 0,
+          emAcordo: 0,
+          qtdTitulos: 0,
+          statusCobranca: 'REGULAR',
+          protocoloAtual: '',
+          enviadoCartorio: false,
+          acordoAtrasado: 0
+        });
+      }
+
+      const info = map.get(cliente)!;
+      const saldo = Number(item.Saldo || 0);
+
+      if (item.situacao === 'EM CARTORIO' || item.status_cobranca === 'CARTORIO') {
+        info.enviadoCartorio = true;
+        info.enviarCartorio += saldo;
+        info.totalVencido += saldo; // Inclui Cartório no Total da Dívida
+        info.statusCobranca = 'CARTORIO';
+      } else if (item.id_acordo) {
+        info.emAcordo += saldo;
+        if (item['Data Vencimento'] < today && saldo > 0) {
+          info.acordoAtrasado = (info.acordoAtrasado || 0) + saldo;
         }
+      } else if (saldo > 0.01 && item['Data Vencimento'] < today) {
+        info.totalVencido += saldo;
+        info.qtdTitulos++;
+
+        const diffDays = (new Date(today).getTime() - new Date(item['Data Vencimento']).getTime()) / (1000 * 3600 * 24);
+        if (diffDays <= 15) info.vencidoAte15d += saldo;
+        else info.vencidoMais15d += saldo;
+
+        if (info.statusCobranca !== 'CARTORIO') info.statusCobranca = 'COBRANCA';
+      }
     });
 
     return Array.from(map.values());

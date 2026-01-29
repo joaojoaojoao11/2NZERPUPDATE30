@@ -18,6 +18,8 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
   // --- NOVOS ESTADOS DE NAVEGAÇÃO DE DATA (Estilo BI) ---
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [ignoreDateFilter, setIgnoreDateFilter] = useState(false); // NOVO ESTADO
+
 
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -134,22 +136,24 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
     const targetYear = currentDate.getFullYear();
 
     return data.filter(item => {
-      // 1. Filtro de Mês/Ano (Prioritário)
       if (!item.data_vencimento) return false;
 
-      // Parse manual da data YYYY-MM-DD para garantir consistência
-      const [yearStr, monthStr, dayStr] = String(item.data_vencimento).split('-');
-      const itemYear = parseInt(yearStr);
-      const itemMonth = parseInt(monthStr) - 1; // JS Months 0-11
-      const itemDay = parseInt(dayStr);
+      // Se 'ignoreDateFilter' estiver ativo E houver termo de busca, PULA a checagem de data
+      if (!ignoreDateFilter) {
+        // Parse manual da data YYYY-MM-DD para garantir consistência
+        const [yearStr, monthStr, dayStr] = String(item.data_vencimento).split('-');
+        const itemYear = parseInt(yearStr);
+        const itemMonth = parseInt(monthStr) - 1; // JS Months 0-11
+        const itemDay = parseInt(dayStr);
 
-      if (itemMonth !== targetMonth) return false;
-      if (itemYear !== targetYear) return false;
+        if (itemMonth !== targetMonth) return false;
+        if (itemYear !== targetYear) return false;
 
-      // 2. Filtro de Dia Específico (Se selecionado)
-      if (selectedDay !== null) {
-        if (itemDay !== selectedDay) return false;
-      }
+        // 2. Filtro de Dia Específico (Se selecionado)
+        if (selectedDay !== null) {
+          if (itemDay !== selectedDay) return false;
+        }
+      } // <--- FECHAMENTO DO IF (!ignoreDateFilter)
 
       // 3. Filtro Textual (Busca Inteligente)
       const matchesSearch =
@@ -186,7 +190,7 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
 
       return true;
     });
-  }, [data, searchTerm, filters, currentDate, selectedDay]);
+  }, [data, searchTerm, filters, currentDate, selectedDay, ignoreDateFilter]);
 
   // Gera os dias do mês atual para a régua
   const daysInMonth = getDaysInMonth(currentDate);
@@ -216,10 +220,15 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
   // Cálculo de Totais para a Barra Inferior
   const summary = useMemo(() => {
     return sortedData.reduce((acc, item) => {
+      // Ignora cancelados APENAS para o saldo "A Receber"
+      // Se estiver cancelado, assumimos que não há nada a receber, mesmo que o banco diga que tem saldo.
+      const isCanceled = (item.situacao || '').toUpperCase().includes('CANCELAD');
+      const saldoConsiderado = isCanceled ? 0 : (item.saldo || 0);
+
       return {
         totalDoc: acc.totalDoc + (item.valor_documento || 0),
         totalRecebido: acc.totalRecebido + (item.valor_recebido || 0),
-        totalSaldo: acc.totalSaldo + (item.saldo || 0),
+        totalSaldo: acc.totalSaldo + saldoConsiderado,
         count: acc.count + 1
       };
     }, { totalDoc: 0, totalRecebido: 0, totalSaldo: 0, count: 0 });
@@ -322,8 +331,22 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
               placeholder="Pesquisar..."
               className="w-full md:w-64 px-4 py-2 bg-transparent outline-none font-bold text-xs uppercase"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                if (!e.target.value) setIgnoreDateFilter(false);
+              }}
             />
+            {searchTerm && (
+              <button
+                onClick={() => setIgnoreDateFilter(!ignoreDateFilter)}
+                className={`mx-2 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${ignoreDateFilter
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                  }`}
+              >
+                {ignoreDateFilter ? 'Ver Mês' : 'Ver Tudo'}
+              </button>
+            )}
             <div className="h-6 w-px bg-slate-100"></div>
             <button
               onClick={() => setShowFilterModal(true)}
