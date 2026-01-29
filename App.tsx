@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, ModuleContext, ViewType, CompanySettings, AppNotification } from './types';
 import { DataService } from './services/dataService';
-import { ICONS, SYSTEM_FEATURES } from './constants'; 
-import { supabaseClient } from './services/core'; 
+import { ICONS, SYSTEM_FEATURES } from './constants';
+import { supabaseClient } from './services/core';
 
 import Login from './components/Login';
 import Inventory from './components/Inventory';
@@ -15,11 +15,11 @@ import InboundForm from './components/InboundForm';
 import AuditInventoryForm from './components/AuditInventoryForm';
 import Settings from './components/Settings';
 import HistoryHub from './components/HistoryHub';
-import MovementsList from './components/MovementsList'; 
-import AccountsReceivableForm from './components/AccountsReceivableForm'; 
+import MovementsList from './components/MovementsList';
+import AccountsReceivableForm from './components/AccountsReceivableForm';
 import AccountsPayableModule from './components/AccountsPayable';
 import CashFlowBI from './components/CashFlowBI';
-import ExpenseBI from './components/ExpenseBI'; 
+import ExpenseBI from './components/ExpenseBI';
 import InventoryBI from './components/InventoryBI';
 import HREmployees from './components/HREmployees';
 import HRPayrollModule from './components/HRPayrollModule';
@@ -28,6 +28,7 @@ import SalesPriceTable from './components/SalesPriceTable';
 import SalesHistoryModule from './components/SalesHistoryModule';
 import SalesBI from './components/SalesBI';
 import CRMModule from './components/CRMModule';
+import ClientsModule from './components/ClientsModule';
 
 interface AppErrorBoundaryState {
   hasError: boolean;
@@ -87,8 +88,8 @@ const App: React.FC = () => {
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
 
   useEffect(() => {
-    DataService.getCompanySettings().then(setCompanySettings).catch(() => {});
-    
+    DataService.getCompanySettings().then(setCompanySettings).catch(() => { });
+
     const params = new URLSearchParams(window.location.search);
     if (params.get('lpn')) {
       setModuleContext('ESTOQUE');
@@ -132,30 +133,30 @@ const App: React.FC = () => {
     try {
       switch (currentView) {
         case 'SELECAO_MODULO':
-          return <ModuleSelection 
-            onSelect={(ctx) => { 
-              setModuleContext(ctx); 
+          return <ModuleSelection
+            onSelect={(ctx) => {
+              setModuleContext(ctx);
               if (ctx === 'ESTOQUE') navigate('INVENTARIO');
               else if (ctx === 'FINANCEIRO') navigate('LANCAMENTO_RECEBER');
               else if (ctx === 'RH') navigate('RH_COLLABORATORS');
-              else if (ctx === 'COMERCIAL') navigate('SALES_PRICETABLE'); 
-            }} 
-            userPermissions={currentUser.permissions || []} 
-            isDirectory={currentUser.role === 'DIRETORIA'} 
-            userName={currentUser.name} 
+              else if (ctx === 'COMERCIAL') navigate('SALES_PRICETABLE');
+            }}
+            userPermissions={currentUser.permissions || []}
+            isDirectory={currentUser.role === 'DIRETORIA'}
+            userName={currentUser.name}
           />;
-        
+
         case 'INVENTARIO': return <Inventory currentUser={currentUser} onStartAudit={(filters) => navigate('CONFERENCIA_INVENTARIO')} />;
-        case 'BI_ESTOQUE': return <InventoryBI />; 
+        case 'BI_ESTOQUE': return <InventoryBI />;
         case 'CONFERENCIA_INVENTARIO': return <AuditInventoryForm currentUser={currentUser} onCancel={() => navigate('INVENTARIO')} onSuccess={() => navigate('INVENTARIO')} filters={null} />;
         case 'MOVEMENTS_LIST': return <MovementsList />;
         case 'HISTORICO_HUB': return <HistoryHub currentUser={currentUser} />;
         case 'ENTRADA': return <InboundForm user={currentUser} onSuccess={() => navigate('INVENTARIO')} />;
         case 'SAIDA': return <WithdrawalForm currentUser={currentUser} onSuccess={() => navigate('INVENTARIO')} />;
         case 'CATALOGO_MESTRE': return <MasterCatalog user={currentUser} />;
-        
-        case 'LANCAMENTO_RECEBER': return <AccountsReceivableForm user={currentUser} onSuccess={() => {}} mode="LISTA" />;
-        case 'INADIMPLENCIA': return <AccountsReceivableForm user={currentUser} onSuccess={() => {}} mode="INADIMPLENCIA" />;
+
+        case 'LANCAMENTO_RECEBER': return <AccountsReceivableForm user={currentUser} onSuccess={() => { }} mode="LISTA" />;
+        case 'INADIMPLENCIA': return <AccountsReceivableForm user={currentUser} onSuccess={() => { }} mode="INADIMPLENCIA" />;
         case 'CONTAS_PAGAR': return <AccountsPayableModule currentUser={currentUser} />;
         case 'BI_CAIXA': return <CashFlowBI />;
         case 'BI_DESPESAS': return <ExpenseBI />;
@@ -164,14 +165,15 @@ const App: React.FC = () => {
         case 'SALES_HISTORY': return <SalesHistoryModule user={currentUser} />;
         case 'SALES_BI': return <SalesBI />;
         case 'CRM': return <CRMModule user={currentUser} />;
+        case 'CADASTRO_CLIENTES': return <ClientsModule user={currentUser} />;
 
         case 'RH_COLLABORATORS': return <HREmployees currentUser={currentUser} />;
         case 'RH_PAYROLL': return <HRPayrollModule currentUser={currentUser} />;
         case 'RH_SERVICE_ORDERS': return <HRServiceOrdersModule currentUser={currentUser} />;
 
         case 'GESTAO_USUARIOS': return <UserManagement admin={currentUser} />;
-        case 'CONFIGURACOES': return <Settings admin={currentUser} onUpdate={setCompanySettings} onNavigate={navigate} />; 
-        
+        case 'CONFIGURACOES': return <Settings admin={currentUser} onUpdate={setCompanySettings} onNavigate={navigate} />;
+
         default: return <ModuleSelection onSelect={(ctx) => { setModuleContext(ctx); navigate('INVENTARIO'); }} userPermissions={currentUser.permissions || []} isDirectory={currentUser.role === 'DIRETORIA'} userName={currentUser.name} />;
       }
     } catch (e) {
@@ -190,7 +192,7 @@ const App: React.FC = () => {
 
         <div className="flex items-center space-x-6">
           <div className="hidden md:flex space-x-4 border-r border-slate-800 pr-6 mr-6">
-            
+
             {currentView !== 'SELECAO_MODULO' && moduleContext === 'ESTOQUE' && (
               <>
                 {hasAccess('INVENTARIO') && <button onClick={() => navigate('INVENTARIO')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'INVENTARIO' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Estoque</button>}
@@ -208,6 +210,7 @@ const App: React.FC = () => {
                 {hasAccess('SALES_HISTORY') && <button onClick={() => navigate('SALES_HISTORY')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'SALES_HISTORY' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Histórico Vendas</button>}
                 {hasAccess('SALES_BI') && <button onClick={() => navigate('SALES_BI')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'SALES_BI' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>BI Vendas</button>}
                 {hasAccess('CRM') && <button onClick={() => navigate('CRM')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'CRM' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>CRM / Pipeline</button>}
+                {hasAccess('CADASTRO_CLIENTES') && <button onClick={() => navigate('CADASTRO_CLIENTES')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'CADASTRO_CLIENTES' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Cadastros Clientes</button>}
               </>
             )}
 
@@ -228,12 +231,12 @@ const App: React.FC = () => {
                 {hasAccess('RH_SERVICE_ORDERS') && <button onClick={() => navigate('RH_SERVICE_ORDERS')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'RH_SERVICE_ORDERS' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Contratos PJ</button>}
               </>
             )}
-            
+
           </div>
-          
+
           {hasAccess('CONFIGURACOES') && (
-            <button 
-              onClick={() => navigate('CONFIGURACOES')} 
+            <button
+              onClick={() => navigate('CONFIGURACOES')}
               className="p-2.5 bg-blue-500/10 rounded-xl text-blue-500 hover:bg-blue-500 hover:text-white transition-all"
               title="Configurações"
             >

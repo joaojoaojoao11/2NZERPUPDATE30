@@ -7,7 +7,7 @@ import {
   InventoryUpdateStaging, WithdrawalReason,
   ApprovalCase, InboundRequest, DebtorInfo,
   SalesHistoryItem, CRMOpportunity, CompanySettings,
-  InventorySession, CRMInteraction, FinancialTransaction
+  InventorySession, CRMInteraction, FinancialTransaction, Client
 } from '../types';
 
 export class DataService {
@@ -583,5 +583,23 @@ export class DataService {
     });
 
     return Array.from(map.values());
+  }
+
+  static async getClients(limit = 100, offset = 0, search = ''): Promise<Client[]> {
+    if (!supabase) return [];
+
+    let query = supabase.from('clients').select('*');
+
+    if (search) {
+      query = query.or(`nome.ilike.%${search}%,cpf_cnpj.ilike.%${search}%,email.ilike.%${search}%`);
+    }
+
+    const { data, error } = await query.range(offset, offset + limit - 1).order('nome');
+
+    if (error) {
+      console.error('Erro ao buscar clientes:', error);
+      return [];
+    }
+    return data as Client[];
   }
 }

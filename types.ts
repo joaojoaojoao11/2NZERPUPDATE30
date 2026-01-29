@@ -2,28 +2,29 @@
 export type UserRole = 'DIRETORIA' | 'ADM' | 'ESTOQUISTA' | 'VENDEDOR';
 export type ModuleContext = 'ESTOQUE' | 'FINANCEIRO' | 'RH' | 'COMERCIAL' | null;
 
-export type ViewType = 
-  | 'SELECAO_MODULO' 
-  | 'INVENTARIO' 
-  | 'CONFERENCIA_INVENTARIO' 
-  | 'HISTORICO_HUB' 
-  | 'ENTRADA' 
-  | 'SAIDA' 
-  | 'CATALOGO_MESTRE' 
-  | 'GESTAO_USUARIOS' 
+export type ViewType =
+  | 'SELECAO_MODULO'
+  | 'INVENTARIO'
+  | 'CONFERENCIA_INVENTARIO'
+  | 'HISTORICO_HUB'
+  | 'ENTRADA'
+  | 'SAIDA'
+  | 'CATALOGO_MESTRE'
+  | 'GESTAO_USUARIOS'
   | 'LANCAMENTO_RECEBER'
-  | 'INADIMPLENCIA' 
+  | 'INADIMPLENCIA'
   | 'CONTAS_PAGAR'
-  | 'BI_CAIXA' 
+  | 'BI_CAIXA'
   | 'BI_DESPESAS'
   | 'BI_ESTOQUE'
   | 'RH_COLLABORATORS'
   | 'RH_PAYROLL'
   | 'RH_SERVICE_ORDERS'
-  | 'SALES_PRICETABLE' 
-  | 'SALES_HISTORY'   
+  | 'SALES_PRICETABLE'
+  | 'SALES_HISTORY'
   | 'SALES_BI'
   | 'CRM'
+  | 'CADASTRO_CLIENTES'
   | 'CONFIGURACOES'
   | 'MOVEMENTS_LIST';
 
@@ -34,7 +35,7 @@ export interface User {
   role: UserRole;
   password?: string;
   active: boolean;
-  permissions?: string[]; 
+  permissions?: string[];
 }
 
 export enum WithdrawalReason {
@@ -81,7 +82,7 @@ export interface AuditLog {
   detalhes: string;
   lote?: string;
   nome?: string;
-  valorOperacao?: number; 
+  valorOperacao?: number;
   nfControle?: string;
   tipo?: string;
   categoria?: string;
@@ -200,7 +201,7 @@ export interface Settlement {
   status: 'ATIVO' | 'FINALIZADO' | 'LIQUIDADO' | 'CANCELADO';
   usuario: string;
   observacao?: string;
-  titulosNegociados?: string[]; 
+  titulosNegociados?: string[];
 }
 
 export interface AccountsReceivable {
@@ -371,7 +372,7 @@ export interface SalesHistoryItem {
   quantity?: number;
   unitPrice?: number;
   itemDiscount?: number;
-  
+
   // --- CAMPOS FINANCEIROS CRITICOS (DRE) ---
   orderDiscount?: number;   // Desconto total do pedido
   totalAmount?: number;     // Valor total da linha (Qtd * Preço)
@@ -441,4 +442,22 @@ export interface FinancialTransaction {
   competencia?: string;
   forma_pagamento: string;
   ult_atuali?: string;
+}
+
+export interface Client {
+  id: string;
+  id_tiny?: string;
+  nome: string;
+  fantasia?: string;
+  cpf_cnpj?: string;
+  tipo_pessoa?: string;
+  email?: string;
+  telefone?: string;
+  endereco?: string;
+  bairro?: string;
+  cidade?: string;
+  estado?: string;
+  cep?: string;
+  situacao?: string;
+  last_sync?: string;
 }
