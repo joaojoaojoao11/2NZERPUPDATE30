@@ -42,6 +42,7 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
     const [isSavingOpp, setIsSavingOpp] = useState(false);
     const [salesHistory, setSalesHistory] = useState<any[] | null>(null); // Histórico de Compras Tiny
     const [showSalesWidget, setShowSalesWidget] = useState(false);
+    const [xpAnimation, setXpAnimation] = useState(false); // Animação XP
     const isLocked = selectedOpp?.status === 'DESQUALIFICADO';
 
     // Ref para scroll do feed
@@ -98,10 +99,21 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
             );
         }
 
-        // Filter by Search Term
+        // Filter by Search Term (Busca Inteligente)
         if (searchTerm.trim()) {
             const term = searchTerm.toUpperCase().trim();
-            list = list.filter(o => o.clientName.toUpperCase().includes(term));
+            list = list.filter(o => {
+                const searchString = [
+                    o.clientName,
+                    o.companyName,
+                    o.cpfCnpj,
+                    o.address,
+                    o.email,
+                    ...(o.tags || [])
+                ].filter(Boolean).join(' ').toUpperCase();
+
+                return searchString.includes(term);
+            });
         }
 
         return list;
@@ -149,6 +161,54 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
         }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [oppInteractions]);
 
+    // <<< CRM 2.0: INTELIGÊNCIA E GAMIFICAÇÃO >>>
+    const calculateIntel = (opp: CRMOpportunity, interactions: CRMInteraction[]) => {
+        let xp = 0;
+        // 1. Completude de Perfil
+        if (opp.clientName) xp += 10;
+        if (opp.cpfCnpj) xp += 15;
+        if (opp.email) xp += 10;
+        if (opp.phone) xp += 10;
+        if (opp.address) xp += 10;
+        if (opp.instagramLink) xp += 10;
+        if (opp.prospector) xp += 5;
+        if (opp.attendant) xp += 5;
+        if (opp.tags && opp.tags.length > 0) xp += (opp.tags.length * 2);
+
+        // 2. Interações (Notas) e Vendas
+        const salesCount = interactions.filter(i => i.content && i.content.includes('::JSON::')).length;
+        const notesCount = interactions.length - salesCount;
+
+        xp += (salesCount * 50); // Venda vale muito!
+        xp += (notesCount * 5);  // Notas simples valem 5
+
+        // 3. Follow-up
+        if (opp.nextFollowUp) xp += 10;
+
+        // --- ENGAJAMENTO (TERMÔMETRO) ---
+        let score = 50; // Base
+        if (interactions.length > 0) {
+            const lastDate = new Date(interactions[0].createdAt).getTime();
+            const now = new Date().getTime();
+            const diffDays = Math.floor((now - lastDate) / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 3) score = 100;
+            else if (diffDays < 7) score = 85;
+            else if (diffDays < 15) score = 60;
+            else if (diffDays < 30) score = 30;
+            else score = 10;
+        } else {
+            score = 10;
+        }
+
+        return { xp, score };
+    };
+
+    const triggerXpAnimation = () => {
+        setXpAnimation(true);
+        setTimeout(() => setXpAnimation(false), 2000);
+    };
+
     const handleOpenCard = async (opp: CRMOpportunity | 'NEW') => {
         if (opp === 'NEW') {
             setSelectedOpp({
@@ -193,7 +253,11 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
 
         setIsSavingOpp(true);
         try {
-            const res = await DataService.saveCRMOpportunity(selectedOpp);
+            // Recalcula intel antes de salvar
+            const { xp, score } = calculateIntel(selectedOpp, oppInteractions);
+            const toSave = { ...selectedOpp, xpReward: xp, engagementScore: score };
+
+            const res = await DataService.saveCRMOpportunity(toSave);
             if (res.success) {
                 setToast({ msg: 'Dados salvos com sucesso!', type: 'success' });
                 // Atualiza lista em background
@@ -223,6 +287,11 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                 // Recarrega feed local
                 const updated = await DataService.getCRMInteractions(selectedOpp.id);
                 setOppInteractions(updated);
+
+                // Ganho de XP por nota
+                const { xp, score } = calculateIntel(selectedOpp, updated);
+                setSelectedOpp(prev => prev ? { ...prev, xpReward: xp, engagementScore: score } : null);
+                triggerXpAnimation();
             }
         } catch (e) {
             setToast({ msg: 'Erro ao postar nota.', type: 'error' });
@@ -443,7 +512,7 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                             col.color.includes('red') ? 'bg-red-500' : 'bg-slate-500';
 
                                 return (
-                                    <div key={col.id} className="flex-1 flex flex-col min-w-[320px] w-[320px] h-full group">
+                                    <div key={col.id} className="flex-1 flex flex-col min-w-[320px] w-[320px] h-full">
                                         <div className="mb-5 flex items-center justify-between px-1">
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-1.5 h-1.5 rounded-full ${accentColor} shadow-[0_0_10px_rgba(0,0,0,0.2)]`}></div>
@@ -464,8 +533,14 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Em Foco</span>
                                                     </div>
                                                     {priorityItems.map((opp) => (
-                                                        <div key={opp.id} className="transform transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02]">
-                                                            <SocialCard opp={opp} onClick={() => handleOpenCard(opp)} />
+                                                        <div key={opp.id || `priority-${opp.clientName}`}>
+                                                            <SocialCard
+                                                                opp={opp}
+                                                                onClick={() => handleOpenCard(opp)}
+                                                                onMove={(dir) => handleMoveCard(opp, dir)}
+                                                                isFirstCol={col.id === COLUMNS[0].id}
+                                                                isLastCol={col.id === COLUMNS[COLUMNS.length - 1].id}
+                                                            />
                                                         </div>
                                                     ))}
                                                 </div>
@@ -479,8 +554,14 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Próximos</span>
                                                     </div>
                                                     {scheduledItems.map((opp) => (
-                                                        <div key={opp.id} className="transform transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02] opacity-90 hover:opacity-100">
-                                                            <SocialCard opp={opp} onClick={() => handleOpenCard(opp)} />
+                                                        <div key={opp.id || `sched-${opp.clientName}`} className="opacity-90 hover:opacity-100 transition-opacity">
+                                                            <SocialCard
+                                                                opp={opp}
+                                                                onClick={() => handleOpenCard(opp)}
+                                                                onMove={(dir) => handleMoveCard(opp, dir)}
+                                                                isFirstCol={col.id === COLUMNS[0].id}
+                                                                isLastCol={col.id === COLUMNS[COLUMNS.length - 1].id}
+                                                            />
                                                         </div>
                                                     ))}
                                                 </div>
@@ -494,8 +575,14 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Sem Contato</span>
                                                     </div>
                                                     {notContactedItems.map((opp) => (
-                                                        <div key={opp.id} className="transform transition-all duration-300 hover:-translate-y-1 hover:scale-[1.02] opacity-80 hover:opacity-100 grayscale hover:grayscale-0">
-                                                            <SocialCard opp={opp} onClick={() => handleOpenCard(opp)} />
+                                                        <div key={opp.id || `cold-${opp.clientName}`} className="opacity-80 hover:opacity-100 grayscale hover:grayscale-0 transition-all">
+                                                            <SocialCard
+                                                                opp={opp}
+                                                                onClick={() => handleOpenCard(opp)}
+                                                                onMove={(dir) => handleMoveCard(opp, dir)}
+                                                                isFirstCol={col.id === COLUMNS[0].id}
+                                                                isLastCol={col.id === COLUMNS[COLUMNS.length - 1].id}
+                                                            />
                                                         </div>
                                                     ))}
                                                 </div>
@@ -549,8 +636,13 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                         // Por enquanto, enrichOpportunity traz LTV e Datas. 
                                                         // TODO: Buscar dados cadastrais (telefone, cidade) se o backend suportar no futuro.
 
-                                                        setSelectedOpp(prev => prev ? { ...prev, ...enriched } : null);
+                                                        setSelectedOpp(prev => {
+                                                            const updated = { ...prev, ...enriched } as CRMOpportunity;
+                                                            const { xp, score } = calculateIntel(updated, oppInteractions);
+                                                            return { ...updated, xpReward: xp, engagementScore: score };
+                                                        });
                                                         setToast({ msg: 'Dados enriquecidos com sucesso!', type: 'success' });
+                                                        triggerXpAnimation();
                                                     } else {
                                                         setToast({ msg: 'Cliente não encontrado ou sem histórico no Tiny.', type: 'error' });
                                                     }
@@ -567,19 +659,38 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                     </div>
 
                                     {/* PAINEL DE MÉTRICAS (LTV & ENGAGEMENT) - REMOVIDO LTV TOTAL (User Request) */}
-                                    <div className="grid grid-cols-2 gap-3 mb-6">
-                                        <div className="bg-gradient-to-br from-amber-50 to-white p-4 rounded-2xl border border-amber-100 shadow-sm flex flex-col items-center justify-center text-center">
+                                    <div className="grid grid-cols-2 gap-3 mb-6 relative">
+                                        <div className="bg-gradient-to-br from-amber-50 to-white p-4 rounded-2xl border border-amber-100 shadow-sm flex flex-col items-center justify-center text-center overflow-hidden relative">
                                             <span className="text-[9px] font-bold text-amber-400 uppercase tracking-wider mb-1">XP Reward</span>
                                             <span className="text-lg font-black text-amber-600 leading-none">
                                                 ★ {selectedOpp.xpReward || 0}
                                             </span>
+                                            {xpAnimation && (
+                                                <div className="absolute inset-0 flex items-center justify-center bg-amber-500/10 pointer-events-none animate-in fade-in zoom-in-150 duration-500">
+                                                    <span className="text-amber-600 font-black text-xs animate-bounce">+ XP!</span>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="bg-gradient-to-br from-blue-50 to-white p-4 rounded-2xl border border-blue-100 shadow-sm flex flex-col items-center justify-center text-center">
                                             <span className="text-[9px] font-bold text-blue-400 uppercase tracking-wider mb-1">Engajamento</span>
-                                            <div className="w-full bg-blue-100/50 h-1.5 rounded-full mt-2 mb-1 overflow-hidden">
-                                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${selectedOpp.engagementScore || 50}%` }}></div>
+                                            <div className="w-full bg-blue-100/30 h-1.5 rounded-full mt-2 mb-1 overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full transition-all duration-1000 ${selectedOpp.engagementScore && selectedOpp.engagementScore > 70 ? 'bg-emerald-500' :
+                                                        selectedOpp.engagementScore && selectedOpp.engagementScore > 40 ? 'bg-blue-500' : 'bg-red-400'
+                                                        }`}
+                                                    style={{ width: `${selectedOpp.engagementScore || 50}%` }}
+                                                ></div>
                                             </div>
-                                            <span className="text-[8px] font-black text-blue-600">{selectedOpp.engagementScore || 50}/100</span>
+                                            <div className="flex items-center gap-1">
+                                                <span className={`text-[8px] font-black uppercase ${selectedOpp.engagementScore && selectedOpp.engagementScore > 70 ? 'text-emerald-600' :
+                                                    selectedOpp.engagementScore && selectedOpp.engagementScore > 40 ? 'text-blue-600' : 'text-red-600'
+                                                    }`}>
+                                                    {selectedOpp.engagementScore && selectedOpp.engagementScore > 70 ? '🔥 Quente' :
+                                                        selectedOpp.engagementScore && selectedOpp.engagementScore > 40 ? '⚡ Ativo' : '❄️ Frio'}
+                                                </span>
+                                                <span className="text-[8px] font-bold text-slate-300">|</span>
+                                                <span className="text-[8px] font-black text-slate-400">{selectedOpp.engagementScore || 50}/100</span>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -605,6 +716,12 @@ const CRMModule: React.FC<CRMModuleProps> = ({ user, onNavigate }) => {
                                                             if (count > 0) {
                                                                 const updatedInteractions = await DataService.getCRMInteractions(selectedOpp.id);
                                                                 setOppInteractions(updatedInteractions);
+
+                                                                // Recalcula XP com novas vendas
+                                                                const { xp, score } = calculateIntel(selectedOpp, updatedInteractions);
+                                                                setSelectedOpp(prev => prev ? { ...prev, xpReward: xp, engagementScore: score } : null);
+                                                                triggerXpAnimation();
+
                                                                 setToast({ msg: `${count} novos pedidos salvos na timeline.`, type: 'success' });
                                                             } else {
                                                                 setToast({ msg: `Histórico atualizado.`, type: 'success' });
