@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const TINY_TOKEN = "54ba8ea7422b4e6f4264dc2ed007f48498ec8f973b499fe3694f225573d290e0";
+const TINY_TOKEN = Deno.env.get('TINY_TOKEN') || "";
 
 // --- NOVA FUNÇÃO SEGURA PARA DATA DE LIQUIDAÇÃO (Espelhado de expense-integration) ---
 function safeDate(raw: any): string | null {

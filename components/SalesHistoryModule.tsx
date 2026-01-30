@@ -45,6 +45,11 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     direction: 'desc'
   });
 
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({
+    key: 'saleDate',
+    direction: 'desc'
+  });
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -75,7 +80,8 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     }
 
     setIsSyncing(true);
-    setToast({ msg: 'Iniciando sincronização com Olist...', type: 'info' });
+    setIsSyncing(true);
+    setToast({ msg: 'Iniciando sincronização com Tiny...', type: 'info' });
     try {
       // CORREÇÃO: Invoca a Edge Function correta 'olist-integration'.
       const { data, error } = await supabase.functions.invoke('olist-integration');
@@ -146,8 +152,26 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
       if (salesRepFilter !== 'TODOS' && getNormalizedRep(item.salesRep) !== salesRepFilter) return false;
 
       return true;
+    }).sort((a: any, b: any) => {
+      if (!sortConfig.key) return 0;
+      let valA = a[sortConfig.key];
+      let valB = b[sortConfig.key];
+
+      // Tratamento especial para datas e números
+      if (sortConfig.key === 'totalAmount' || sortConfig.key === 'quantity' || sortConfig.key === 'unitPrice') {
+        const numA = Number(valA) || 0;
+        const numB = Number(valB) || 0;
+        return sortConfig.direction === 'asc' ? numA - numB : numB - numA;
+      }
+
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+
+      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
     });
-  }, [historyData, searchTerm, startDate, endDate, statusFilter, salesRepFilter]);
+  }, [historyData, searchTerm, startDate, endDate, statusFilter, salesRepFilter, sortConfig]);
 
   const commissionStats = useMemo(() => {
     const rep = selectedCommissionRep;
@@ -359,6 +383,10 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
     setSalesRepFilter('TODOS');
   };
 
+  const handleSort = (key: string) => {
+    setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc' }));
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-10 flex flex-col h-full">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -384,7 +412,7 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
             ) : (
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
             )}
-            <span>Sincronizar Olist</span>
+            <span>Sincronizar Tiny</span>
           </button>
         </div>
       </div>
@@ -463,17 +491,39 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
           <table className="w-full border-separate border-spacing-0" style={{ minWidth: '2000px' }}>
             <thead className="sticky top-0 z-20">
               <tr>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 sticky left-0 z-30">ID</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-center border-b border-slate-800">Data Venda</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800">Pedido</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800">Cliente</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800">SKU</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800">Produto</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-center border-b border-slate-800">Qtd</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-right border-b border-slate-800">Total</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-center border-b border-slate-800">Situação</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800">Rastreio</th>
-                <th className="bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800">Vendedor</th>
+                <th onClick={() => handleSort('id')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 sticky left-0 z-30 transition-colors">
+                  ID <SortIndicator active={sortConfig.key === 'id'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('saleDate')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-center border-b border-slate-800 transition-colors">
+                  Data Venda <SortIndicator active={sortConfig.key === 'saleDate'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('orderNumber')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 transition-colors">
+                  Pedido <SortIndicator active={sortConfig.key === 'orderNumber'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('contactName')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 transition-colors">
+                  Cliente <SortIndicator active={sortConfig.key === 'contactName'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('sku')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 transition-colors">
+                  SKU <SortIndicator active={sortConfig.key === 'sku'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('description')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 transition-colors">
+                  Produto <SortIndicator active={sortConfig.key === 'description'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('quantity')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-center border-b border-slate-800 transition-colors">
+                  Qtd <SortIndicator active={sortConfig.key === 'quantity'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('totalAmount')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-right border-b border-slate-800 transition-colors">
+                  Total <SortIndicator active={sortConfig.key === 'totalAmount'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('status')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-center border-b border-slate-800 transition-colors">
+                  Situação <SortIndicator active={sortConfig.key === 'status'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('trackingCode')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 transition-colors">
+                  Rastreio <SortIndicator active={sortConfig.key === 'trackingCode'} direction={sortConfig.direction} />
+                </th>
+                <th onClick={() => handleSort('salesRep')} className="cursor-pointer hover:bg-slate-800 bg-slate-900 text-slate-400 px-6 py-4 text-[9px] font-black uppercase tracking-widest text-left border-b border-slate-800 transition-colors">
+                  Vendedor <SortIndicator active={sortConfig.key === 'salesRep'} direction={sortConfig.direction} />
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -490,8 +540,8 @@ const SalesHistoryModule: React.FC<SalesHistoryModuleProps> = ({ user }) => {
                   <td className="px-6 py-4 text-right font-black text-slate-900 text-[11px]">R$ {item.totalAmount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                   <td className="px-6 py-4 text-center">
                     <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase border ${(item.status || '').includes('CANCEL') ? 'bg-red-50 text-red-600 border-red-100' :
-                        (item.status || '').includes('PENDENTE') ? 'bg-amber-50 text-amber-600 border-amber-100' :
-                          'bg-emerald-50 text-emerald-600 border-emerald-100'
+                      (item.status || '').includes('PENDENTE') ? 'bg-amber-50 text-amber-600 border-amber-100' :
+                        'bg-emerald-50 text-emerald-600 border-emerald-100'
                       }`}>
                       {item.status}
                     </span>

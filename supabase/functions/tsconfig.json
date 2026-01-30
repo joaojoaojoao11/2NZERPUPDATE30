@@ -5,8 +5,7 @@
     "lib": [
       "esnext",
       "dom",
-      "dom.iterable",
-      "deno.ns"
+      "dom.iterable"
     ],
     "moduleResolution": "node",
     "strict": true,
