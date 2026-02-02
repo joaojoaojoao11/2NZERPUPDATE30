@@ -1,6 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
-// --- FUNÇÃO DE DATA BLINDADA (Corrige fuso horário) ---
+// --- CONFIGURAÇÕES ---
+const START_DATE_DEFAULT = '2025-12-01';
+const SYNC_CURSOR_ID = 'finance_sync_day_cursor';
+
 function parseTinyDate(dateStr: string | null): string | null {
     if (!dateStr || typeof dateStr !== 'string') return null;
     try {
@@ -10,19 +13,14 @@ function parseTinyDate(dateStr: string | null): string | null {
             [day, month, year] = cleanDate.split('/');
         } else if (cleanDate.includes('-')) {
             [year, month, day] = cleanDate.split('-');
-        } else {
-            return null;
-        }
-        // Fixa ao meio-dia UTC para evitar que o fuso horário mude o dia
+        } else { return null; }
         return new Date(`${year}-${month}-${day}T12:00:00.000Z`).toISOString();
     } catch (e) { return null; }
 }
 
-// --- PAUSA DE RESPEITO À API (Evita bloqueio 429) ---
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 Deno.serve(async (req) => {
-    // 1. CONFIGURAÇÃO CORS
     const requestOrigin = req.headers.get('Origin') || '*';
     const corsHeaders = {
         'Access-Control-Allow-Origin': requestOrigin,
@@ -34,257 +32,204 @@ Deno.serve(async (req) => {
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
     try {
-        // 2. CREDENCIAIS
         const TOKEN_TINY = Deno.env.get('TINY_TOKEN') || Deno.env.get('OLIST_API_KEY') || "";
         const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
         const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
-        if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) throw new Error('Configuração incompleta no Supabase.');
-
-        let token = TOKEN_TINY;
-        if (token.includes("=")) token = token.split('=').pop()?.trim() || token;
-        token = token.trim();
-
+        if (!TOKEN_TINY || !SUPABASE_URL || !SERVICE_ROLE_KEY) throw new Error('Configuração incompleta.');
+        let token = TOKEN_TINY.includes("=") ? TOKEN_TINY.split('=').pop()?.trim() || TOKEN_TINY : TOKEN_TINY.trim();
         const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-        // --- RESET TOTAL (OPÇÃO NUCLEAR) ---
+        // --- RESET ---
         let body = {};
         try { body = await req.json(); } catch (e) { }
-
         if (body && (body as any).action === 'reset_db') {
-            console.log(`[FinanceSync] ☢️ ATENÇÃO: RESET TOTAL SOLICITADO! LIMPANDO BANCO...`);
-            const { error: delErr } = await supabase.from('accounts_receivable').delete().neq('ID', '0');
-            if (delErr) console.error(`[FinanceSync] Erro ao limpar banco:`, delErr);
-            else console.log(`[FinanceSync] Banco limpo com sucesso. Iniciando recarga total.`);
+            console.log(`[FinanceSync] ☢️ RESET DB...`);
+            await supabase.from('accounts_receivable').delete().neq('ID', '0');
+            await supabase.from('finance_sync_state').delete().eq('id', SYNC_CURSOR_ID);
         }
 
-        console.log(`[FinanceSync] Iniciando Sincronização Espelhada (Mirror Mode)...`);
+        // --- CURSOR (FORÇA DEZ 2025 SE ANTERIOR) ---
+        let currentDateStr = START_DATE_DEFAULT;
+        const { data: stateData } = await supabase.from('finance_sync_state').select('last_date').eq('id', SYNC_CURSOR_ID).single();
 
-        let totalSalvo = 0;
+        if (stateData && stateData.last_date) {
+            const cursorDb = new Date(stateData.last_date);
+            const targetStart = new Date(START_DATE_DEFAULT);
+
+            if (cursorDb < targetStart) {
+                // Se o cursor for velho, avança
+                currentDateStr = START_DATE_DEFAULT;
+                console.log(`[FinanceSync] ⏩ Avançando cursor antigo (${stateData.last_date}) para alvo: ${currentDateStr}`);
+            } else {
+                const lastDate = new Date(stateData.last_date + "T12:00:00.000Z");
+                lastDate.setDate(lastDate.getDate() + 1);
+                currentDateStr = lastDate.toISOString().split('T')[0];
+                console.log(`[FinanceSync] 🔄 Retomando de: ${currentDateStr}`);
+            }
+        } else {
+            console.log(`[FinanceSync] 🚀 Iniciando alvo: ${currentDateStr}`);
+        }
+
         const startTime = performance.now();
-        const itemsPorPagina = 100;
-        const idsProcessados = new Set<string>();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-        // 3. ESTRATÉGIAS DE BUSCA 
-        const hoje = new Date();
-        const sessentaDiasAtras = new Date();
-        sessentaDiasAtras.setDate(hoje.getDate() - 60);
-        const formatDataTiny = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+        let daysProcessed = 0;
+        let cursorDate = new Date(currentDateStr + "T12:00:00.000Z");
 
-        const estrategias = [
-            // Estratégia 1: O que mudou recentemente (foco em pagamentos e baixas)
-            { nome: "RECÉM PAGOS (60d)", usePagamento: true, dataIni: formatDataTiny(sessentaDiasAtras), dataFim: formatDataTiny(hoje) },
-            // Estratégia 2: Varredura Completa por Emissão (Garante que novos títulos entrem)
-            { nome: "2026 (ATUAL)", dataIni: "01/01/2026", dataFim: "31/12/2026" },
-            { nome: "2025 (ANTERIOR)", dataIni: "01/01/2025", dataFim: "31/12/2025" }
-        ];
+        while (cursorDate <= today) {
+            if ((performance.now() - startTime) > 50000) {
+                console.log(`[FinanceSync] ⏳ Tempo limite. Parando em ${currentDateStr}.`);
+                break;
+            }
 
-        for (const est of estrategias) {
-            if ((performance.now() - startTime) > 55000) break;
+            const visualDate = cursorDate.toISOString().split('T')[0];
+            const tinyDateFmt = `${String(cursorDate.getDate()).padStart(2, '0')}/${String(cursorDate.getMonth() + 1).padStart(2, '0')}/${cursorDate.getFullYear()}`;
+
+            console.log(`[FinanceSync] 📅 Processando VENCIMENTOS dia: ${tinyDateFmt} ...`);
 
             let pagina = 1;
-            const stateId = `finance_receber_${est.nome.replace(/\s/g, '_')}`;
+            let temMaisPaginas = true;
 
-            // Checkpoint para fases longas
-            const { data: savedState } = await supabase.from('finance_sync_state').select('last_page').eq('id', stateId).single();
-            if (savedState && savedState.last_page) {
-                console.log(`[Checkpoint] Retomando fase ${est.nome} da página ${savedState.last_page + 1}`);
-                pagina = savedState.last_page + 1;
+            while (temMaisPaginas) {
+                await sleep(1500); // 1.5s entre chamadas de lista
+
+                const url = new URL('https://api.tiny.com.br/api2/contas.receber.pesquisa.php');
+                url.searchParams.set('token', token);
+                url.searchParams.set('formato', 'json');
+                url.searchParams.set('limit', '100');
+                url.searchParams.set('pagina', String(pagina));
+                // [MUDANÇA] Filtro por VENCIMENTO (Melhor proxy para Liquidação)
+                url.searchParams.set('data_ini_vencimento', tinyDateFmt);
+                url.searchParams.set('data_fim_vencimento', tinyDateFmt);
+
+                const res = await fetch(url.toString());
+                const json = await res.json();
+
+                if (json.retorno.status === 'Erro') {
+                    const msg = json.retorno.erros[0].erro;
+                    if (json.retorno.codigo_erro == 20 || msg.toLowerCase().includes('não existe')) {
+                        temMaisPaginas = false;
+                    } else if (msg.includes('Bloqueada') || msg.includes('Excedido')) {
+                        console.error(`[FinanceSync] 🛑 BLOQUEIO TINY no dia ${tinyDateFmt}. Salvando estado anterior.`);
+                        // Não avança o cursor, apenas para.
+                        return new Response(JSON.stringify({ error: "API Bloqueada" }), { headers: corsHeaders, status: 429 });
+                    } else {
+                        console.warn(`[FinanceSync] Aviso dia ${tinyDateFmt}: ${msg}`);
+                        temMaisPaginas = false;
+                    }
+                } else {
+                    const contas = (json.retorno.contas || []).map((c: any) => c.conta);
+                    if (contas.length === 0) {
+                        temMaisPaginas = false;
+                    } else {
+                        console.log(`   -> Dia ${tinyDateFmt} - Pág ${pagina}: ${contas.length} contas.`);
+                        await processarContas(supabase, contas, token, startTime);
+                        if (contas.length < 100) temMaisPaginas = false;
+                        else pagina++;
+                    }
+                }
             }
 
-            let stopFase = false;
-            let totalValorFase = 0;
-            let totalSaldoFase = 0;
-            const allTinyIDsThisPhase = new Set<string>();
-            let phaseCompleted = false;
+            // --- SAVEPOINT ---
+            await supabase.from('finance_sync_state').upsert({
+                id: SYNC_CURSOR_ID,
+                last_date: visualDate
+            });
 
-            while (!stopFase) {
-                if ((performance.now() - startTime) > 55000) {
-                    console.log("[FinanceSync] Tempo limite. Encerrando com segurança.");
-                    break;
-                }
+            console.log(`[FinanceSync] ✅ Dia ${tinyDateFmt} Sucesso.`);
+            daysProcessed++;
+            cursorDate.setDate(cursorDate.getDate() + 1);
+        }
 
-                await sleep(3000); // Respeito à API do Tiny
+        return new Response(JSON.stringify({ message: "Sync Executado", days: daysProcessed }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
 
-                const urlBusca = new URL('https://api.tiny.com.br/api2/contas.receber.pesquisa.php');
-                urlBusca.searchParams.set('token', token);
-                urlBusca.searchParams.set('formato', 'json');
-                urlBusca.searchParams.set('limit', String(itemsPorPagina));
-                urlBusca.searchParams.set('pagina', String(pagina));
+    } catch (err: any) {
+        console.error(err);
+        return new Response(JSON.stringify({ error: err.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
+    }
+});
 
-                if (est.usePagamento) {
-                    urlBusca.searchParams.set('data_ini_vencimento', est.dataIni);
-                    urlBusca.searchParams.set('data_fim_vencimento', est.dataFim);
-                } else {
-                    urlBusca.searchParams.set('data_ini_emissao', est.dataIni);
-                    urlBusca.searchParams.set('data_fim_emissao', est.dataFim);
-                }
+async function processarContas(supabase: any, contas: any[], token: string, startTime: number) {
+    const allRows = [];
 
-                const resBusca = await fetch(urlBusca.toString());
-                const jsonBusca = await resBusca.json();
+    for (const conta of contas) {
+        if (!conta.id) continue;
+        const idStr = String(conta.id);
 
-                if (jsonBusca.retorno.status === 'Erro') {
-                    const msg = jsonBusca.retorno.erros[0].erro;
-                    if (msg.includes("Bloqueada") || msg.includes("Excedido")) {
-                        await supabase.from('finance_sync_state').upsert({ id: stateId, last_page: pagina - 1 });
-                        return new Response(JSON.stringify({ error: "API Bloqueada. Checkpoint Salvo." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 429 });
-                    }
-                    if (jsonBusca.retorno.codigo_erro == 20 || msg.toLowerCase().includes('não existe')) {
-                        stopFase = true;
-                        await supabase.from('finance_sync_state').delete().eq('id', stateId);
-                    } else {
-                        console.warn(`[FinanceSync] Aviso: ${msg}`);
-                        stopFase = true;
-                    }
-                    console.log(`[FinanceSync] FASE ${est.nome} FINALIZADA.`);
-                    break;
-                }
+        const dataEmissao = parseTinyDate(conta.data_emissao);
+        const dataVencimento = parseTinyDate(conta.data_vencimento);
+        let dataLiquidacao = parseTinyDate(conta.data_pagamento);
 
-                const listaContas = (jsonBusca.retorno.contas || []).map((c: any) => c.conta);
-                if (listaContas.length === 0) {
-                    stopFase = true;
-                    phaseCompleted = true;
-                    await supabase.from('finance_sync_state').delete().eq('id', stateId);
-                    break;
-                }
+        let valorOriginal = Number(conta.valor) || 0;
+        let saldo = Number(conta.saldo) || 0;
+        let valorRecebido: number | undefined = undefined;
 
-                console.log(`[FinanceSync] (${est.nome}) Pág ${pagina}: ${listaContas.length} contas.`);
+        let situacao = String(conta.situacao).trim();
+        let formaRecebimento = conta.forma_recebimento || null;
+        let categoria = conta.categoria || null;
 
-                const allRows: any[] = [];
+        const isLiquidado = ['liquidado', 'pago', 'recebido'].includes(situacao.toLowerCase());
+        const isCancelado = ['cancelada', 'cancelado', 'excluida'].includes(situacao.toLowerCase());
 
-                for (const conta of listaContas) {
-                    if (!conta.id || String(conta.id) === 'undefined') continue;
+        if (isCancelado) { saldo = 0; valorRecebido = 0; }
+        else if (isLiquidado) { situacao = "Liquidado"; saldo = 0; }
 
-                    const idStr = String(conta.id);
-                    allTinyIDsThisPhase.add(idStr);
+        if (isLiquidado) {
+            // --- THROTTLE 2s ---
+            if ((performance.now() - startTime) < 55000) {
+                await sleep(2000); // 2 SEGUNDOS DE SEGURANÇA
 
-                    if (idsProcessados.has(idStr)) continue;
-                    idsProcessados.add(idStr);
+                try {
+                    const resp = await fetch(`https://api.tiny.com.br/api2/conta.receber.obter.php?token=${token}&formato=json&id=${idStr}`);
+                    const json = await resp.json();
+                    if (json.retorno?.status === 'OK') {
+                        const det = json.retorno.conta;
+                        if (det.data_pagamento) dataLiquidacao = parseTinyDate(det.data_pagamento);
+                        if (det.valor_recebido) valorRecebido = Number(det.valor_recebido);
+                        if (det.forma_pagamento) formaRecebimento = det.forma_pagamento;
+                        if (det.categoria) categoria = det.categoria;
 
-                    // --- TRATAMENTO DE CAMPOS PURO (SEM REGRAS DE VISUALIZAÇÃO) ---
-
-                    // 1. Datas Principais
-                    const dataEmissao = parseTinyDate(conta.data_emissao);
-                    const dataVencimentoReal = parseTinyDate(conta.data_vencimento); // NUNCA MAIS ALTERAR ISSO
-                    let dataLiquidacao = parseTinyDate(conta.data_pagamento);
-
-                    // 2. Valores Originais
-                    let valorOriginal = Number(conta.valor) || 0;
-                    let saldo = Number(conta.saldo) || 0;
-                    let valorRecebidoCalculado = valorOriginal - saldo;
-
-                    // 3. Normalização de Situação
-                    let situacao = conta.situacao;
-                    let formaRecebimento = conta.forma_recebimento || "";
-                    let categoria = conta.categoria || "";
-
-                    // Se cancelado, mantemos o valor do documento para histórico, mas saldo 0.
-                    if (['cancelada', 'cancelado', 'excluida'].includes(String(situacao).toLowerCase())) {
-                        saldo = 0;
-                        valorRecebidoCalculado = 0;
-                    } else {
-                        totalValorFase += valorOriginal;
-                        totalSaldoFase += saldo;
-                    }
-
-                    // --- DEEP FETCH (BUSCA PROFUNDA PARA DADOS FALTANTES) ---
-                    // Se está liquidado mas não temos a data real de pagamento ou valor exato pago
-                    const estaLiquidado = ['liquidado', 'pago', 'recebido'].includes(String(situacao).toLowerCase());
-                    const precisaDetalhes = est.usePagamento || (estaLiquidado && (!dataLiquidacao || !formaRecebimento));
-
-                    if (precisaDetalhes) {
-                        // Lógica de Rate Limit e busca detalhada mantida, mas atualizando as variáveis corretas
-                        const { data: existing } = await supabase.from('accounts_receivable').select('ID, "Forma de recebimento"').eq('ID', idStr).single();
-
-                        // Só busca se não temos a informação ou se precisamos atualizar pagamento recente
-                        if (!existing || !existing["Forma de recebimento"] || est.usePagamento) {
-                            if ((performance.now() - startTime) < 50000) {
-                                try {
-                                    await sleep(1000); // Delay extra para não sobrecarregar
-                                    const resDet = await fetch(`https://api.tiny.com.br/api2/conta.receber.obter.php?token=${token}&formato=json&id=${idStr}`);
-                                    const jsonDet = await resDet.json();
-                                    if (jsonDet.retorno?.status === 'OK') {
-                                        const det = jsonDet.retorno.conta;
-                                        if (det.data_pagamento) dataLiquidacao = parseTinyDate(det.data_pagamento);
-                                        if (det.valor_recebido) valorRecebidoCalculado = Number(det.valor_recebido);
-                                        if (det.forma_pagamento) formaRecebimento = det.forma_pagamento;
-                                        if (det.categoria) categoria = det.categoria;
-                                    }
-                                } catch (e) { console.warn('Erro deep fetch', e); }
-                            }
-                        } else {
-                            // Se já temos no banco e não é busca prioritária, usa o do banco para economizar API
-                            if (!formaRecebimento) formaRecebimento = existing["Forma de recebimento"];
+                        // --- ESPIÃO ---
+                        if (isLiquidado && !dataLiquidacao) {
+                            console.log(`[ESPIÃO] 🚨 ID ${idStr} Liq s/ Data. Tiny:`, JSON.stringify(det));
                         }
                     }
-
-                    // Fallback: Se liquidado e ainda sem data, usa vencimento como data de liquidação (mas mantém vencimento original intacto)
-                    if (estaLiquidado && !dataLiquidacao) {
-                        dataLiquidacao = dataVencimentoReal;
-                    }
-
-                    // Competência
-                    let competencia = null;
-                    if (conta.data_vencimento && conta.data_vencimento.length >= 7) {
-                        const partes = conta.data_vencimento.split('/');
-                        if (partes.length === 3) competencia = `${partes[1]}/${partes[2]}`;
-                    }
-
-                    // --- MAPEAMENTO FINAL 1:1 ---
-                    allRows.push({
-                        "ID": idStr,
-                        "Cliente": conta.nome_cliente || 'Cliente Desconhecido',
-                        "Data Emissão": dataEmissao,
-
-                        // AQUI ESTAVA O ERRO: Agora mapeamos direto
-                        "Data Vencimento": dataVencimentoReal,  // Original do Tiny
-                        "Data Liquidação": dataLiquidacao,      // Data real do pagamento
-                        "data_recebimento": dataLiquidacao,     // Redundância conforme seu schema
-
-                        "Valor documento": valorOriginal,       // Valor cheio original
-                        "Recebido": valorRecebidoCalculado,     // O quanto de fato entrou
-
-                        "Saldo": estaLiquidado ? 0 : saldo,
-                        "Situação": situacao, // Mantém 'cancelado', 'aberto', 'liquidado' como vem do Tiny
-
-                        "Número documento": conta.numero_doc,
-                        "Histórico": conta.historico,
-                        "Competência": competencia,
-                        "Forma de recebimento": formaRecebimento,
-                        "Categoria": categoria,
-                        "ult_atuali": new Date().toISOString()
-                    });
-                }
-
-                if (allRows.length > 0) {
-                    const { error } = await supabase.from('accounts_receivable').upsert(allRows, { onConflict: 'ID' });
-                    if (error) console.error("Erro Upsert:", error.message);
-                    else totalSalvo += allRows.length;
-                }
-
-                await supabase.from('finance_sync_state').upsert({ id: stateId, last_page: pagina });
-                pagina++;
-            }
-
-            // --- GARBAGE COLLECTION (Mantido para limpar IDs deletados no Tiny) ---
-            if (phaseCompleted) {
-                const toIso = (d: string) => { const [dia, mes, ano] = d.split('/'); return `${ano}-${mes}-${dia}`; };
-                const isoIni = toIso(est.dataIni);
-                const isoFim = toIso(est.dataFim);
-                const campoFiltro = est.usePagamento ? "Data Vencimento" : "Data Emissão";
-
-                const { data: dbItems } = await supabase.from('accounts_receivable').select('ID').gte(campoFiltro, `${isoIni}T00:00:00`).lte(campoFiltro, `${isoFim}T23:59:59`);
-                if (dbItems) {
-                    const ghosts = dbItems.filter((item: any) => !allTinyIDsThisPhase.has(String(item.ID))).map((g: any) => g.ID);
-                    if (ghosts.length > 0) await supabase.from('accounts_receivable').delete().in('ID', ghosts);
-                }
+                } catch (e) { console.warn(`Erro deep fetch ${idStr}`, e); }
             }
         }
 
-        return new Response(JSON.stringify({ message: `Sincronização OK!`, upserted_count: totalSalvo }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
+        if (isLiquidado && !dataLiquidacao) console.warn(`[ANOMALIA] ID ${idStr} Liquidado s/ data.`);
+        if (valorRecebido === undefined) valorRecebido = valorOriginal - saldo;
 
-    } catch (err: any) {
-        console.error("[FinanceSync] ERRO FATAL:", err.message);
-        return new Response(JSON.stringify({ error: err.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
+        let competencia = null;
+        if (conta.data_vencimento && conta.data_vencimento.includes('/')) {
+            const [d, m, y] = conta.data_vencimento.split('/');
+            competencia = `${m}/${y}`;
+        }
+
+        allRows.push({
+            "ID": idStr,
+            "Cliente": conta.nome_cliente || 'Cliente Desconhecido',
+            "Data Emissão": dataEmissao,
+            "Data Vencimento": dataVencimento,
+            "Data Liquidação": dataLiquidacao,
+            "data_recebimento": dataLiquidacao,
+            "Valor documento": valorOriginal,
+            "Recebido": valorRecebido,
+            "Saldo": saldo,
+            "Situação": situacao,
+            "Número documento": conta.numero_doc,
+            "Histórico": conta.historico,
+            "Competência": competencia,
+            "Forma de recebimento": formaRecebimento,
+            "Categoria": categoria,
+            "ult_atuali": new Date().toISOString()
+        });
     }
-});
+
+    if (allRows.length > 0) {
+        await supabase.from('accounts_receivable').upsert(allRows, { onConflict: 'ID' });
+    }
+}

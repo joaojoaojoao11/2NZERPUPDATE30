@@ -16,7 +16,7 @@ import AuditInventoryForm from './components/AuditInventoryForm';
 import Settings from './components/Settings';
 import HistoryHub from './components/HistoryHub';
 import MovementsList from './components/MovementsList';
-import AccountsReceivableForm from './components/AccountsReceivableForm';
+
 import AccountsPayableModule from './components/AccountsPayable';
 import CashFlowBI from './components/CashFlowBI';
 import ExpenseBI from './components/ExpenseBI';
@@ -137,7 +137,7 @@ const App: React.FC = () => {
             onSelect={(ctx) => {
               setModuleContext(ctx);
               if (ctx === 'ESTOQUE') navigate('INVENTARIO');
-              else if (ctx === 'FINANCEIRO') navigate('LANCAMENTO_RECEBER');
+              else if (ctx === 'FINANCEIRO') navigate('BI_CAIXA');
               else if (ctx === 'RH') navigate('RH_COLLABORATORS');
               else if (ctx === 'COMERCIAL') navigate('SALES_PRICETABLE');
             }}
@@ -155,8 +155,7 @@ const App: React.FC = () => {
         case 'SAIDA': return <WithdrawalForm currentUser={currentUser} onSuccess={() => navigate('INVENTARIO')} />;
         case 'CATALOGO_MESTRE': return <MasterCatalog user={currentUser} />;
 
-        case 'LANCAMENTO_RECEBER': return <AccountsReceivableForm user={currentUser} onSuccess={() => { }} mode="LISTA" />;
-        case 'INADIMPLENCIA': return <AccountsReceivableForm user={currentUser} onSuccess={() => { }} mode="INADIMPLENCIA" />;
+
         case 'CONTAS_PAGAR': return <AccountsPayableModule currentUser={currentUser} />;
         case 'BI_CAIXA': return <CashFlowBI />;
         case 'BI_DESPESAS': return <ExpenseBI />;
@@ -216,8 +215,7 @@ const App: React.FC = () => {
 
             {currentView !== 'SELECAO_MODULO' && moduleContext === 'FINANCEIRO' && (
               <>
-                {hasAccess('LANCAMENTO_RECEBER') && <button onClick={() => navigate('LANCAMENTO_RECEBER')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'LANCAMENTO_RECEBER' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Contas a Receber</button>}
-                {hasAccess('INADIMPLENCIA') && <button onClick={() => navigate('INADIMPLENCIA')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'INADIMPLENCIA' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Inadimplência</button>}
+
                 {hasAccess('CONTAS_PAGAR') && <button onClick={() => navigate('CONTAS_PAGAR')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'CONTAS_PAGAR' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Contas a Pagar</button>}
                 {hasAccess('BI_CAIXA') && <button onClick={() => navigate('BI_CAIXA')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'BI_CAIXA' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>BI Caixa</button>}
                 {hasAccess('BI_DESPESAS') && <button onClick={() => navigate('BI_DESPESAS')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'BI_DESPESAS' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>BI Despesas</button>}
