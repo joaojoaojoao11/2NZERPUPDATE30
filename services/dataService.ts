@@ -709,7 +709,7 @@ export class DataService {
     const today = new Date().toISOString().split('T')[0];
 
     arData.forEach((item: any) => {
-      const cliente = item.Cliente || item.cliente;
+      const cliente = item.IDCliente || item.Cliente || item.cliente;
       if (!cliente) return;
 
       // 1. Normalização
@@ -724,7 +724,7 @@ export class DataService {
 
       // --- FILTRO 2: Situação deve ser válida (Ignora CANCELADO, SUSPENSO, etc, mesmo com saldo)
       // Lista de situações consideradas "Ativas/Cobráveis"
-      const situacoesValidas = ['EM ABERTO', 'ABERTO', 'VENCIDO', 'VENCIDA', 'NEGOCIADO', 'EM CARTORIO'];
+      const situacoesValidas = ['EM ABERTO', 'ABERTO', 'ABERTA', 'VENCIDO', 'VENCIDA', 'NEGOCIADO', 'EM CARTORIO'];
 
       // Se a situação não for válida E não estiver marcado como Cartório no DB, ignora
       if (!situacoesValidas.includes(situacao) && statusCobrancaDb !== 'CARTORIO') return;

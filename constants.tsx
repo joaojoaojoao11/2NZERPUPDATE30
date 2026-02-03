@@ -18,8 +18,8 @@ export const SYSTEM_FEATURES: { id: ViewType | string; label: string; group: str
   { id: 'HISTORICO_HUB', label: 'Timeline & Auditoria', group: 'LOGÍSTICA' },
   { id: 'CATALOGO_MESTRE', label: 'Catálogo Mestre', group: 'LOGÍSTICA' },
   { id: 'LANCAMENTO_RECEBER', label: 'Contas a Receber', group: 'FINANCEIRO' },
-  { id: 'INADIMPLENCIA', label: 'Inadimplência', group: 'FINANCEIRO' },
-  { id: 'CONTAS_PAGAR', label: 'Contas a Pagar', group: 'FINANCEIRO' },
+
+
   { id: 'BI_CAIXA', label: 'Fluxo de Caixa Diário', group: 'FINANCEIRO' },
   { id: 'BI_DESPESAS', label: 'BI Despesas', group: 'FINANCEIRO' },
   { id: 'SALES_PRICETABLE', label: 'Tabela de Preços', group: 'COMERCIAL' },
@@ -49,6 +49,9 @@ export const ICONS = {
   ),
   Upload: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>
+  ),
+  Download: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" x2="12" y1="15" y2="3" /></svg>
   ),
   Alert: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg>
@@ -120,5 +123,12 @@ export const ICONS = {
   ),
   Snow: (props: any) => (
     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="2" x2="22" y1="12" y2="12" /><line x1="12" x2="12" y1="2" y2="22" /><path d="m20 16-4-4 4-4" /><path d="m4 8 4 4-4 4" /><path d="m16 4-4 4-4-4" /><path d="m8 20 4-4 4 4" /></svg>
-  )
+  ),
+
+  Warning: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+  ),
+  Check: (props: any) => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="20 6 9 17 4 12" /></svg>
+  ),
 };

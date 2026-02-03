@@ -12,10 +12,14 @@ export type ViewType =
   | 'CATALOGO_MESTRE'
   | 'GESTAO_USUARIOS'
   | 'LANCAMENTO_RECEBER'
-  | 'INADIMPLENCIA'
-  | 'CONTAS_PAGAR'
+  | 'LANCAMENTO_PAGAR'
+
+
   | 'BI_CAIXA'
   | 'BI_DESPESAS'
+  | 'AUDITORIA'
+  | 'INADIMPLENCIA'
+  | 'DRE'
   | 'BI_ESTOQUE'
   | 'RH_COLLABORATORS'
   | 'RH_PAYROLL'
@@ -88,7 +92,24 @@ export interface AuditLog {
   categoria?: string;
   cliente?: string;
   motivo?: string;
-  dataPedidoFornecedor?: string;
+  data_registro?: string;
+}
+
+export interface DREMapping {
+  id: string;
+  original_category_name: string;
+  dre_group: 'RECEITA_BRUTA' | 'DEDUCOES' | 'CMV' | 'DESPESAS_OPERACIONAIS' | 'OUTROS';
+  dre_subgroup?: string;
+  is_verified: boolean;
+}
+
+export interface DREReportItem {
+  id: string;
+  label: string;
+  value: number;
+  monthlyValues?: Record<string, number>; // Format "YYYY-MM": value
+  subItems?: DREReportItem[];
+  type: 'GROUP' | 'SUBGROUP' | 'ITEM';
 }
 
 export interface MasterProduct {

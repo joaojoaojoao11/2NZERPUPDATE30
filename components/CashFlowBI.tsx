@@ -38,19 +38,18 @@ const CashFlowBI: React.FC = () => {
    const dailyData = useMemo(() => {
       const [year, month] = selectedMonth.split('-').map(Number);
       const daysInMonth = new Date(year, month, 0).getDate();
-
       const today = new Date().toISOString().split('T')[0];
 
       // Mapeamento por dia
       const map: Record<number, {
          day: number,
          date: string,
-         receive: number,      // Total Previsto (Doc)
-         receiveLiquidated: number, // Total Recebido (Baixado)
-         receiveDelinquent: number, // Vencido em Aberto
+         receive: number,      // Previsto (Não vencido + Saldo > 0)
+         receiveLiquidated: number, // Recebido (Pago/Liquidado)
+         receiveDelinquent: number, // Inadimplência (Vencido < Hoje + Saldo > 0)
 
-         pay: number,          // Total Previsto
-         payLiquidated: number // Total Pago
+         pay: number,          // Total a Pagar (Em Aberto, inclusive vencidos)
+         payLiquidated: number // Total Pago (Data Liquidação no período)
       }> = {};
 
       for (let i = 1; i <= daysInMonth; i++) {
@@ -65,9 +64,8 @@ const CashFlowBI: React.FC = () => {
          };
       }
 
-      const parseDate = (d: string) => {
+      const parseDate = (d: string | null | undefined) => {
          if (!d) return null;
-         // Trata datas YYYY-MM-DD
          const parts = d.split('-');
          if (parts.length === 3 && parseInt(parts[0]) === year && parseInt(parts[1]) === month) {
             return parseInt(parts[2]);
@@ -75,71 +73,84 @@ const CashFlowBI: React.FC = () => {
          return null;
       };
 
-      // Somar Recebíveis
+      // 1. Somar Recebíveis (Accounts Receivable)
       receivables.forEach(item => {
-         if (item.situacao === 'CANCELADO') return;
+         const situacao = (item.situacao || '').toUpperCase();
+         if (situacao.includes('CANCEL')) return;
 
-         // Fallback de datas para garantir que PIX/Cartão/À Vista entrem no fluxo
-         // Se não tiver vencimento, tenta data de liquidação (se pago) ou emissão.
-         const dateToUse = item.data_vencimento || item.data_liquidacao || item.data_emissao;
-         const day = parseDate(dateToUse);
+         const isPago = situacao.includes('PAGA') || situacao.includes('PAGO') || situacao.includes('LIQUID') || situacao.includes('TOTAL');
+         const saldo = Number(item.saldo || 0);
+         const valDoc = Number(item.valor_documento || 0);
+         const valRec = Number(item.valor_recebido || 0);
 
-         if (day && map[day]) {
-            const valorDoc = (item.valor_documento || 0);
-            map[day].receive += valorDoc;
+         // A) RECEBIDO: Considera data_liquidacao no período e soma valor_recebido
+         if (isPago || valRec > 0) {
+            const dayLiq = parseDate(item.data_liquidacao);
+            if (dayLiq && map[dayLiq]) {
+               const valorEfetivo = valRec > 0 ? valRec : valDoc;
+               map[dayLiq].receiveLiquidated += valorEfetivo;
+            }
+         }
 
-            // Checagem de Status
-            const sit = item.situacao ? item.situacao.toLowerCase() : '';
-            // Adicionado 'paga' e 'total' que são comuns
-            const isPago = sit === 'paga' || sit === 'pago' || sit === 'liquidado' || sit === 'baixado' || sit === 'total';
-            const vencimento = item.data_vencimento || dateToUse; // Usa a data resolvida se vencimento for nulo
+         // B) PREVISTO E INADIMPLÊNCIA: Considera títulos com saldo > 0
+         if (saldo > 0.01 && !isPago) {
+            const venc = item.data_vencimento || '';
+            const dayVenc = parseDate(venc);
 
-            if (isPago) {
-               // Se pago, usa o valor_recebido se existir (pois pode ter juros/desconto), senão valor_documento
-               const valorRecebido = (item.valor_recebido && item.valor_recebido > 0) ? item.valor_recebido : valorDoc;
-               map[day].receiveLiquidated += valorRecebido;
-            } else if (vencimento < today) {
-               // Vencido e não pago
-               map[day].receiveDelinquent += valorDoc;
+            if (venc < today) {
+               // Inadimplência: Vencido e com saldo
+               if (dayVenc && map[dayVenc]) {
+                  map[dayVenc].receiveDelinquent += saldo;
+               }
+            } else {
+               // Previsto: Não vencido e com saldo
+               if (dayVenc && map[dayVenc]) {
+                  map[dayVenc].receive += valDoc;
+               }
             }
          }
       });
 
-      // Somar Pagáveis
+      // 2. Somar Pagáveis (Accounts Payable)
       payables.forEach(item => {
-         if (item.situacao === 'CANCELADO') return;
+         const situacao = (item.situacao || '').toUpperCase();
+         if (situacao.includes('CANCEL')) return;
 
-         // Fallback para pagáveis também
-         const dateToUse = item.dataVencimento || item.dataLiquidacao || item.dataEmissao;
-         const day = parseDate(dateToUse);
+         const isPago = situacao.includes('PAGA') || situacao.includes('PAGO') || situacao.includes('LIQUID');
+         const saldo = Number(item.saldo || 0);
+         const valDoc = Number(item.valorDocumento || item.valor_documento || 0);
+         const valPago = Number(item.valorPago || item.valor_pago || 0);
 
-         if (day && map[day]) {
-            const valor = (item.valorDocumento || 0);
-            map[day].pay += valor;
+         // A) LIQUIDADO: Considera data_liquidacao no período
+         if (isPago || valPago > 0) {
+            const dayLiq = parseDate(item.dataLiquidacao || item.data_liquidacao);
+            if (dayLiq && map[dayLiq]) {
+               const valorEfetivo = valPago > 0 ? valPago : valDoc;
+               map[dayLiq].payLiquidated += valorEfetivo;
+            }
+         }
 
-            // Verifica se está liquidado
-            const sit = item.situacao ? item.situacao.toLowerCase() : '';
-            if (sit === 'paga' || sit === 'pago' || sit === 'liquidado' || sit === 'baixado') {
-               map[day].payLiquidated += valor;
+         // B) TOTAL A PAGAR (PREVISTO): Inclui em aberto (mesmo se vencido)
+         if (saldo > 0.01 && !isPago) {
+            const dayVenc = parseDate(item.dataVencimento || item.data_vencimento);
+            if (dayVenc && map[dayVenc]) {
+               map[dayVenc].pay += valDoc;
             }
          }
       });
 
       let result = Object.values(map).map(d => {
-         // Receita Pendente (Futura) = Total - Liquidado - Inadimplente (aprox, ajustado por max 0)
-         const receivePending = Math.max(0, d.receive - d.receiveDelinquent - d.receiveLiquidated);
-         const receiveHealthy = d.receiveLiquidated + receivePending; // O que realmente conta para o saldo (Liquidado + Futuro Confiável)
-
-         const balance = receiveHealthy - d.pay;
-         const gap = Math.max(0, d.pay - receiveHealthy);
+         // O que realmente conta para o saldo saudavel (Liquidado + Previsto não vencido)
+         const receiveHealthy = d.receiveLiquidated + d.receive;
+         const balance = receiveHealthy - (d.pay + d.payLiquidated); // Saldo considera tudo o que foi planejado/pago
 
          return {
             ...d,
-            receivePending,
-            payPending: Math.max(0, d.pay - d.payLiquidated),
-            balance, // Saldo do Dia (Pode ser negativo)
-            need: gap,
-            surplus: Math.max(0, receiveHealthy - d.pay)
+            receivePending: d.receive,
+            payPending: d.pay,
+            balance,
+            need: Math.max(0, (d.pay + d.payLiquidated) - receiveHealthy),
+            surplus: Math.max(0, receiveHealthy - (d.pay + d.payLiquidated))
          };
       });
 
@@ -147,7 +158,7 @@ const CashFlowBI: React.FC = () => {
       if (selectedWeek !== 'ALL') {
          const w = parseInt(selectedWeek);
          const startDay = (w - 1) * 7 + 1;
-         const endDay = w === 5 ? 31 : w * 7; // Semana 5 pega até o fim do mês
+         const endDay = w === 5 ? 31 : w * 7;
          result = result.filter(d => d.day >= startDay && d.day <= endDay);
       }
 
@@ -157,9 +168,12 @@ const CashFlowBI: React.FC = () => {
    const totals = useMemo(() => {
       return dailyData.reduce((acc, curr) => ({
          receive: acc.receive + curr.receive,
+         receiveLiquidated: acc.receiveLiquidated + curr.receiveLiquidated,
+         receiveDelinquent: acc.receiveDelinquent + curr.receiveDelinquent,
          pay: acc.pay + curr.pay,
+         payLiquidated: acc.payLiquidated + curr.payLiquidated,
          balance: acc.balance + curr.balance
-      }), { receive: 0, pay: 0, balance: 0 });
+      }), { receive: 0, receiveLiquidated: 0, receiveDelinquent: 0, pay: 0, payLiquidated: 0, balance: 0 });
    }, [dailyData]);
 
    const handlePrint = () => {
@@ -257,8 +271,8 @@ const CashFlowBI: React.FC = () => {
                            key={w}
                            onClick={() => setSelectedWeek(w as any)}
                            className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${selectedWeek === w
-                                 ? 'bg-slate-900 text-white shadow-md'
-                                 : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
+                              ? 'bg-slate-900 text-white shadow-md'
+                              : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'
                               }`}
                         >
                            {w === 'ALL' ? 'Mês Completo' : `Sem ${w}`}
@@ -270,14 +284,37 @@ const CashFlowBI: React.FC = () => {
          </div>
 
          {/* KPI CARDS */}
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0">
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 shrink-0">
             <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col justify-center relative overflow-hidden group">
                <div className="absolute right-[-20px] top-[-20px] bg-emerald-50 w-32 h-32 rounded-full group-hover:scale-110 transition-transform"></div>
                <p className="text-[9px] font-black text-emerald-600 uppercase tracking-widest mb-1 z-10">
                   {selectedWeek === 'ALL' ? 'Receber no Mês' : `Receber (Sem ${selectedWeek})`}
                </p>
-               <h3 className="text-3xl font-black text-slate-900 italic tracking-tighter z-10">
+               <h4 className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1 z-10">Previsão em Aberto</h4>
+               <h3 className="text-xl font-black text-slate-900 italic tracking-tighter z-10">
                   R$ {totals.receive.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+               </h3>
+            </div>
+
+            <div className="bg-emerald-600 p-6 rounded-[2rem] text-white shadow-xl flex flex-col justify-center relative overflow-hidden group">
+               <div className="absolute right-[-20px] top-[-20px] bg-white/10 w-32 h-32 rounded-full group-hover:scale-110 transition-transform"></div>
+               <p className="text-[9px] font-black text-emerald-100 uppercase tracking-widest mb-1 z-10">
+                  {selectedWeek === 'ALL' ? 'Recebido no Mês' : `Recebido (Sem ${selectedWeek})`}
+               </p>
+               <h4 className="text-[8px] font-bold text-white/50 uppercase tracking-widest mb-1 z-10">Dinheiro em Caixa</h4>
+               <h3 className="text-xl font-black text-white italic tracking-tighter z-10">
+                  R$ {totals.receiveLiquidated.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+               </h3>
+            </div>
+
+            <div className="bg-amber-500 p-6 rounded-[2rem] text-white shadow-xl flex flex-col justify-center relative overflow-hidden group">
+               <div className="absolute right-[-20px] top-[-20px] bg-white/10 w-32 h-32 rounded-full group-hover:scale-110 transition-transform"></div>
+               <p className="text-[9px] font-black text-amber-100 uppercase tracking-widest mb-1 z-10">
+                  Inadimplência
+               </p>
+               <h4 className="text-[8px] font-bold text-white/50 uppercase tracking-widest mb-1 z-10">Vencidos não Pagos</h4>
+               <h3 className="text-xl font-black text-white italic tracking-tighter z-10">
+                  R$ {totals.receiveDelinquent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                </h3>
             </div>
 
@@ -286,15 +323,27 @@ const CashFlowBI: React.FC = () => {
                <p className="text-[9px] font-black text-red-600 uppercase tracking-widest mb-1 z-10">
                   {selectedWeek === 'ALL' ? 'Pagar no Mês' : `Pagar (Sem ${selectedWeek})`}
                </p>
-               <h3 className="text-3xl font-black text-slate-900 italic tracking-tighter z-10">
+               <h4 className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1 z-10">Contas em Aberto</h4>
+               <h3 className="text-xl font-black text-slate-900 italic tracking-tighter z-10">
                   R$ {totals.pay.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+               </h3>
+            </div>
+
+            <div className="bg-red-600 p-6 rounded-[2rem] text-white shadow-xl flex flex-col justify-center relative overflow-hidden group">
+               <div className="absolute right-[-20px] top-[-20px] bg-white/10 w-32 h-32 rounded-full group-hover:scale-110 transition-transform"></div>
+               <p className="text-[9px] font-black text-red-100 uppercase tracking-widest mb-1 z-10">
+                  {selectedWeek === 'ALL' ? 'Pago no Mês' : `Pago (Sem ${selectedWeek})`}
+               </p>
+               <h4 className="text-[8px] font-bold text-white/50 uppercase tracking-widest mb-1 z-10">Saída Efetivada</h4>
+               <h3 className="text-xl font-black text-white italic tracking-tighter z-10">
+                  R$ {totals.payLiquidated.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                </h3>
             </div>
 
             <div className="bg-slate-900 p-6 rounded-[2rem] text-white shadow-xl flex flex-col justify-center relative overflow-hidden">
                <div className="absolute inset-0 bg-gradient-to-br from-slate-800 to-slate-950"></div>
                <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1 z-10">Saldo Líquido (Período)</p>
-               <h3 className={`text-3xl font-black italic tracking-tighter z-10 ${totals.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+               <h3 className={`text-xl font-black italic tracking-tighter z-10 ${totals.balance >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   R$ {totals.balance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                </h3>
                <p className="text-[8px] font-bold text-slate-500 uppercase mt-2 z-10">Receitas Saudáveis - Despesas</p>
@@ -382,8 +431,8 @@ const CashFlowBI: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-[11px]">
                      {dailyData.map(d => {
-                        // saldo já vem calculado no result
-                        if (d.receive === 0 && d.pay === 0) return null;
+                        // Exibe a linha se houver qualquer valor em alguma das colunas
+                        if (d.receive === 0 && d.pay === 0 && d.receiveLiquidated === 0 && d.receiveDelinquent === 0 && d.payLiquidated === 0) return null;
 
                         return (
                            <tr key={d.day} className="hover:bg-slate-50 transition-colors">
@@ -411,7 +460,7 @@ const CashFlowBI: React.FC = () => {
                            </tr>
                         );
                      })}
-                     {dailyData.every(d => d.receive === 0 && d.pay === 0) && (
+                     {dailyData.every(d => d.receive === 0 && d.pay === 0 && d.receiveLiquidated === 0 && d.receiveDelinquent === 0 && d.payLiquidated === 0) && (
                         <tr><td colSpan={7} className="py-12 text-center text-slate-300 font-black uppercase text-[10px]">Sem movimentações previstas para este período.</td></tr>
                      )}
                   </tbody>

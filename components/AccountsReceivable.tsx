@@ -135,27 +135,12 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
     const targetMonth = currentDate.getMonth();
     const targetYear = currentDate.getFullYear();
 
+    // Verifica se há filtros de data globais ativos (Modal)
+    const hasDateRangeFilter = !!filters.startDate || !!filters.endDate;
+
     return data.filter(item => {
-      if (!item.data_vencimento) return false;
-
-      // Se 'ignoreDateFilter' estiver ativo E houver termo de busca, PULA a checagem de data
-      if (!ignoreDateFilter) {
-        // Parse manual da data YYYY-MM-DD para garantir consistência
-        const [yearStr, monthStr, dayStr] = String(item.data_vencimento).split('-');
-        const itemYear = parseInt(yearStr);
-        const itemMonth = parseInt(monthStr) - 1; // JS Months 0-11
-        const itemDay = parseInt(dayStr);
-
-        if (itemMonth !== targetMonth) return false;
-        if (itemYear !== targetYear) return false;
-
-        // 2. Filtro de Dia Específico (Se selecionado)
-        if (selectedDay !== null) {
-          if (itemDay !== selectedDay) return false;
-        }
-      } // <--- FECHAMENTO DO IF (!ignoreDateFilter)
-
-      // 3. Filtro Textual (Busca Inteligente)
+      // 3. Filtro Textual (Busca Inteligente) - Prioridade Alta
+      // Se tiver busca, verificamos se bate. Se não bater, já descarta.
       const matchesSearch =
         (item.cliente || '').toLowerCase().includes(term) ||
         (item.numero_documento || '').toLowerCase().includes(term) ||
@@ -165,7 +150,35 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
 
       if (!matchesSearch) return false;
 
-      // 4. Filtros Avançados (Modal)
+      // --- LÓGICA DE DATAS ---
+      // Se tiver filtro de data avançado (Range), ELE EXCLUI a lógica de Mês/Dia da régua
+      if (hasDateRangeFilter) {
+        const itemDate = item.data_vencimento || '';
+        if (!itemDate) return false;
+
+        if (filters.startDate && itemDate < filters.startDate) return false;
+        if (filters.endDate && itemDate > filters.endDate) return false;
+      }
+      // Se NÃO tiver filtro de range E NÃO estiver ignorando data (botão Ver Tudo), usa a régua (Mês/Dia)
+      else if (!ignoreDateFilter) {
+        if (!item.data_vencimento) return false;
+
+        // Parse manual da data YYYY-MM-DD para garantir consistência
+        const [yearStr, monthStr, dayStr] = String(item.data_vencimento).split('-');
+        const itemYear = parseInt(yearStr);
+        const itemMonth = parseInt(monthStr) - 1; // JS Months 0-11
+        const itemDay = parseInt(dayStr);
+
+        if (itemMonth !== targetMonth) return false;
+        if (itemYear !== targetYear) return false;
+
+        // Filtro de Dia Específico (Se selecionado e dentro do Mês vigente)
+        if (selectedDay !== null) {
+          if (itemDay !== selectedDay) return false;
+        }
+      }
+
+      // 4. Filtros Avançados (Modal) - Outros Campos
 
       // Filtro de Origem
       if (filters.origin !== 'TODOS' && (item.origem || 'OUTROS') !== filters.origin) return false;
@@ -554,7 +567,6 @@ const AccountsReceivableModule: React.FC<{ currentUser: User }> = ({ currentUser
                 <select value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border-2 border-transparent focus:border-blue-600 rounded-xl text-xs font-bold outline-none uppercase cursor-pointer">
                   <option value="TODOS">Todas as Situações</option>
                   <option value="EM ABERTO">Em Aberto (A Vencer)</option>
-                  <option value="VENCIDO">Vencidos</option>
                   <option value="PAGO">Pagos / Liquidados</option>
                   <option value="NEGOCIADO">Negociados (Acordo)</option>
                   <option value="CANCELADO">Cancelados</option>

@@ -13,11 +13,15 @@ import MasterCatalog from './components/MasterCatalog';
 import UserManagement from './components/UserManagement';
 import InboundForm from './components/InboundForm';
 import AuditInventoryForm from './components/AuditInventoryForm';
+import FinancialAuditLogs from './components/FinancialAuditLogs';
+import DelinquencyModule from './components/DelinquencyModule';
+import DREReport from './components/DREReport';
 import Settings from './components/Settings';
 import HistoryHub from './components/HistoryHub';
 import MovementsList from './components/MovementsList';
 
-import AccountsPayableModule from './components/AccountsPayable';
+import NewAccountsReceivable from './components/NewAccountsReceivable';
+import NewAccountsPayable from './components/NewAccountsPayable';
 import CashFlowBI from './components/CashFlowBI';
 import ExpenseBI from './components/ExpenseBI';
 import InventoryBI from './components/InventoryBI';
@@ -155,10 +159,15 @@ const App: React.FC = () => {
         case 'SAIDA': return <WithdrawalForm currentUser={currentUser} onSuccess={() => navigate('INVENTARIO')} />;
         case 'CATALOGO_MESTRE': return <MasterCatalog user={currentUser} />;
 
+        case 'LANCAMENTO_RECEBER': return <NewAccountsReceivable currentUser={currentUser} />;
+        case 'INADIMPLENCIA': return <DelinquencyModule currentUser={currentUser} />;
+        case 'DRE': return <DREReport />;
+        case 'LANCAMENTO_PAGAR': return <NewAccountsPayable currentUser={currentUser} />;
 
-        case 'CONTAS_PAGAR': return <AccountsPayableModule currentUser={currentUser} />;
+        case 'BI_CAIXA': return <CashFlowBI />;
         case 'BI_CAIXA': return <CashFlowBI />;
         case 'BI_DESPESAS': return <ExpenseBI />;
+        case 'AUDITORIA': return <FinancialAuditLogs currentUser={currentUser} />;
 
         case 'SALES_PRICETABLE': return <SalesPriceTable user={currentUser} />;
         case 'SALES_HISTORY': return <SalesHistoryModule user={currentUser} />;
@@ -215,10 +224,14 @@ const App: React.FC = () => {
 
             {currentView !== 'SELECAO_MODULO' && moduleContext === 'FINANCEIRO' && (
               <>
+                {hasAccess('LANCAMENTO_RECEBER') && <button onClick={() => navigate('LANCAMENTO_RECEBER')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'LANCAMENTO_RECEBER' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Contas a Receber</button>}
+                {hasAccess('INADIMPLENCIA') && <button onClick={() => navigate('INADIMPLENCIA')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'INADIMPLENCIA' ? 'text-white' : 'text-slate-400 hover:text-red-500'}`}>Inadimplência</button>}
+                {hasAccess('LANCAMENTO_PAGAR') && <button onClick={() => navigate('LANCAMENTO_PAGAR')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'LANCAMENTO_PAGAR' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Contas a Pagar</button>}
+                {hasAccess('DRE') && <button onClick={() => navigate('DRE')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'DRE' ? 'text-white' : 'text-slate-400 hover:text-emerald-500'}`}>DRE Gerencial</button>}
 
-                {hasAccess('CONTAS_PAGAR') && <button onClick={() => navigate('CONTAS_PAGAR')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'CONTAS_PAGAR' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Contas a Pagar</button>}
                 {hasAccess('BI_CAIXA') && <button onClick={() => navigate('BI_CAIXA')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'BI_CAIXA' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>BI Caixa</button>}
                 {hasAccess('BI_DESPESAS') && <button onClick={() => navigate('BI_DESPESAS')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'BI_DESPESAS' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>BI Despesas</button>}
+                {hasAccess('AUDITORIA') && <button onClick={() => navigate('AUDITORIA')} className={`text-[10px] font-black uppercase tracking-widest transition-all ${currentView === 'AUDITORIA' ? 'text-white' : 'text-slate-400 hover:text-white'}`}>Auditoria</button>}
               </>
             )}
 
