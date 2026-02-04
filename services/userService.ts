@@ -13,7 +13,7 @@ export class UserService {
     return error ? [] : data;
   }
 
-  static async saveUser(user: User): Promise<{success: boolean, message?: string}> {
+  static async saveUser(user: User): Promise<{ success: boolean, message?: string }> {
     const payload = { ...user };
     if (!payload.id || payload.id === "undefined") delete payload.id;
     const { error } = await supabase.from('users').upsert(payload);
@@ -32,11 +32,11 @@ export class UserService {
         console.warn("NZERP: Usando configurações padrão (tabela vazia ou erro).");
         return { name: 'NZ ERP', cnpj: '', address: '', logoUrl: '' };
       }
-      return { 
-        name: data.name || '', 
-        cnpj: data.cnpj || '', 
-        address: data.address || '', 
-        logoUrl: data.logoUrl || data.logo_url || '' 
+      return {
+        name: data.name || '',
+        cnpj: data.cnpj || '',
+        address: data.address || '',
+        logoUrl: data.logo_url || data.logoUrl || ''
       };
     } catch (e) {
       return { name: 'NZ ERP', cnpj: '', address: '', logoUrl: '' };
@@ -45,25 +45,25 @@ export class UserService {
 
   static async saveCompanySettings(settings: CompanySettings): Promise<{ success: boolean; message?: string }> {
     try {
-      // Ajustado para camelCase conforme o padrão detectado no seu schema do Supabase
-      const payload = { 
-        id: 1, 
-        name: settings.name, 
-        cnpj: settings.cnpj, 
-        address: settings.address, 
-        logoUrl: settings.logoUrl 
+      // Ajustado para snake_case conforme o schema real do Supabase
+      const payload = {
+        id: 1,
+        name: settings.name,
+        cnpj: settings.cnpj,
+        address: settings.address,
+        logo_url: settings.logoUrl
       };
 
       const { error } = await supabase
         .from('company_settings')
         .upsert(payload, { onConflict: 'id' });
-      
+
       if (error) {
         const technicalMsg = `${error.message}${error.details ? ' | ' + error.details : ''}`;
         console.error("NZSTOK DB Error saving settings:", technicalMsg);
         return { success: false, message: error.message };
       }
-      
+
       return { success: true };
     } catch (e: any) {
       const errorMsg = e.message || "Erro de conexão inesperado.";
