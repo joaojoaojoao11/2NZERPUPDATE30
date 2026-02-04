@@ -165,7 +165,6 @@ const App: React.FC = () => {
         case 'LANCAMENTO_PAGAR': return <NewAccountsPayable currentUser={currentUser} />;
 
         case 'BI_CAIXA': return <CashFlowBI />;
-        case 'BI_CAIXA': return <CashFlowBI />;
         case 'BI_DESPESAS': return <ExpenseBI />;
         case 'AUDITORIA': return <FinancialAuditLogs currentUser={currentUser} />;
 

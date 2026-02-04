@@ -1,36 +1,20 @@
-
 import React, { useState, useEffect } from 'react';
 import { DataService } from '../services/dataService';
 import { User, UserRole, ViewType } from '../types';
 import Toast from './Toast';
-import { ICONS } from '../constants';
-
-const SYSTEM_FEATURES = [
-  { id: 'INVENTARIO', label: 'Estoque / Pátio', group: 'LOGÍSTICA' },
-  { id: 'CONFERENCIA_INVENTARIO', label: 'Executar Auditoria', group: 'LOGÍSTICA' },
-  { id: 'CATALOGO_MESTRE', label: 'Catálogo Mestre', group: 'LOGÍSTICA' },
-  { id: 'SAIDA', label: 'Registrar Saídas', group: 'LOGÍSTICA' },
-  { id: 'ENTRADA', label: 'Registrar Entradas', group: 'LOGÍSTICA' },
-  { id: 'HISTORICO_HUB', label: 'Timeline & Auditoria', group: 'LOGÍSTICA' },
-
-  { id: 'INADIMPLENCIA', label: 'Inadimplência', group: 'FINANCEIRO' },
-
-  { id: 'BI_CAIXA', label: 'Fluxo de Caixa (BI)', group: 'FINANCEIRO' },
-  { id: 'BI_DESPESAS', label: 'Análise de Despesas (BI)', group: 'FINANCEIRO' },
-  { id: 'RH_COLLABORATORS', label: 'Gestão de Colaboradores', group: 'RH' },
-  { id: 'RH_PAYROLL', label: 'Folha de Pagamento', group: 'RH' },
-  { id: 'RH_SERVICE_ORDERS', label: 'Gestão Contratos PJ', group: 'RH' },
-  { id: 'SALES_PRICETABLE', label: 'Tabela de Preços', group: 'COMERCIAL' },
-  { id: 'GESTAO_USUARIOS', label: 'Administrar Usuários', group: 'SISTEMA' },
-  { id: 'CONFIGURACOES', label: 'Parâmetros Globais', group: 'SISTEMA' },
-  { id: 'CAN_EDIT', label: 'Permitir Edição Cadastral', group: 'AÇÕES' },
-];
+import { ICONS, SYSTEM_FEATURES } from '../constants';
 
 const DEFAULT_PERMISSIONS: Record<UserRole, string[]> = {
-  'ESTOQUISTA': ['INVENTARIO', 'CONFERENCIA_INVENTARIO', 'SAIDA', 'ENTRADA', 'CATALOGO_MESTRE'],
-  'VENDEDOR': ['INVENTARIO', 'SALES_PRICETABLE'],
-  'ADM': ['INVENTARIO', 'CONFERENCIA_INVENTARIO', 'SAIDA', 'ENTRADA', 'CATALOGO_MESTRE', 'HISTORICO_HUB', 'LANCAMENTO_RECEBER', 'INADIMPLENCIA', 'BI_CAIXA', 'BI_DESPESAS', 'GESTAO_USUARIOS', 'CAN_EDIT', 'RH_COLLABORATORS', 'RH_PAYROLL', 'RH_SERVICE_ORDERS', 'SALES_PRICETABLE'],
-  'DIRETORIA': SYSTEM_FEATURES.map(f => f.id)
+  'ESTOQUISTA': ['INVENTARIO', 'CATALOGO_MESTRE', 'SAIDA', 'ENTRADA'],
+  'VENDEDOR': ['INVENTARIO', 'SALES_PRICETABLE', 'SALES_HISTORY', 'CRM', 'CADASTRO_CLIENTES'],
+  'ADM': [
+    'INVENTARIO', 'BI_ESTOQUE', 'CONFERENCIA_INVENTARIO', 'MOVEMENTS_LIST', 'SAIDA', 'ENTRADA', 'HISTORICO_HUB', 'CATALOGO_MESTRE',
+    'LANCAMENTO_RECEBER', 'INADIMPLENCIA', 'LANCAMENTO_PAGAR', 'DRE', 'BI_CAIXA', 'BI_DESPESAS',
+    'SALES_PRICETABLE', 'SALES_BI', 'SALES_HISTORY', 'CRM', 'CADASTRO_CLIENTES',
+    'RH_COLLABORATORS', 'RH_PAYROLL', 'RH_SERVICE_ORDERS',
+    'GESTAO_USUARIOS', 'CONFIGURACOES', 'CAN_EDIT'
+  ],
+  'DIRETORIA': SYSTEM_FEATURES.map(f => f.id as string)
 };
 
 const UserManagement: React.FC<{ admin: User, onSelfUpdate?: () => void }> = ({ admin, onSelfUpdate }) => {

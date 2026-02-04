@@ -12,10 +12,10 @@ interface ModuleSelectionProps {
 
 const ModuleSelection: React.FC<ModuleSelectionProps> = ({ onSelect, userName, userPermissions, isDirectory }) => {
 
-  const hasLogisticsAccess = isDirectory || ['INVENTARIO', 'SAIDA', 'ENTRADA', 'MAPA_FISICO', 'HISTORICO_HUB'].some(p => userPermissions.includes(p));
-  const hasFinanceAccess = isDirectory || ['LANCAMENTO_RECEBER', 'LANCAMENTO_PAGAR', 'FINANCEIRO'].some(p => userPermissions.includes(p));
-  const hasRhAccess = isDirectory || userPermissions.includes('RH_COLLABORATORS');
-  const hasComercialAccess = isDirectory || ['SALES_PRICETABLE', 'SALES_HISTORY', 'SALES_BI'].some(p => userPermissions.includes(p));
+  const hasLogisticsAccess = isDirectory || ['INVENTARIO', 'SAIDA', 'ENTRADA', 'MAPA_FISICO', 'HISTORICO_HUB', 'BI_ESTOQUE', 'MOVEMENTS_LIST', 'CATALOGO_MESTRE'].some(p => userPermissions.includes(p));
+  const hasFinanceAccess = isDirectory || ['LANCAMENTO_RECEBER', 'LANCAMENTO_PAGAR', 'FINANCEIRO', 'INADIMPLENCIA', 'DRE', 'BI_CAIXA', 'BI_DESPESAS', 'AUDITORIA'].some(p => userPermissions.includes(p));
+  const hasRhAccess = isDirectory || ['RH_COLLABORATORS', 'RH_PAYROLL', 'RH_SERVICE_ORDERS'].some(p => userPermissions.includes(p));
+  const hasComercialAccess = isDirectory || ['SALES_PRICETABLE', 'SALES_HISTORY', 'SALES_BI', 'CRM', 'CADASTRO_CLIENTES'].some(p => userPermissions.includes(p));
 
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center px-4 py-8 animate-in fade-in zoom-in-95 duration-700">

@@ -17,18 +17,28 @@ export const SYSTEM_FEATURES: { id: ViewType | string; label: string; group: str
   { id: 'ENTRADA', label: 'Registrar Entradas', group: 'LOGÍSTICA' },
   { id: 'HISTORICO_HUB', label: 'Timeline & Auditoria', group: 'LOGÍSTICA' },
   { id: 'CATALOGO_MESTRE', label: 'Catálogo Mestre', group: 'LOGÍSTICA' },
+
   { id: 'LANCAMENTO_RECEBER', label: 'Contas a Receber', group: 'FINANCEIRO' },
-
-
+  { id: 'INADIMPLENCIA', label: 'Inadimplência', group: 'FINANCEIRO' },
+  { id: 'LANCAMENTO_PAGAR', label: 'Contas a Pagar', group: 'FINANCEIRO' },
+  { id: 'DRE', label: 'DRE Gerencial', group: 'FINANCEIRO' },
   { id: 'BI_CAIXA', label: 'Fluxo de Caixa Diário', group: 'FINANCEIRO' },
-  { id: 'BI_DESPESAS', label: 'BI Despesas', group: 'FINANCEIRO' },
+  { id: 'BI_DESPESAS', label: 'Análise de Despesas (BI)', group: 'FINANCEIRO' },
+  { id: 'AUDITORIA', label: 'Timeline & Auditoria Fin.', group: 'FINANCEIRO' },
+
   { id: 'SALES_PRICETABLE', label: 'Tabela de Preços', group: 'COMERCIAL' },
-  { id: 'SALES_BI', label: 'BI Vendas', group: 'COMERCIAL' },
+  { id: 'SALES_BI', label: 'Análise Comercial (BI)', group: 'COMERCIAL' },
   { id: 'SALES_HISTORY', label: 'Histórico de Vendas', group: 'COMERCIAL' },
   { id: 'CRM', label: 'CRM / Pipeline', group: 'COMERCIAL' },
-  { id: 'GESTAO_USUARIOS', label: 'Administrar Usuários', group: 'SISTEMA' },
-  { id: 'CONFIGURACOES', label: 'Parâmetros Globais', group: 'SISTEMA' },
-  { id: 'CAN_EDIT', label: 'Permitir Edição Cadastral', group: 'AÇÕES' },
+  { id: 'CADASTRO_CLIENTES', label: 'Gestão de Clientes', group: 'COMERCIAL' },
+
+  { id: 'RH_COLLABORATORS', label: 'Gestão Colaboradores', group: 'RH' },
+  { id: 'RH_PAYROLL', label: 'Folha de Pagamento', group: 'RH' },
+  { id: 'RH_SERVICE_ORDERS', label: 'Contratos / Service Orders', group: 'RH' },
+
+  { id: 'GESTAO_USUARIOS', label: 'IAM & Governança', group: 'SISTEMA' },
+  { id: 'CONFIGURACOES', label: 'Parâmetros do Sistema', group: 'SISTEMA' },
+  { id: 'CAN_EDIT', label: 'Permitir Edições', group: 'AÇÕES' },
 ];
 
 export const ICONS = {
