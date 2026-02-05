@@ -177,6 +177,10 @@ const PricingEngineering: React.FC<PricingEngineeringProps> = ({ user }) => {
                     currentPricing.custo_rolo_base = Number(item.custoUnitario);
                 }
 
+                if ((!currentPricing.metragem_padrao_ml || currentPricing.metragem_padrao_ml === 0)) {
+                    currentPricing.metragem_padrao_ml = Number(item.metragemPadrao || 15);
+                }
+
                 const updatedPricing = { ...currentPricing, [field]: value };
                 const rate = difalRates[item.fornecedor || ''] || 0;
                 const recalculated = PricingService.calculatePricing(updatedPricing, rate);
@@ -255,9 +259,9 @@ const PricingEngineering: React.FC<PricingEngineeringProps> = ({ user }) => {
 
     if (loading) return <div className="py-20 text-center opacity-50 font-black uppercase italic tracking-widest">Carregando Engenharia...</div>;
 
-    const renderHeader = (id: string, label: string, extraClass: string = "") => (
+    const renderHeader = (id: string, label: string, extraClass: string = "", style: React.CSSProperties = {}) => (
         <th
-            style={{ width: colWidths[id], minWidth: colWidths[id], maxWidth: colWidths[id] }}
+            style={{ width: colWidths[id], minWidth: colWidths[id], maxWidth: colWidths[id], ...style }}
             className={`relative group px-4 py-4 border-r border-white/10 ${extraClass}`}
         >
             <div className="truncate">{label}</div>
@@ -333,9 +337,9 @@ const PricingEngineering: React.FC<PricingEngineeringProps> = ({ user }) => {
                                 <th style={{ width: colWidths.selection, left: colWidths.actions }} className="px-4 py-4 text-center border-r border-white/10 sticky z-30 bg-slate-900 border-r-0 border-b border-white/10">
                                     <input type="checkbox" checked={selectedSkus.size === filteredGrid.length && grid.length > 0} onChange={handleSelectAll} className="w-4 h-4 rounded border-white/20 bg-transparent text-blue-600 focus:ring-0 focus:ring-offset-0" />
                                 </th>
-                                {renderHeader('id_tiny', 'ID TINY')}
-                                {renderHeader('sku', 'SKU')}
-                                {renderHeader('nome', 'NOME')}
+                                {renderHeader('id_tiny', 'ID TINY', 'sticky z-30 bg-slate-900 border-r-0 border-b border-white/10', { left: colWidths.actions + colWidths.selection })}
+                                {renderHeader('sku', 'SKU', 'sticky z-30 bg-slate-900 border-r-0 border-b border-white/10', { left: colWidths.actions + colWidths.selection + colWidths.id_tiny })}
+                                {renderHeader('nome', 'NOME', 'sticky z-30 bg-slate-900 border-r border-b border-white/10', { left: colWidths.actions + colWidths.selection + colWidths.id_tiny + colWidths.sku })}
                                 {renderHeader('marca', 'MARCA')}
                                 {renderHeader('fornecedor', 'FORNECEDOR')}
                                 {renderHeader('categoria', 'CATEGORIA')}
@@ -399,9 +403,9 @@ const PricingEngineering: React.FC<PricingEngineeringProps> = ({ user }) => {
                                         <td className="px-4 py-3 text-center border-r border-white/10 sticky z-20 !bg-slate-900 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]" style={{ width: colWidths.selection, left: colWidths.actions }}>
                                             <input type="checkbox" checked={selectedSkus.has(item.sku)} onChange={() => handleToggleSelect(item.sku)} className="w-4 h-4 rounded border-slate-500 bg-slate-700 text-blue-500 focus:ring-0 focus:ring-offset-0" />
                                         </td>
-                                        <td className="px-4 py-3 border-r border-slate-100 text-slate-500 font-mono truncate" style={{ width: colWidths.id_tiny }}>{item.id_tiny || item.pricing?.id_tiny || '-'}</td>
-                                        <td className="px-4 py-3 border-r border-slate-100 font-black text-slate-900 truncate" style={{ width: colWidths.sku }}>{item.sku}</td>
-                                        <td className="px-4 py-3 border-r border-slate-100 truncate" style={{ width: colWidths.nome }} title={item.nome}>{item.nome}</td>
+                                        <td className="px-4 py-3 border-r border-white/10 text-slate-300 font-mono truncate sticky z-20 !bg-slate-900 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]" style={{ width: colWidths.id_tiny, left: colWidths.actions + colWidths.selection }}>{item.id_tiny || item.pricing?.id_tiny || '-'}</td>
+                                        <td className="px-4 py-3 border-r border-white/10 font-black text-white truncate sticky z-20 !bg-slate-900 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]" style={{ width: colWidths.sku, left: colWidths.actions + colWidths.selection + colWidths.id_tiny }}>{item.sku}</td>
+                                        <td className="px-4 py-3 border-r border-white/10 truncate text-slate-300 sticky z-20 !bg-slate-900 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.5)]" style={{ width: colWidths.nome, left: colWidths.actions + colWidths.selection + colWidths.id_tiny + colWidths.sku }} title={item.nome}>{item.nome}</td>
                                         <td className="px-4 py-3 border-r border-slate-100 truncate text-blue-600" style={{ width: colWidths.marca }}>{item.marca || '-'}</td>
                                         <td className="px-4 py-3 border-r border-slate-100 truncate" style={{ width: colWidths.fornecedor }}>{item.fornecedor || '-'}</td>
                                         <td className="px-4 py-3 border-r border-slate-100 truncate text-slate-500" style={{ width: colWidths.categoria }}>{item.categoria || '-'}</td>
