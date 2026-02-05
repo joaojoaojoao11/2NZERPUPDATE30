@@ -114,6 +114,7 @@ export interface DREReportItem {
 
 export interface MasterProduct {
   sku: string;
+  id_tiny?: string;
   nome: string;
   categoria: string;
   marca?: string;
@@ -494,4 +495,34 @@ export interface Client {
   cep?: string;
   situacao?: string;
   last_sync?: string;
+}
+
+export interface PricingScenario {
+  id?: string;
+  id_tiny?: string;
+  sku: string;
+  promocao: boolean;
+  largura_l: number;
+  metragem_padrao_ml: number;
+  custo_rolo_base: number;
+  custo_total_calculado: number;
+  tem_difal: boolean;
+  custo_extra_frete: number;
+  mkp_min_atacado: number;
+  mkp_ideal_atacado: number;
+  preco_venda_min_atacado: number;
+  preco_venda_ideal_atacado: number;
+  mkp_min_fracionado: number;
+  mkp_ideal_fracionado: number;
+  preco_venda_min_fracionado: number;
+  preco_venda_ideal_fracionado: number;
+  custo_metro_fracionado: number;
+  custo_metro_bobina: number;
+  venda_ideal_metro: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PricingGridItem extends MasterProduct {
+  pricing?: PricingScenario;
 }

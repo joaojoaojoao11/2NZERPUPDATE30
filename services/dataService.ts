@@ -165,6 +165,7 @@ export class DataService {
     if (error) throw error;
     return (data || []).map(p => ({
       sku: p.sku,
+      id_tiny: p.id_tiny,
       nome: p.nome,
       categoria: p.categoria,
       marca: p.marca,
@@ -195,6 +196,7 @@ export class DataService {
 
     const payload = {
       sku: product.sku,
+      id_tiny: product.id_tiny,
       nome: product.nome,
       categoria: product.categoria,
       marca: product.marca,

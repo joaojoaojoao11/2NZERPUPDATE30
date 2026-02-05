@@ -21,6 +21,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
     metragemPadrao: '15',
     custoUnitario: '0',
     precoVenda: '0',
+    idTiny: '',
     responsavel: user.name
   });
 
@@ -29,10 +30,10 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
+
     // Lista de campos numéricos para validação instantânea
     const numericFields = ['larguraL', 'quantMl', 'estoqueMinimo', 'metragemPadrao', 'custoUnitario', 'precoVenda'];
-    
+
     if (numericFields.indexOf(name) === -1) {
       setFormData(prev => ({ ...prev, [name]: value }));
       return;
@@ -63,10 +64,10 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
       precoVenda: Number(formData.precoVenda.replace(',', '.'))
     };
 
-    const hasInvalidNumber = isNaN(parsedData.larguraL) || 
-                            isNaN(parsedData.quantMl) || 
-                            isNaN(parsedData.estoqueMinimo) ||
-                            isNaN(parsedData.precoVenda);
+    const hasInvalidNumber = isNaN(parsedData.larguraL) ||
+      isNaN(parsedData.quantMl) ||
+      isNaN(parsedData.estoqueMinimo) ||
+      isNaN(parsedData.precoVenda);
 
     if (hasInvalidNumber) {
       setError('Verifique os valores numéricos inseridos (use vírgula ou ponto).');
@@ -103,6 +104,10 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
       <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-4">
           <div>
+            <label className="block text-sm font-semibold text-blue-600 mb-1">ID TINY ERP (Opcional)</label>
+            <input name="idTiny" value={formData.idTiny} onChange={handleChange} className="w-full px-4 py-2 bg-blue-50/50 border border-blue-100 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold" placeholder="Ex: 12345678" />
+          </div>
+          <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1">SKU do Produto *</label>
             <input name="sku" value={formData.sku} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase font-bold" placeholder="Ex: NZW01" />
           </div>
@@ -127,7 +132,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
             <label className="block text-sm font-semibold text-slate-700 mb-1">Nome / Descrição NZ *</label>
             <input name="descricao" value={formData.descricao} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none uppercase" placeholder="Nome completo do material" />
           </div>
-          
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Largura (m)</label>

@@ -27,7 +27,7 @@ export class InventoryService {
     try {
       const { data, error } = await supabase.from('inventory').select('*');
       if (error) throw error;
-      
+
       return (data || []).map(i => ({
         lpn: i.lpn,
         sku: i.sku,
@@ -36,7 +36,7 @@ export class InventoryService {
         marca: i.marca,
         fornecedor: i.fornecedor,
         lote: i.lote,
-        nfControle: i.nf_controle ?? i.nfControle, 
+        nfControle: i.nf_controle ?? i.nfControle,
         quantMl: Number(i.quant_ml ?? i.quantMl ?? 0),
         larguraL: Number(i.largura_l ?? i.larguraL ?? 1.52),
         custoUnitario: Number(i.custo_unitario ?? i.custoUnitario ?? 0),
@@ -58,24 +58,24 @@ export class InventoryService {
     }
   }
 
-  static async saveInventory(items: StockItem[]): Promise<{success: boolean, error?: string}> {
+  static async saveInventory(items: StockItem[]): Promise<{ success: boolean, error?: string }> {
     try {
       const dbItems = items.map(i => ({
-        lpn: i.lpn, 
-        sku: i.sku, 
-        nome: i.nome, 
-        categoria: i.categoria, 
-        marca: i.marca, 
-        fornecedor: i.fornecedor, 
+        lpn: i.lpn,
+        sku: i.sku,
+        nome: i.nome,
+        categoria: i.categoria,
+        marca: i.marca,
+        fornecedor: i.fornecedor,
         lote: i.lote,
-        nf_controle: i.nfControle, 
-        quant_ml: Number(i.quantMl), 
-        largura_l: Number(i.larguraL), 
-        custo_unitario: Number(i.custoUnitario), 
-        coluna: i.coluna, 
-        prateleira: i.prateleira, 
-        status_rolo: i.statusRolo, 
-        observacao: i.observacao, 
+        nf_controle: i.nfControle,
+        quant_ml: Number(i.quantMl),
+        largura_l: Number(i.larguraL),
+        custo_unitario: Number(i.custoUnitario),
+        coluna: i.coluna,
+        prateleira: i.prateleira,
+        status_rolo: i.statusRolo,
+        observacao: i.observacao,
         responsavel: i.responsavel,
         // Mapeamento exato para colunas Case Sensitive
         nCaixa: i.nCaixa,
@@ -92,7 +92,7 @@ export class InventoryService {
     }
   }
 
-  static async updateStockItem(item: StockItem, user: User): Promise<{success: boolean, message?: string}> {
+  static async updateStockItem(item: StockItem, user: User): Promise<{ success: boolean, message?: string }> {
     try {
       const { error } = await supabase.from('inventory').update({
         sku: item.sku,
@@ -128,21 +128,21 @@ export class InventoryService {
 
   static async addLog(user: User, action: string, sku: string = '', lpn: string = '', qty: number = 0, details: string, lote?: string, name?: string, valorOperacao?: number, nfControle?: string, tipo: string = 'LOGISTICA', category?: string, motivo?: string, cliente?: string): Promise<void> {
     const logId = `LOG-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    const payload = { 
-      id: logId, usuario: user.email, acao: action, 
-      sku: (sku || 'SISTEMA').substring(0, 50), 
-      lpn: (lpn || 'SISTEMA').substring(0, 50), 
-      quantidade: Number(qty || 0), detalhes: details.substring(0, 500), 
-      lote: (lote || 'N/A').substring(0, 50), 
+    const payload = {
+      id: logId, usuario: user.email, acao: action,
+      sku: (sku || 'SISTEMA').substring(0, 50),
+      lpn: (lpn || 'SISTEMA').substring(0, 50),
+      quantidade: Number(qty || 0), detalhes: details.substring(0, 500),
+      lote: (lote || 'N/A').substring(0, 50),
       nome: (name || 'Ação de Sistema').substring(0, 255),
       valorOperacao: Number(valorOperacao || 0),
       nfControle: nfControle,
       tipo: tipo, categoria: category, motivo: motivo, cliente: cliente,
-      timestamp: new Date().toISOString() 
+      timestamp: new Date().toISOString()
     };
 
     const { error } = await supabase.from('audit_logs').insert(payload);
-    if (error) throw error; 
+    if (error) throw error;
   }
 
   static async getLogs(): Promise<AuditLog[]> {
@@ -166,15 +166,15 @@ export class InventoryService {
   }
 
   static async getLayout(): Promise<WarehouseLayout> {
-    const DEFAULT_LAYOUT: WarehouseLayout = { 
-      columns: ['A', 'B', 'C', 'D', 'E'], 
-      shelvesPerColumn: { 
-        'A': ['1', '2', '3'], 
-        'B': ['1', '2', '3'], 
-        'C': ['1', '2', '3'], 
-        'D': ['1', '2', '3'], 
-        'E': ['1', '2', '3'] 
-      } 
+    const DEFAULT_LAYOUT: WarehouseLayout = {
+      columns: ['A', 'B', 'C', 'D', 'E'],
+      shelvesPerColumn: {
+        'A': ['1', '2', '3'],
+        'B': ['1', '2', '3'],
+        'C': ['1', '2', '3'],
+        'D': ['1', '2', '3'],
+        'E': ['1', '2', '3']
+      }
     };
 
     try {
@@ -184,9 +184,9 @@ export class InventoryService {
         const local = localStorage.getItem(LAYOUT_STORAGE_KEY);
         return local ? JSON.parse(local) : DEFAULT_LAYOUT;
       }
-      return { 
-        columns: data.columns || DEFAULT_LAYOUT.columns, 
-        shelvesPerColumn: data.shelves_per_column ?? data.shelvesPerColumn ?? DEFAULT_LAYOUT.shelvesPerColumn 
+      return {
+        columns: data.columns || DEFAULT_LAYOUT.columns,
+        shelvesPerColumn: data.shelves_per_column ?? data.shelvesPerColumn ?? DEFAULT_LAYOUT.shelvesPerColumn
       };
     } catch (e) {
       console.warn("⚠️ MODO OFFLINE: Usando Layout Local (Falha de conexão)");
@@ -220,35 +220,35 @@ export class InventoryService {
         // Use existing LPN if present and not 'PROJETADO', otherwise generate robust
         let lpn = it.lpn;
         if (!lpn || lpn === 'PROJETADO' || lpn.length < 5) {
-             // Fallback de alta entropia: Timestamp (6) + Random (3)
-             lpn = `NZ-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+          // Fallback de alta entropia: Timestamp (6) + Random (3)
+          lpn = `NZ-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
         }
-        
+
         lpns.push(lpn);
         return {
-          lpn, 
-          sku: it.sku.toUpperCase(), 
-          nome: it.nome, 
+          lpn,
+          sku: it.sku.toUpperCase(),
+          nome: it.nome,
           categoria: it.categoria,
-          marca: it.marca, 
-          fornecedor: it.fornecedor, 
-          lote: it.lote, 
-          coluna: it.coluna, 
-          prateleira: it.prateleira, 
+          marca: it.marca,
+          fornecedor: it.fornecedor,
+          lote: it.lote,
+          coluna: it.coluna,
+          prateleira: it.prateleira,
           responsavel: user.name,
           observacao: it.observacao || '',
           dataEntrada: it.dataEntrada || new Date().toISOString(),
           ultAtuali: new Date().toISOString(),
-          
+
           // Campos snake_case
           nf_controle: it.nfControle,
-          quant_ml: Number(it.quantMl), 
-          largura_l: Number(it.larguraL), 
+          quant_ml: Number(it.quantMl),
+          largura_l: Number(it.larguraL),
           custo_unitario: Number(it.custoUnitario),
           status_rolo: it.statusRolo,
-          
+
           // Campos CamelCase (preservando aspas implícitas do Supabase client)
-          nCaixa: it.nCaixa, 
+          nCaixa: it.nCaixa,
           motivoEntrada: it.motivoEntrada,
           metragemPadrao: Number(it.metragemPadrao),
           estoqueMinimo: Number(it.estoqueMinimo)
@@ -292,6 +292,7 @@ export class InventoryService {
     try {
       const { error: masterError } = await supabase.from('master_catalog').upsert({
         sku: item.sku.toUpperCase(),
+        id_tiny: item.idTiny,
         nome: item.descricao || item.nome,
         categoria: item.categoria,
         marca: item.marca,
@@ -345,20 +346,44 @@ export class InventoryService {
   static async importMasterProducts(items: MasterProduct[]): Promise<{ success: boolean; message?: string }> {
     try {
       const dbItems = items.map(p => ({
-        sku: p.sku.toUpperCase(),
-        nome: p.nome,
-        categoria: p.categoria,
-        marca: p.marca,
-        fornecedor: p.fornecedor,
-        largura_l: Number(p.larguraL),
-        metragem_padrao: Number(p.metragemPadrao),
-        estoque_minimo: Number(p.estoqueMinimo),
-        custo_unitario: Number(p.custoUnitario),
-        preco_venda: Number(p.precoVenda)
+        sku: String(p.sku).toUpperCase().trim(),
+        id_tiny: p.id_tiny ? String(p.id_tiny).trim() : null,
+        nome: String(p.nome).toUpperCase().trim(),
+        categoria: String(p.categoria || 'DIVERSOS').toUpperCase().trim(),
+        marca: p.marca ? String(p.marca).toUpperCase().trim() : 'NZ',
+        fornecedor: p.fornecedor ? String(p.fornecedor).toUpperCase().trim() : 'NZ',
+        largura_l: Number(p.larguraL) || 0,
+        metragem_padrao: Number(p.metragemPadrao) || 0,
+        estoque_minimo: Number(p.estoqueMinimo) || 0,
+        custo_unitario: Number(p.custoUnitario) || 0,
+        preco_venda: Number(p.precoVenda) || 0,
+        updated_at: new Date().toISOString()
       }));
 
-      const { error } = await supabase.from('master_catalog').upsert(dbItems, { onConflict: 'sku' });
-      if (error) throw error;
+      // DEDUPLICAÇÃO DE SKUS: O Supabase/Postgres não permite upsert de duplicatas no mesmo comando
+      const uniqueItemsMap = new Map();
+      dbItems.forEach(item => {
+        uniqueItemsMap.set(item.sku, item);
+      });
+      const finalItems = Array.from(uniqueItemsMap.values());
+
+      if (finalItems.length < dbItems.length) {
+        console.warn(`[InventoryService] Removidos ${dbItems.length - finalItems.length} SKUs duplicados na planilha.`);
+      }
+
+      console.log(`[InventoryService] Tentando importar ${finalItems.length} produtos únicos via Upsert...`);
+      console.log(`[InventoryService] Exemplo do primeiro item:`, finalItems[0]);
+
+      const { data, error } = await supabase.from('master_catalog').upsert(finalItems, {
+        onConflict: 'sku'
+      }).select();
+
+      if (error) {
+        console.error("[InventoryService] Erro crítico no UPSERT:", error);
+        throw error;
+      };
+
+      console.log(`[InventoryService] Importação concluída com sucesso.`);
       return { success: true };
     } catch (e: any) {
       return { success: false, message: this.formatSupabaseError(e) };
@@ -371,10 +396,10 @@ export class InventoryService {
         // Processamento IMEDIATO para TODOS os motivos, incluindo DEFEITO e TROCA
         const { data: current, error: fetchError } = await supabase.from('inventory').select('quant_ml').eq('lpn', item.lpn).single();
         if (fetchError || !current) throw new Error(`Item ${item.lpn} não encontrado.`);
-        
+
         const currentQty = Number(current.quant_ml);
         const newQty = currentQty - Number(item.quantidade);
-        
+
         if (newQty < -0.001) throw new Error(`Saldo insuficiente para o item ${item.lpn}.`);
 
         const { error: updateError } = await supabase.from('inventory').update({
@@ -382,7 +407,7 @@ export class InventoryService {
           status_rolo: newQty <= 0.001 ? 'ESGOTADO' : 'ROLO ABERTO',
           ultAtuali: new Date().toISOString()
         }).eq('lpn', item.lpn);
-        
+
         if (updateError) throw updateError;
 
         let logAction = 'SAIDA_AJUSTE';
@@ -390,7 +415,7 @@ export class InventoryService {
         else if (item.motivo === WithdrawalReason.AUDITORIA) logAction = 'SAIDA_AUDITORIA';
         else if (item.motivo === WithdrawalReason.TROCA) logAction = 'SAIDA_TROCA';
         else if (item.motivo === WithdrawalReason.DEFEITO) logAction = 'SAIDA_DEFEITO';
-        
+
         await this.addLog(user, logAction, item.sku, item.lpn, item.quantidade, item.relato || `Saída por ${item.motivo}`, item.lote, item.nome, item.custoUnitario, item.extra?.pedido, 'LOGISTICA', item.categoria, item.motivo, item.extra?.cliente);
       }
       return { success: true };
@@ -448,11 +473,11 @@ export class InventoryService {
         if (existing.nome !== item.nome) diff.push('NOME');
         if (Math.abs(Number(existing.quantMl) - Number(item.quantMl)) > 0.001) diff.push('SALDO');
         if (existing.coluna !== item.coluna || existing.prateleira !== item.prateleira) diff.push('LOCAL');
-        
-        staging.push({ 
-          item: { ...existing, ...item }, 
+
+        staging.push({
+          item: { ...existing, ...item },
           status: diff.length > 0 ? 'CHANGED' : 'UNCHANGED',
-          diff 
+          diff
         });
       }
       if (item.lpn) processedLpns.add(String(item.lpn).toUpperCase());
@@ -467,7 +492,7 @@ export class InventoryService {
     return staging;
   }
 
-  static async commitInventoryBatch(staging: InventoryUpdateStaging[], user: User): Promise<{success: boolean, message?: string}> {
+  static async commitInventoryBatch(staging: InventoryUpdateStaging[], user: User): Promise<{ success: boolean, message?: string }> {
     try {
       for (const row of staging) {
         if (row.status === 'NEW' && row.item) {
