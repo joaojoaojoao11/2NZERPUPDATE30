@@ -23,37 +23,38 @@ export class PricingService {
         // 3. Custo do Rolo (Base para cálculos de rolo)
         const custoRoloTotal = custoMetroBruto * metragem;
 
-        // --- CÁLCULOS DE ROLO ---
+        // --- CÁLCULOS DE ROLO (Margem sobre o Custo Total do Rolo) ---
+        // Fórmula: Preço = Custo Rolo * (1 + Margem/100)
 
         // 4. Preço Rolo (A) - Atacado
-        // MKP ROLO (A) -> usa o campo mkp_min_atacado
-        if (d.mkp_min_atacado) {
-            d.preco_venda_min_atacado = custoRoloTotal * Number(d.mkp_min_atacado);
+        if (d.mkp_min_atacado !== undefined) {
+            const margem = Number(d.mkp_min_atacado);
+            d.preco_venda_min_atacado = custoRoloTotal * (1 + (margem / 100));
         }
 
         // 5. Preço Rolo (V) - Varejo
-        // MKP ROLO (V) -> usa o campo mkp_ideal_atacado
-        if (d.mkp_ideal_atacado) {
-            d.preco_venda_ideal_atacado = custoRoloTotal * Number(d.mkp_ideal_atacado);
-        } // Se não tiver markup, não calcula preço
+        if (d.mkp_ideal_atacado !== undefined) {
+            const margem = Number(d.mkp_ideal_atacado);
+            d.preco_venda_ideal_atacado = custoRoloTotal * (1 + (margem / 100));
+        }
 
-        // --- CÁLCULOS FRACIONADO (POR METRO) ---
+        // --- CÁLCULOS FRACIONADO (Margem sobre o Custo do Metro) ---
+        // Fórmula: Preço Metro = Custo Metro * (1 + Margem/100)
 
         // 6. Preço Frac. (A) - Atacado
-        // MKP FRAC. (A) -> usa o campo mkp_min_fracionado
-        // Preço composto por: Custo Metro Bruto + Margem (Assumindo multiplicação de markup)
-        if (d.mkp_min_fracionado) {
-            d.preco_venda_min_fracionado = custoMetroBruto * Number(d.mkp_min_fracionado);
+        if (d.mkp_min_fracionado !== undefined) {
+            const margem = Number(d.mkp_min_fracionado);
+            d.preco_venda_min_fracionado = custoMetroBruto * (1 + (margem / 100));
         }
 
         // 7. Preço Frac. (V) - Varejo
-        // MKP FRAC. (V) -> usa o campo mkp_ideal_fracionado
-        if (d.mkp_ideal_fracionado) {
-            d.preco_venda_ideal_fracionado = custoMetroBruto * Number(d.mkp_ideal_fracionado);
+        if (d.mkp_ideal_fracionado !== undefined) {
+            const margem = Number(d.mkp_ideal_fracionado);
+            d.preco_venda_ideal_fracionado = custoMetroBruto * (1 + (margem / 100));
             d.venda_ideal_metro = d.preco_venda_ideal_fracionado;
         }
 
-        // Limpeza de campos legados que não devem ser salvos mas podem ser úteis no front
+        // Limpeza de campos legados
         d.custo_metro_bobina = custoMetroBruto;
         d.custo_metro_fracionado = custoMetroBruto;
 

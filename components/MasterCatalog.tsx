@@ -68,8 +68,7 @@ const MasterCatalog: React.FC<MasterCatalogProps> = ({ user }) => {
         larguraL: Number(editingItem.larguraL || 0),
         metragemPadrao: Number(editingItem.metragemPadrao || 0),
         estoqueMinimo: Number(editingItem.estoqueMinimo || 0),
-        custoUnitario: Number(editingItem.custoUnitario || 0),
-        precoVenda: Number(editingItem.precoVenda || 0),
+
         taxOrigin: editingItem.taxOrigin !== undefined ? Number(editingItem.taxOrigin) : 0,
         ncmCode: editingItem.ncmCode?.trim() || '',
         supplierState: editingItem.supplierState || ''
@@ -100,8 +99,7 @@ const MasterCatalog: React.FC<MasterCatalogProps> = ({ user }) => {
         larguraL: 1.52,
         metragemPadrao: 15,
         estoqueMinimo: 5,
-        custoUnitario: 45.50,
-        precoVenda: 120.00
+
       }
     ];
 
@@ -130,7 +128,7 @@ const MasterCatalog: React.FC<MasterCatalogProps> = ({ user }) => {
         const parsedProducts: MasterProduct[] = jsonData.map((row: any) => {
           const item: any = {
             sku: '', nome: '', categoria: '', marca: 'NZ', fornecedor: 'NZ',
-            larguraL: 1.52, metragemPadrao: 15, estoqueMinimo: 0, custoUnitario: 0, precoVenda: 0
+            larguraL: 1.52, metragemPadrao: 15, estoqueMinimo: 0
           };
 
           Object.keys(row).forEach(key => {
@@ -145,8 +143,7 @@ const MasterCatalog: React.FC<MasterCatalogProps> = ({ user }) => {
             else if (nKey === 'largural' || nKey === 'largura') item.larguraL = Number(val) || 1.52;
             else if (nKey === 'metragempadrao' || nKey === 'rolo' || nKey === 'metragem') item.metragemPadrao = Number(val) || 15;
             else if (nKey === 'estoqueminimo' || nKey === 'minimo') item.estoqueMinimo = Number(val) || 0;
-            else if (nKey === 'custounitario' || nKey === 'custo') item.custoUnitario = Number(val) || 0;
-            else if (nKey === 'precovenda' || nKey === 'venda') item.precoVenda = Number(val) || 0;
+
           });
           return item as MasterProduct;
         }).filter(p => p.sku && p.nome);
@@ -427,16 +424,7 @@ const MasterCatalog: React.FC<MasterCatalogProps> = ({ user }) => {
                         className="w-full px-5 py-3.5 bg-red-50/30 border-2 border-transparent focus:border-red-600 rounded-2xl text-xs font-black outline-none italic text-red-600"
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[9px] font-black text-emerald-600 uppercase tracking-widest ml-1 italic">Preço Venda (ML)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={editingItem.precoVenda || ''}
-                        onChange={e => setEditingItem({ ...editingItem, precoVenda: parseFloat(e.target.value) })}
-                        className="w-full px-5 py-3.5 bg-emerald-50/30 border-2 border-transparent focus:border-emerald-600 rounded-2xl text-xs font-black outline-none italic text-emerald-700"
-                      />
-                    </div>
+
                   </div>
 
                   <div className="space-y-1.5">
@@ -546,7 +534,7 @@ const MasterCatalog: React.FC<MasterCatalogProps> = ({ user }) => {
                     <th className="px-6 py-4">CATEGORIA</th>
                     <th className="px-6 py-4 text-center">ROLO</th>
                     <th className="px-6 py-4 text-center">MÍNIMO</th>
-                    <th className="px-6 py-4 text-right">PREÇO VENDA</th>
+                    <th className="px-6 py-4 text-center">MÍNIMO</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -570,7 +558,7 @@ const MasterCatalog: React.FC<MasterCatalogProps> = ({ user }) => {
                         <td className="px-6 py-4"><span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-xl text-[9px] font-black">{row.categoria}</span></td>
                         <td className="px-6 py-4 text-center font-black text-slate-900 text-[11px]">{row.metragemPadrao}m</td>
                         <td className="px-6 py-4 text-center font-black text-red-500 text-[11px]">{row.estoqueMinimo}m</td>
-                        <td className="px-6 py-4 text-right font-black text-emerald-600 text-[11px]">R$ {row.precoVenda?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-6 py-4 text-center font-black text-red-500 text-[11px]">{row.estoqueMinimo}m</td>
                       </tr>
                     );
                   })}

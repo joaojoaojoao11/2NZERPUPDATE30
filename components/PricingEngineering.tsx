@@ -359,6 +359,9 @@ const PricingEngineering: React.FC<PricingEngineeringProps> = ({ user }) => {
                                         </button>
                                     </div>
                                 </th>
+                                <th className="px-4 py-4 text-center border-r border-white/10 text-white" style={{ width: colWidths.custo_extra_frete }}>
+                                    <span>CUSTO EXTRA</span>
+                                </th>
                                 {renderHeader('custo_rolo_base', 'CUSTO METRO (ML)', 'text-right bg-black text-white')}
                                 {renderHeader('custo_total_calculado', 'CUSTO METRO (BRUTO)', 'text-right bg-black text-white')}
 
@@ -421,6 +424,15 @@ const PricingEngineering: React.FC<PricingEngineeringProps> = ({ user }) => {
                                                 checked={item.pricing?.tem_difal || false}
                                                 onChange={e => handleInputChange(item.sku, 'tem_difal', e.target.checked)}
                                                 className="w-4 h-4 rounded"
+                                            />
+                                        </td>
+                                        <td className="px-4 py-3 text-right bg-white border-r border-slate-100" style={{ width: colWidths.custo_extra_frete }}>
+                                            <input
+                                                type="number"
+                                                step="any"
+                                                value={item.pricing?.custo_extra_frete ?? 0}
+                                                onChange={e => handleInputChange(item.sku, 'custo_extra_frete', parseFloat(e.target.value))}
+                                                className="w-full bg-transparent text-right font-black text-amber-600 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                             />
                                         </td>
                                         <td className="px-4 py-3 text-right bg-blue-50/30 border-r border-slate-100" style={{ width: colWidths.custo_rolo_base }}>

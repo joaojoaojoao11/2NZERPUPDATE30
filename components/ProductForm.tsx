@@ -19,8 +19,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
     quantMl: '0',
     estoqueMinimo: '0',
     metragemPadrao: '15',
-    custoUnitario: '0',
-    precoVenda: '0',
+
     idTiny: '',
     responsavel: user.name
   });
@@ -32,7 +31,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
     const { name, value } = e.target;
 
     // Lista de campos numéricos para validação instantânea
-    const numericFields = ['larguraL', 'quantMl', 'estoqueMinimo', 'metragemPadrao', 'custoUnitario', 'precoVenda'];
+    const numericFields = ['larguraL', 'quantMl', 'estoqueMinimo', 'metragemPadrao'];
 
     if (numericFields.indexOf(name) === -1) {
       setFormData(prev => ({ ...prev, [name]: value }));
@@ -60,14 +59,12 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
       quantMl: Number(formData.quantMl.replace(',', '.')),
       estoqueMinimo: Number(formData.estoqueMinimo.replace(',', '.')),
       metragemPadrao: Number(formData.metragemPadrao.replace(',', '.')),
-      custoUnitario: Number(formData.custoUnitario.replace(',', '.')),
-      precoVenda: Number(formData.precoVenda.replace(',', '.'))
+
     };
 
     const hasInvalidNumber = isNaN(parsedData.larguraL) ||
       isNaN(parsedData.quantMl) ||
-      isNaN(parsedData.estoqueMinimo) ||
-      isNaN(parsedData.precoVenda);
+      isNaN(parsedData.estoqueMinimo);
 
     if (hasInvalidNumber) {
       setError('Verifique os valores numéricos inseridos (use vírgula ou ponto).');
@@ -144,16 +141,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ user, onSuccess }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Custo (R$/ML)</label>
-              <input name="custoUnitario" value={formData.custoUnitario} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-emerald-600" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-blue-600 uppercase mb-1">Preço Venda (R$/ML)</label>
-              <input name="precoVenda" value={formData.precoVenda} onChange={handleChange} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-600" />
-            </div>
-          </div>
+
 
           <div className="grid grid-cols-2 gap-4">
             <div>
