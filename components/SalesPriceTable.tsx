@@ -6,21 +6,26 @@ import { ICONS } from '../constants';
 import Toast from './Toast';
 import { PricingGridItem, StockItem, User, AuditLog, MasterProduct } from '../types';
 
-interface SalesPriceTableProps { user: User; }
+interface SalesPriceTableProps {
+  user: User;
+  onNavigateToInventory?: (sku: string) => void;
+  initialSearchTerm?: string;
+  initialTab?: 'ENGINEERING' | 'TABLE' | 'LOG';
+}
 
 type SortKey = 'sku_nome' | 'categoria' | 'metragem' | 'estoque' | 'preco_rolo' | 'preco_frac';
 
-const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
+const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user, onNavigateToInventory, initialSearchTerm, initialTab }) => {
   const [products, setProducts] = useState<PricingGridItem[]>([]);
   const [inventory, setInventory] = useState<StockItem[]>([]);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [filterCategory, setFilterCategory] = useState('TODAS');
   const [filterStatus, setFilterStatus] = useState<'TODOS' | 'ATIVOS' | 'INATIVOS'>('ATIVOS');
   const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' | 'warning' } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'ENGINEERING' | 'TABLE' | 'LOG'>(user.role === 'DIRETORIA' ? 'ENGINEERING' : 'TABLE');
+  const [activeTab, setActiveTab] = useState<'ENGINEERING' | 'TABLE' | 'LOG'>(initialTab || (user.role === 'DIRETORIA' ? 'ENGINEERING' : 'TABLE'));
 
   const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' } | null>({ key: 'sku_nome', direction: 'asc' });
 
@@ -301,7 +306,12 @@ const SalesPriceTable: React.FC<SalesPriceTableProps> = ({ user }) => {
                     <td className="px-4 py-6 text-center"><span className="text-[11px] font-bold text-slate-500">{p.metragemPadrao || 15}m</span></td>
                     <td className="px-4 py-6 text-center">
                       {(stockMap[p.sku] || 0) > 0.01 ? (
-                        <div className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg font-black text-[8px] uppercase italic shadow-sm">ESTOQUE</div>
+                        <div
+                          onClick={() => onNavigateToInventory?.(p.sku)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg font-black text-[8px] uppercase italic shadow-sm ${onNavigateToInventory ? 'cursor-pointer hover:bg-emerald-100 transition-colors' : ''}`}
+                        >
+                          ESTOQUE
+                        </div>
                       ) : (
                         <div className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 border-amber-100 rounded-lg font-black text-[8px] uppercase italic">{hasExtra ? 'DROP (+EXTRA)' : 'DROP'}</div>
                       )}

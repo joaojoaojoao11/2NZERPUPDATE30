@@ -10,10 +10,12 @@ import QRCode from 'qrcode';
 interface InventoryProps {
   currentUser: User;
   onStartAudit?: (filters: { column: string, shelf: string } | null) => void;
+  initialSearchTerm?: string;
+  onNavigateToPricing?: (sku: string) => void;
 }
 
-const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit, initialSearchTerm, onNavigateToPricing }) => {
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [refreshKey, setRefreshKey] = useState(0);
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
 
@@ -350,8 +352,8 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
                     <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full font-black text-[9px] uppercase border border-red-100 shadow-sm italic">ESGOTADO</span>
                   ) : (
                     <div className={`inline-flex items-center px-3 py-1 rounded-full font-black text-[9px] uppercase tracking-tighter border shadow-sm ${item.statusRolo === 'ROLO FECHADO'
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                        : 'bg-amber-50 text-amber-700 border-amber-100'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                      : 'bg-amber-50 text-amber-700 border-amber-100'
                       }`}>
                       <div className={`w-1.5 h-1.5 rounded-full mr-2 ${item.statusRolo === 'ROLO FECHADO' ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'}`}></div>
                       {item.statusRolo}
@@ -405,6 +407,15 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
                     >
                       <ICONS.History className="w-4 h-4" />
                     </button>
+                    {onNavigateToPricing && (
+                      <button
+                        onClick={() => onNavigateToPricing(item.sku)}
+                        className="p-2 bg-slate-50 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
+                        title="Ver Preço"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                      </button>
+                    )}
                     <button
                       onClick={() => generateControlSheet(item)}
                       className="p-2 bg-slate-50 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
@@ -541,8 +552,8 @@ const Inventory: React.FC<InventoryProps> = ({ currentUser, onStartAudit }) => {
                           <div className="flex items-center gap-3">
                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{new Date(log.timestamp).toLocaleString()}</span>
                             <div className={`px-2.5 py-0.5 rounded-lg font-black text-[8px] uppercase border shadow-sm ${isSaida ? 'bg-red-50 text-red-600 border-red-100' :
-                                isEntrada ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-                                  'bg-blue-50 text-blue-600 border-blue-100'
+                              isEntrada ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                                'bg-blue-50 text-blue-600 border-blue-100'
                               }`}>
                               {log.acao.replace(/_/g, ' ')}
                             </div>

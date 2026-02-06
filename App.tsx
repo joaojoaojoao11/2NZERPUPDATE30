@@ -90,6 +90,8 @@ const App: React.FC = () => {
   const [moduleContext, setModuleContext] = useState<ModuleContext>(null);
   const [currentView, setCurrentView] = useState<ViewType>('SELECAO_MODULO');
   const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
+  const [inventorySearchTerm, setInventorySearchTerm] = useState('');
+  const [pricingSearchTerm, setPricingSearchTerm] = useState('');
 
   useEffect(() => {
     DataService.getCompanySettings().then(setCompanySettings).catch(() => { });
@@ -128,8 +130,12 @@ const App: React.FC = () => {
     return permissions.includes(slug);
   };
 
-  const navigate = (view: ViewType) => {
+  const navigate = (view: ViewType, options?: { maintainSearch?: boolean }) => {
     if (view !== 'SELECAO_MODULO' && !hasAccess(view as string)) return;
+    if (!options?.maintainSearch) {
+      setInventorySearchTerm('');
+      setPricingSearchTerm('');
+    }
     setCurrentView(view);
   };
 
@@ -150,7 +156,11 @@ const App: React.FC = () => {
             userName={currentUser.name}
           />;
 
-        case 'INVENTARIO': return <Inventory currentUser={currentUser} onStartAudit={(filters) => navigate('CONFERENCIA_INVENTARIO')} />;
+        case 'INVENTARIO': return <Inventory currentUser={currentUser} onStartAudit={(filters) => navigate('CONFERENCIA_INVENTARIO')} initialSearchTerm={inventorySearchTerm} onNavigateToPricing={(sku) => {
+          setPricingSearchTerm(sku);
+          setModuleContext('COMERCIAL');
+          navigate('SALES_PRICETABLE', { maintainSearch: true });
+        }} />;
         case 'BI_ESTOQUE': return <InventoryBI />;
         case 'CONFERENCIA_INVENTARIO': return <AuditInventoryForm currentUser={currentUser} onCancel={() => navigate('INVENTARIO')} onSuccess={() => navigate('INVENTARIO')} filters={null} />;
         case 'MOVEMENTS_LIST': return <MovementsList />;
@@ -168,7 +178,11 @@ const App: React.FC = () => {
         case 'BI_DESPESAS': return <ExpenseBI />;
         case 'AUDITORIA': return <FinancialAuditLogs currentUser={currentUser} />;
 
-        case 'SALES_PRICETABLE': return <SalesPriceTable user={currentUser} />;
+        case 'SALES_PRICETABLE': return <SalesPriceTable user={currentUser} onNavigateToInventory={(sku) => {
+          setInventorySearchTerm(sku);
+          setModuleContext('ESTOQUE');
+          navigate('INVENTARIO', { maintainSearch: true });
+        }} initialSearchTerm={pricingSearchTerm} initialTab="TABLE" />;
         case 'SALES_HISTORY': return <SalesHistoryModule user={currentUser} />;
         case 'SALES_BI': return <SalesBI />;
         case 'CRM': return <CRMModule user={currentUser} onNavigate={navigate} />;
